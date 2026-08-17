@@ -1,7 +1,7 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.1.0",
-  "description": "Installable multi-provider image generation bundle for DeepSeek Harness",
+  "version": "0.1.1",
+  "description": "Bring ChatGPT-like image generation to DeepSeek Harness — Gemini, OpenAI, Seedream & more.",
   "type": "module",
   "author": "shanliuling",
   "repository": {
@@ -34,6 +34,7 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh-CN.md",
+    "README.en.md",
     "LICENSE"
   ],
   "dsh": {
@@ -64,12 +65,20 @@
   },
   "license": "MIT",
   "keywords": [
+    "deepseek",
     "deepseek-harness",
     "dsh",
+    "dsh-plugin",
+    "ai-agent",
+    "image-generation",
+    "ai-image-generation",
+    "multimodal",
     "gemini",
     "openai",
+    "openai-compatible",
     "seedream",
-    "image-generation",
+    "volcengine",
+    "byok",
     "cordis"
   ],
   "peerDependencies": {
