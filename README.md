@@ -2,7 +2,8 @@
 
 # 🎨 dsh-image-gen
 
-### 🔌 DeepSeek Harness (DSH) 原生多厂商生图插件
+### DeepSeek Harness (DSH) 原生生图插件
+
 **让 DeepSeek Harness 像 ChatGPT 一样，在对话里直接生成图片。**
 
 支持 Google Gemini、OpenAI Images、OpenAI Compatible API、字节 Seedream / 火山方舟。
@@ -16,9 +17,11 @@
 
 <br />
 
-<p align="center">💬 <b>直接对你的 DeepSeek Harness Agent 说：</b></p>
+<p align="center">💬 <b>直接对你的 DeepSeek Harness Agent 发送以下提示词：</b></p>
 
-> 💬 *“帮我安装生图插件，执行命令：`pnpm dsh plugin --profile web add dsh-image-gen`”*
+```text
+帮我安装生图插件，执行命令：pnpm dsh plugin --profile web add dsh-image-gen
+```
 
 <p align="center"><sub>（也可以手动在终端执行：<code>pnpm dsh plugin --profile web add dsh-image-gen</code>）</sub></p>
 
@@ -26,13 +29,15 @@
 
 <p align="center">安装完成后，在 DSH 设置中填入自己的 API Key，就可以直接对 Agent 说：</p>
 
-> 🎨 *“帮我画一张雨夜霓虹街头的赛博朋克猫咪。”*
+```text
+帮我画一张雨夜霓虹街头的赛博朋克猫咪。
+```
 
 <p align="center">Agent 会自动调用 <code>generate_image</code>，生成图片并直接显示在当前对话中。</p>
 
 <br />
 
-<img src="docs/assets/chat-preview.png" alt="对话生图效果预览" width="820" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);" />
+<img src="./docs/assets/chat-preview.png" alt="对话生图效果预览" width="820" />
 
 </div>
 
@@ -42,7 +47,7 @@
 
 **`dsh-image-gen` 是专为 DeepSeek Harness (DSH) 打造的开源图像生成插件。**
 
-DeepSeek Harness 已经可以让 Agent 调用不同工具完成任务，本项目为它补上了原生的**多模态画图能力**：
+DeepSeek Harness 已经可以让 Agent 调用不同工具完成任务，本项目为它补上了原生的**多模态生图能力**：
 
 ```mermaid
 graph LR
@@ -52,9 +57,6 @@ graph LR
     D --> E[图片数据]
     E --> F[当前 Conversation 对话流]
 ```
-
-> **它不是一个新的生图网站。**  
-> 而是让 **Image Generation** 成为 DeepSeek Harness Agent 可以直接调用的插件工具之一。
 
 ---
 
@@ -83,6 +85,7 @@ pnpm dsh plugin --profile web add git+https://github.com/shanliuling/dsh-image-g
 git clone https://github.com/shanliuling/dsh-image-gen.git
 pnpm dsh plugin --profile web add ./dsh-image-gen
 ```
+
 </details>
 
 ### 2. 配置 API Key
@@ -93,27 +96,18 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 2. 选择 Provider，填写 API Key，点击 **保存** 即可。
 
 <div align="center">
-  <img src="docs/assets/settings-preview.png" alt="设置面板预览" width="720" style="border-radius: 10px;" />
+  <img src="./docs/assets/settings-preview.png" alt="设置面板预览" width="720" />
 </div>
 
 ### 3. 开始对话生图
 
 现在直接在聊天框输入：
 
-> 💬 *"生成一张极简主义的现代建筑客厅插画。"*
+```text
+生成一张极简主义的现代建筑客厅插画。
+```
 
-如果当前 Agent 决定调用生图工具，就会自动执行 `generate_image` 并返回图片。
-
----
-
-## 📦 支持的 Provider
-
-| Provider | 默认模型 | 默认 Endpoint / Base URL | 说明 |
-| :--- | :--- | :--- | :--- |
-| **Google Gemini** | `gemini-3.1-flash-image` | `https://generativelanguage.googleapis.com/v1beta/interactions` | 免费额度大，画质细节丰富 |
-| **OpenAI Images** | `gpt-image-2` | `https://api.openai.com/v1` | 标准 OpenAI 图像生成接口 |
-| **OpenAI Compatible** | 自定义 | 自定义 Base URL | 兼容 `/v1/images/generations` 的 OneAPI、NewAPI 或自建代理 |
-| **ByteDance Seedream / 火山方舟** | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` | 字节豆包生图，国内直连免翻墙 |
+当前 Agent 就会自动调用 `generate_image` 工具并在对话流中返回图片。
 
 ---
 
@@ -127,17 +121,14 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 ---
 
-## 🎯 示例 Prompt
+## 📦 支持的 Provider
 
-直接对 Agent 说：
-
-> 💬 *“帮我生成一张未来主义城市的电影概念图，夜晚，雨水，霓虹灯反射，21:9。”*
-
-或者：
-
-> 💬 *“设计一个极简风格的 AI 产品 Logo。”*
-
-Agent 会根据上下文自动决定是否调用 `generate_image`。
+| Provider | 默认模型 | 默认 Endpoint / Base URL |
+| :--- | :--- | :--- |
+| **Google Gemini** | `gemini-3.1-flash-image` | `https://generativelanguage.googleapis.com/v1beta/interactions` |
+| **OpenAI Images** | `gpt-image-2` | `https://api.openai.com/v1` |
+| **OpenAI Compatible** | 自定义 | 自定义 Base URL |
+| **ByteDance Seedream / 火山方舟** | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` |
 
 ---
 
