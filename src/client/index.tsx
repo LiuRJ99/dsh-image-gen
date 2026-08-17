@@ -40,7 +40,13 @@ export function apply(ctx: Context): void {
     const style = document.createElement('style'); style.dataset.plugin = 'dsh-image-gen'; style.textContent = STYLE; document.head.appendChild(style)
     return () => { style.remove() }
   }, 'dsh-image-gen: styles')
-  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({ name: 'settings.plugin.item', id: 'dsh-image-gen', order: 30, inject: (): SettingsFace => ({ scope, credentials: api.credentials }) }, ImageGenerationSettingsCard))
+  const register = ctx.slots.register.bind(ctx.slots) as unknown as (options: object, component: unknown) => () => void
+  ctx.slots.inject('settings.plugin.item', () => register({
+    name: 'settings.plugin.item',
+    key: IMAGE_GENERATION_NAMESPACE,
+    id: IMAGE_GENERATION_NAMESPACE,
+    inject: (): SettingsFace => ({ scope, credentials: api.credentials }),
+  }, ImageGenerationSettingsCard))
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: 'generate_image' }, GeneratedImageCard))
 }
 
