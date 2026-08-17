@@ -37,7 +37,7 @@ Create an illustration of a cyberpunk cat in a neon rainy street.
 
 <br />
 
-<img src="./docs/assets/chat-preview.png" alt="Conversational image generation preview" width="820" />
+<img src="docs/assets/chat-preview.png" alt="Conversational image generation preview" width="820" />
 
 </div>
 
@@ -96,7 +96,7 @@ Open DSH Web UI (default `http://localhost:3080`):
 2. Select your Provider, enter your API Key, and click **Save**.
 
 <div align="center">
-  <img src="./docs/assets/settings-preview.png" alt="Settings Card Preview" width="720" />
+  <img src="docs/assets/settings-preview.png" alt="Settings Card Preview" width="720" />
 </div>
 
 ### 3. Start Generating Images in Chat

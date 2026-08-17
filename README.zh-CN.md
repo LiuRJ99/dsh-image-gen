@@ -37,7 +37,7 @@
 
 <br />
 
-<img src="./docs/assets/chat-preview.png" alt="对话生图效果预览" width="820" />
+<img src="docs/assets/chat-preview.png" alt="对话生图效果预览" width="820" />
 
 </div>
 
@@ -96,7 +96,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 2. 选择 Provider，填写 API Key，点击 **保存** 即可。
 
 <div align="center">
-  <img src="./docs/assets/settings-preview.png" alt="设置面板预览" width="720" />
+  <img src="docs/assets/settings-preview.png" alt="设置面板预览" width="720" />
 </div>
 
 ### 3. 开始对话生图
