@@ -112,7 +112,16 @@ const STYLE = `
 .dsh-ig-save:disabled{opacity:.4;cursor:default}
 .dsh-ig-result{display:grid;gap:10px;max-width:520px}
 .dsh-ig-result-title{font-size:14px;font-weight:600}
-.dsh-ig-image{display:block;max-width:100%;max-height:520px;border-radius:12px;background:#f2f3f5}
+.dsh-ig-container{position:relative;display:inline-block;width:fit-content;max-width:100%;justify-self:start;border-radius:12px;overflow:hidden;line-height:0}
+.dsh-ig-container:hover .dsh-ig-toolbar{opacity:1;pointer-events:auto}
+.dsh-ig-toolbar{position:absolute;top:8px;left:8px;display:flex;align-items:center;gap:5px;padding:3px 5px;border-radius:8px;background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:10;line-height:1}
+.dsh-ig-tool-btn{appearance:none;border:0;background:transparent;color:#fff;padding:5px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .15s}
+.dsh-ig-tool-btn:hover{background:rgba(255,255,255,0.25)}
+.dsh-ig-toast{position:absolute;top:100%;left:0;margin-top:5px;padding:3px 8px;border-radius:6px;background:rgba(0,0,0,0.85);color:#fff;font-size:11px;white-space:nowrap;pointer-events:none;z-index:20}
+.dsh-ig-image{display:block;max-width:100%;max-height:520px;border-radius:12px;background:#f2f3f5;cursor:pointer}
+.dsh-ig-modal{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.88);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;cursor:zoom-out;animation:dsh-ig-fade .15s ease-out}
+@keyframes dsh-ig-fade{from{opacity:0}to{opacity:1}}
+.dsh-ig-modal-img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:8px;box-shadow:0 24px 60px rgba(0,0,0,0.6);user-select:none;cursor:default}
 .dsh-ig-error{color:var(--dsw-alias-label-error,#d33);font-size:13px}
 .dsh-ig-loading{color:var(--dsw-alias-label-tertiary,#7b818b);font-size:13px}`
 
@@ -218,13 +227,136 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 
 /** Render the durable attachment referenced by a completed image tool call. */
 export function GeneratedImageCard(props: ImageCardProps) {
-  const attachment = imageRef(props.block); const [url, setUrl] = useState<string>(); const [error, setError] = useState<string>()
-  useEffect(() => { if (attachment === undefined) return; const controller = new AbortController(); let objectUrl: string | undefined
-    void fetch(IMAGE_ROUTE, { method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ attachment }) }).then(async response => { if (!response.ok) throw new Error(`图片读取失败 (${String(response.status)})`); const blob = await response.blob(); if (controller.signal.aborted) return; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl) }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause)) })
-    return () => { controller.abort(); if (objectUrl !== undefined) URL.revokeObjectURL(objectUrl) }
+  const attachment = imageRef(props.block)
+  const [url, setUrl] = useState<string>()
+  const [blob, setBlob] = useState<Blob>()
+  const [error, setError] = useState<string>()
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [toast, setToast] = useState<string>()
+
+  useEffect(() => {
+    if (!previewOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown) }
+  }, [previewOpen])
+
+  useEffect(() => {
+    if (attachment === undefined) return
+    const controller = new AbortController()
+    let objectUrl: string | undefined
+    void fetch(IMAGE_ROUTE, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ attachment }),
+    }).then(async response => {
+      if (!response.ok) throw new Error(`图片读取失败 (${String(response.status)})`)
+      const resBlob = await response.blob()
+      if (controller.signal.aborted) return
+      setBlob(resBlob)
+      objectUrl = URL.createObjectURL(resBlob)
+      setUrl(objectUrl)
+    }).catch(cause => {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+    })
+    return () => {
+      controller.abort()
+      if (objectUrl !== undefined) URL.revokeObjectURL(objectUrl)
+    }
   }, [attachment?.attachmentId])
+
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!blob) return
+    const ok = await copyImageBlob(blob)
+    setToast(ok ? '已复制图片' : '复制失败')
+    setTimeout(() => { setToast(undefined) }, 2000)
+  }
+
+  const download = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!url) return
+    const a = document.createElement('a')
+    a.href = url
+    a.download = attachment?.name || `dsh-image-${Date.now()}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  const openNewTab = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!url) return
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   if (attachment === undefined) return <div className="dsh-ig-loading">正在生成图片…</div>
-  return <section className="dsh-ig-result" aria-label="Generated image"><div className="dsh-ig-result-title">Generated image</div>{error !== undefined ? <div className="dsh-ig-error">{error}</div> : null}{url === undefined && error === undefined ? <div className="dsh-ig-loading">正在加载图片…</div> : null}{url !== undefined ? <img className="dsh-ig-image" src={url} alt={attachment.name ?? 'Generated image'} /> : null}</section>
+  return <section className="dsh-ig-result" aria-label="Generated image">
+    <div className="dsh-ig-result-title">Generated image</div>
+    {error !== undefined ? <div className="dsh-ig-error">{error}</div> : null}
+    {url === undefined && error === undefined ? <div className="dsh-ig-loading">正在加载图片…</div> : null}
+    {url !== undefined ? <div className="dsh-ig-container">
+      <img
+        className="dsh-ig-image"
+        src={url}
+        alt={attachment.name ?? 'Generated image'}
+        onClick={() => { setPreviewOpen(true) }}
+      />
+      <div className="dsh-ig-toolbar">
+        <button type="button" className="dsh-ig-tool-btn" title="复制图片" onClick={(e) => { void copy(e) }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button type="button" className="dsh-ig-tool-btn" title="下载图片" onClick={download}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button type="button" className="dsh-ig-tool-btn" title="新标签页打开" onClick={openNewTab}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+        {toast ? <div className="dsh-ig-toast">{toast}</div> : null}
+      </div>
+    </div> : null}
+
+    {previewOpen && url !== undefined ? <div className="dsh-ig-modal" onClick={() => { setPreviewOpen(false) }}>
+      <img
+        className="dsh-ig-modal-img"
+        src={url}
+        alt={attachment.name ?? 'Generated image preview'}
+        onClick={(e) => { e.stopPropagation() }}
+      />
+    </div> : null}
+  </section>
+}
+
+async function copyImageBlob(blob: Blob): Promise<boolean> {
+  try {
+    if (blob.type === 'image/png') {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      return true
+    }
+    const img = new Image()
+    const url = URL.createObjectURL(blob)
+    await new Promise((resolve, reject) => {
+      img.onload = resolve
+      img.onerror = reject
+      img.src = url
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas unavailable')
+    ctx.drawImage(img, 0, 0)
+    URL.revokeObjectURL(url)
+    const pngBlob = await new Promise<Blob | null>(res => { canvas.toBlob(res, 'image/png') })
+    if (!pngBlob) throw new Error('Blob conversion failed')
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+    return true
+  } catch (_err) {
+    return false
+  }
 }
 
 function modelOf(provider: Provider, value: ImageSettings | undefined): string {
