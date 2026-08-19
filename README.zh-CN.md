@@ -1,5 +1,9 @@
 <div align="center">
 
+<img src="docs/assets/hero-poster.jpg" alt="dsh-image-gen 宣传海报" width="100%" style="max-width: 860px; border-radius: 12px;" />
+
+<br /><br />
+
 # 🎨 dsh-image-gen
 
 ### DeepSeek Harness (DSH) 原生生图插件
@@ -13,17 +17,15 @@
 [![npm downloads](https://img.shields.io/npm/dm/dsh-image-gen.svg?style=flat-square&color=emerald)](https://www.npmjs.com/package/dsh-image-gen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-[English](README.en.md) | **简体中文**
-
 <br />
 
 <p align="center">💬 <b>直接对你的 DeepSeek Harness Agent 发送以下提示词：</b></p>
 
 ```text
-帮我安装生图插件，执行命令：pnpm dsh plugin --profile web add dsh-image-gen
+帮我安装生图插件，执行命令：pnpm dsh plugin --profile web add dsh-image-gen@latest
 ```
 
-<p align="center"><sub>（也可以手动在终端执行：<code>pnpm dsh plugin --profile web add dsh-image-gen</code>）</sub></p>
+<p align="center"><sub>（也可以手动在终端执行：<code>pnpm dsh plugin --profile web add dsh-image-gen@latest</code>）</sub></p>
 
 <br />
 
