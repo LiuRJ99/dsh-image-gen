@@ -6,11 +6,7 @@
 
 # 🎨 dsh-image-gen
 
-### DeepSeek Harness (DSH) 原生生图插件
-
-**让 DeepSeek Harness 像 ChatGPT 一样，在对话里直接生成图片。**
-
-支持 Google Gemini、OpenAI Images、OpenAI Compatible API、字节 Seedream / 火山方舟。
+**让 DeepSeek Harness 像 ChatGPT 一样在对话中直接生成图片，并支持全屏预览、快捷复制与一键下载。**
 
 [![npm version](https://img.shields.io/npm/v/dsh-image-gen.svg?style=flat-square&color=blue)](https://www.npmjs.com/package/dsh-image-gen)
 [![DSH Plugin](https://img.shields.io/badge/Plugin%20For-DeepSeek%20Harness-6366f1?style=flat-square)](https://github.com/deepseek-ai)
