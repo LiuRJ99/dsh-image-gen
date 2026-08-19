@@ -6,7 +6,7 @@
 
 # 🎨 dsh-image-gen
 
-**Bring ChatGPT-like image generation to DeepSeek Harness — with fullscreen preview, quick copy, and one-click download.**
+**Bring ChatGPT-like image generation to DeepSeek Harness — supporting in-chat generation, gallery overview, fullscreen preview, quick copy, and one-click download.**
 
 [![npm version](https://img.shields.io/npm/v/dsh-image-gen.svg?style=flat-square&color=blue)](https://www.npmjs.com/package/dsh-image-gen)
 [![DSH Plugin](https://img.shields.io/badge/Plugin%20For-DeepSeek%20Harness-6366f1?style=flat-square)](https://github.com/deepseek-ai)
@@ -60,14 +60,14 @@ graph LR
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Install & Usage
 
 ### 1. Install Plugin
 
-Run in your DeepSeek Harness project root:
+In your DeepSeek Harness workspace root:
 
 ```bash
-# Recommended: Install or upgrade to latest version
+# Recommended: Install or upgrade to latest release
 pnpm dsh plugin --profile web add dsh-image-gen@latest
 
 # If dsh is installed globally:
@@ -75,13 +75,13 @@ dsh plugin --profile web add dsh-image-gen@latest
 ```
 
 <details>
-<summary><b>🛠️ Other installation methods (Git / Local development)</b></summary>
+<summary><b>🛠️ Alternative Installations (Git Repo / Local Dev)</b></summary>
 
 ```bash
-# Method B: Direct install from GitHub
+# Method B: Install directly from GitHub
 pnpm dsh plugin --profile web add git+https://github.com/shanliuling/dsh-image-gen.git
 
-# Method C: Local development install
+# Method C: Clone & install locally
 git clone https://github.com/shanliuling/dsh-image-gen.git
 pnpm dsh plugin --profile web add ./dsh-image-gen
 ```
@@ -90,35 +90,44 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 ### 2. Configure API Key
 
-Open DSH Web (`http://localhost:3080` by default):
+Open DSH Web (`http://localhost:3080`):
 
-1. Go to **Settings → Plugins → Image generation**.
-2. Select your Provider, enter your API Key, and click **Save**.
+1. Navigate to **Settings → Plugins → Image generation**.
+2. Select Provider, input API Key, click **Save**.
 
 <div align="center">
   <img src="docs/assets/settings-preview.png" alt="Settings preview" width="720" />
 </div>
 
-### 3. Start Generating Images
+### 3. Generate Images in Chat
 
-Type in the chat box:
+Simply prompt in the chat input:
 
 ```text
 Generate a minimalist modern architecture living room illustration.
 ```
 
-The Agent will automatically invoke `generate_image` and render the image in the conversation.
+The Agent will call `generate_image` and return the image directly in the conversation stream.
+
+### 4. Browse Native Image Gallery
+
+Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all generated images across conversations:
+
+<div align="center">
+  <img src="docs/assets/gallery-preview.png" alt="Gallery preview" width="820" />
+</div>
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-- 💬 **In-chat Image Generation**: No need to switch tabs or copy prompts; chat naturally to generate images.
-- 🔍 **Interactive Image Toolkit**: Click image for fullscreen preview (press `ESC` or click backdrop to close), hover toolbar to copy image to clipboard, download, or open in a new tab.
-- 🎨 **Multi-Provider Support**: Supports Google Gemini, OpenAI Images, OpenAI-compatible APIs, and ByteDance Seedream / Volcengine Ark.
-- 🔑 **BYOK (Bring Your Own Key)**: Securely managed through DSH `credentials` service with write-only protection; keys are never exposed in plaintext.
-- 🖼️ **Durable Conversation Persistence**: Integrated with DSH Attachment system; images remain visible when reopening past sessions.
-- ⚙️ **Native Settings UI**: Configure models, endpoints, and keys directly within DSH Web settings without editing config files.
+- 💬 **In-Chat Image Generation**: Tell your Agent what you want to draw without switching tabs or tools.
+- 🖼️ **Native Image Gallery**: Dedicated "Gallery" tab automatically collecting all generated images with keyword search, provider filtering, and quick copy/download.
+- 🔍 **Interactive Image Tools**: High-res fullscreen preview, one-click copy to clipboard, local download, and open in new tab.
+- 🎨 **Multi-Provider Support**: Supports Google Gemini, OpenAI Images, OpenAI Compatible API, and ByteDance Seedream / Volcengine Ark.
+- 🔑 **BYOK (Bring Your Own Key)**: Uses your own API keys managed securely by DSH credentials service with write-only protection.
+- 🖼️ **Durable Session Persistence**: Images integrate with DSH Attachment and conversation lifecycle, preserved across reloads.
+- ⚙️ **Native Web Settings**: Configure providers, keys, models, and endpoints directly in DSH settings.
 
 ---
 
@@ -129,35 +138,28 @@ The Agent will automatically invoke `generate_image` and render the image in the
 | **Google Gemini** | `gemini-3.1-flash-image` | `https://generativelanguage.googleapis.com/v1beta/interactions` |
 | **OpenAI Images** | `gpt-image-2` | `https://api.openai.com/v1` |
 | **OpenAI Compatible** | Custom | Custom Base URL |
-| **ByteDance Seedream / Ark** | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` |
+| **ByteDance Seedream / Volcengine Ark** | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` |
 
 ---
 
 ## 🛠️ Local Development
 
 ```bash
-# Clone repository
 git clone https://github.com/shanliuling/dsh-image-gen.git
 cd dsh-image-gen
 
-# Install dependencies
 pnpm install
-
-# Build
+pnpm run typecheck
+pnpm run test
 pnpm run build
 
-# Run unit tests
-pnpm test
+pnpm run pack:check
 ```
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting Pull Requests.
 
 ---
 
 ## 📄 License
 
-[MIT](LICENSE) © 2026 shanliuling
+Open-sourced under the [MIT License](LICENSE).
+
+If this plugin helps you, feel free to give it a ⭐️ **Star**!

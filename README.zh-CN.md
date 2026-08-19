@@ -6,7 +6,7 @@
 
 # 🎨 dsh-image-gen
 
-**让 DeepSeek Harness 像 ChatGPT 一样在对话中直接生成图片，并支持全屏预览、快捷复制与一键下载。**
+**让 DeepSeek Harness 像 ChatGPT 一样在对话中直接生成图片，支持画廊汇总,全屏预览、快捷复制与一键下载。**
 
 [![npm version](https://img.shields.io/npm/v/dsh-image-gen.svg?style=flat-square&color=blue)](https://www.npmjs.com/package/dsh-image-gen)
 [![DSH Plugin](https://img.shields.io/badge/Plugin%20For-DeepSeek%20Harness-6366f1?style=flat-square)](https://github.com/deepseek-ai)
@@ -109,11 +109,20 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 当前 Agent 就会自动调用 `generate_image` 工具并在对话流中返回图片。
 
+### 4. 查看原生生图画廊
+
+点击会话顶栏的 **`[画廊]`** Tab，即可集中查看和搜索所有对话生成的历史图片：
+
+<div align="center">
+  <img src="docs/assets/gallery-preview.png" alt="原生生图画廊预览" width="820" />
+</div>
+
 ---
 
 ## ✨ 主要能力
 
 - 💬 **对话中直接生图**：不需要切换到其他网站，也不需要手动复制 Prompt，直接告诉 Agent 你想画什么即可。
+- 🖼️ **历史生图画廊**：顶栏自带「画廊」Tab，自动汇总所有历史生成的图片，支持关键词搜索、厂商筛选与一键复制/下载。
 - 🔍 **交互式图片工具**：支持点击全屏大图预览、一键复制图片到剪贴板、本地下载与新标签页打开。
 - 🎨 **多 Provider 支持**：目前支持 Google Gemini、OpenAI Images、OpenAI Compatible API 以及 ByteDance Seedream / Volcengine Ark。Provider、模型和 Endpoint 都可以在设置界面中自由修改。
 - 🔑 **BYOK (自带 Key)**：插件使用你自己的 API Key。API Key 通过 DeepSeek Harness 的 `credentials` 服务管理，采用写保护隔离，不需要写进项目源码或配置文件，前端不存明文。
