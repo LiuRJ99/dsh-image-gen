@@ -56,7 +56,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         },
       },
       render: (_args, value) => [{ type: 'text', text: `Generated one image with ${value.provider}/${value.model} (${value.output}). It is already attached to the conversation with no local file path; respond to the user without reading or searching for it.` }],
-      presentationMeta: (_args, value) => ({ kind: 'dsh-image-gen', attachment: value.attachment }),
+      presentationMeta: (args, value) => ({
+        kind: 'dsh-image-gen',
+        attachment: value.attachment,
+        provider: value.provider,
+        model: value.model,
+        output: value.output,
+        prompt: (args as { prompt: string }).prompt,
+      }),
     },
     async execute(args, exec): Promise<GeneratedValue> {
       const active = resolveProvider(current())
