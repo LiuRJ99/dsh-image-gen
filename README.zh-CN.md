@@ -67,11 +67,11 @@ graph LR
 在你的 DeepSeek Harness 项目根目录下运行：
 
 ```bash
-# 推荐方式：通过 pnpm 一键安装并注册插件
-pnpm dsh plugin --profile web add dsh-image-gen
+# 推荐方式：安装或升级到最新版本
+pnpm dsh plugin --profile web add dsh-image-gen@latest
 
 # 若已将 dsh 安装为系统全局命令：
-dsh plugin --profile web add dsh-image-gen
+dsh plugin --profile web add dsh-image-gen@latest
 ```
 
 <details>
