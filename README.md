@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/hero-poster.jpg" alt="dsh-image-gen 宣传海报" width="100%" style="max-width: 860px; border-radius: 12px;" />
+<img src="docs/assets/hero-poster.png" alt="dsh-image-gen 宣传海报" width="100%" style="max-width: 860px; border-radius: 12px;" />
 
 <br /><br />
 
