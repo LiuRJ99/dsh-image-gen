@@ -1,26 +1,39 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { saveImageToWorkspace, workspaceImageDir, workspaceImageName } from '../src/workspace-save.js'
 
-const FIXED_DATE = new Date(Date.UTC(2026, 0, 15, 8, 4, 9))
 const isWin = process.platform === 'win32'
 const root = isWin ? 'H:\\ws' : '/ws'
 const foreignAbs = isWin ? 'C:\\other' : '/etc'
 const parentTraversal = isWin ? '..\\escape' : '../escape'
 
+// Route every rename through a hook queue so tests can land an abort exactly
+// during the final rename step of a save.
+const renameHooks = vi.hoisted(() => ({ queue: [] as Array<() => void> }))
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    rename: async (...args: [oldPath: string, newPath: string]) => {
+      for (const hook of renameHooks.queue.splice(0)) hook()
+      return actual.rename(...args)
+    },
+  }
+})
+
 describe('workspaceImageName', () => {
-  it('builds a UTC-stamped, digest-suffixed name per media type', () => {
-    expect(workspaceImageName('sha256:0123456789abcdef', 'image/png', FIXED_DATE)).toBe('image-20260115-080409-01234567.png')
-    expect(workspaceImageName('sha256:0123456789abcdef', 'image/jpeg', FIXED_DATE)).toBe('image-20260115-080409-01234567.jpg')
-    expect(workspaceImageName('sha256:0123456789abcdef', 'image/webp', FIXED_DATE)).toBe('image-20260115-080409-01234567.webp')
-    expect(workspaceImageName('sha256:0123456789abcdef', 'image/gif', FIXED_DATE)).toBe('image-20260115-080409-01234567.gif')
+  it('derives a stable digest-suffixed name per media type', () => {
+    expect(workspaceImageName('sha256:0123456789abcdef', 'image/png')).toBe('image-01234567.png')
+    expect(workspaceImageName('sha256:0123456789abcdef', 'image/jpeg')).toBe('image-01234567.jpg')
+    expect(workspaceImageName('sha256:0123456789abcdef', 'image/webp')).toBe('image-01234567.webp')
+    expect(workspaceImageName('sha256:0123456789abcdef', 'image/gif')).toBe('image-01234567.gif')
   })
 
   it('accepts bare digests and pads short digests to eight chars', () => {
-    expect(workspaceImageName('abcdef', 'image/png', FIXED_DATE)).toBe('image-20260115-080409-abcdef00.png')
-    expect(workspaceImageName('abc', 'image/png', FIXED_DATE)).toBe('image-20260115-080409-abc00000.png')
+    expect(workspaceImageName('abcdef', 'image/png')).toBe('image-abcdef00.png')
+    expect(workspaceImageName('abc', 'image/png')).toBe('image-abc00000.png')
   })
 })
 
@@ -72,12 +85,62 @@ describe('saveImageToWorkspace', () => {
     } finally { await rm(base, { recursive: true, force: true }) }
   })
 
-  it('honours an already-aborted signal without writing', async () => {
+  it('honours an already-aborted signal without touching the disk', async () => {
     const base = await mkdtemp(join(tmpdir(), 'dsh-image-gen-'))
     try {
       const controller = new AbortController()
       controller.abort()
       await expect(saveImageToWorkspace({ workspaceRoot: base, folder: undefined, attachmentId: 'sha256:bbbb2222', mediaType: 'image/png', data: new Uint8Array([9]), signal: controller.signal })).rejects.toThrow()
+      expect(await readdir(base)).toEqual([])
+    } finally { await rm(base, { recursive: true, force: true }) }
+  })
+
+  it('rejects a configured folder that symlinks outside the workspace', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'dsh-image-gen-'))
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-image-gen-out-'))
+    try {
+      await symlink(outside, join(base, 'escape'), isWin ? 'junction' : 'dir')
+      await expect(saveImageToWorkspace({ workspaceRoot: base, folder: 'escape', attachmentId: 'sha256:cccc3333', mediaType: 'image/png', data: new Uint8Array([7]) })).rejects.toThrow(/must stay inside/)
+      expect(await readdir(outside)).toEqual([])
+    } finally {
+      await rm(base, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects an escaping symlink on an intermediate folder segment', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'dsh-image-gen-'))
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-image-gen-out-'))
+    try {
+      await mkdir(join(base, 'sub'))
+      await symlink(outside, join(base, 'sub', 'escape'), isWin ? 'junction' : 'dir')
+      await expect(saveImageToWorkspace({ workspaceRoot: base, folder: 'sub/escape', attachmentId: 'sha256:dddd4444', mediaType: 'image/png', data: new Uint8Array([7]) })).rejects.toThrow(/must stay inside/)
+      expect(await readdir(outside)).toEqual([])
+    } finally {
+      await rm(base, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('allows a folder symlink that resolves back inside the workspace', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'dsh-image-gen-'))
+    try {
+      await mkdir(join(base, 'real'))
+      await symlink(join(base, 'real'), join(base, 'link'), isWin ? 'junction' : 'dir')
+      const saved = await saveImageToWorkspace({ workspaceRoot: base, folder: 'link', attachmentId: 'sha256:eeee5555', mediaType: 'image/png', data: new Uint8Array([5]) })
+      expect(saved.startsWith(resolve(base, 'link'))).toBe(true)
+      expect(new Uint8Array(await readFile(saved))).toEqual(new Uint8Array([5]))
+    } finally { await rm(base, { recursive: true, force: true }) }
+  })
+
+  it('does not report success when cancelled during the final rename', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'dsh-image-gen-'))
+    try {
+      const controller = new AbortController()
+      renameHooks.queue.push(() => controller.abort())
+      await expect(saveImageToWorkspace({ workspaceRoot: base, folder: undefined, attachmentId: 'sha256:ffff6666', mediaType: 'image/png', data: new Uint8Array([3]), signal: controller.signal })).rejects.toThrow()
+      // Neither the renamed image nor staging leftovers survive the cancel.
+      expect(await readdir(base)).toEqual([])
     } finally { await rm(base, { recursive: true, force: true }) }
   })
 })

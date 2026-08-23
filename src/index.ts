@@ -124,6 +124,9 @@ async function saveGenerated(
       signal: exec.signal,
     })
   } catch (error) {
+    // A cancellation is never reported as a (partial) success: rethrow it even
+    // if the workspace write had already finished when the signal fired.
+    exec.signal.throwIfAborted()
     ctx.logger.warn(`dsh-image-gen: failed to save image to workspace: ${error instanceof Error ? error.message : String(error)}`)
     value.saveError = error instanceof Error ? error.message : String(error)
   }
