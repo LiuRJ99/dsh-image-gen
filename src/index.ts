@@ -89,7 +89,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (active.provider === 'dashscope') {
         const size = args.size ?? active.imageSize
         const generated = await generateDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: args.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal: exec.signal })
-        return saveGenerated(ctx, generated, active.provider, active.model, size)
+        return saveGenerated(ctx, generated, active.provider, active.model, size, current(), exec)
       }
       const size = args.size ?? active.imageSize
       const generated = await generateOpenAICompatibleImage({ provider: active.provider, apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: args.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal: exec.signal })
