@@ -88,15 +88,16 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 </details>
 
-### 2. 配置 API Key
+### 2. 配置 API Key 与工作区设置
 
 打开 DSH Web 页面（默认 `http://localhost:3080`）：
 
 1. 进入 **Settings → Plugins → Image generation**。
-2. 选择 Provider，填写 API Key，点击 **保存** 即可。
+2. 选择 Provider，填写 API Key。
+3. 可按需开启 **保存到工作区**（默认开启）并自定义子目录，点击 **保存** 即可。
 
 <div align="center">
-  <img src="docs/assets/settings-preview.png" alt="设置面板预览" width="720" />
+  <img src="docs/assets/settings-preview.png?v=0.1.7" alt="设置面板预览" width="720" />
 </div>
 
 ### 3. 开始对话生图
@@ -109,7 +110,14 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 当前 Agent 就会自动调用 `generate_image` 工具并在对话流中返回图片。
 
-### 4. 查看原生生图画廊
+### 4. 工作区自动落盘与代码引用
+
+生图完成后，插件会自动将实体图片保存到当前项目工作区的指定目录（默认为 `dsh-image-gen/`）：
+
+- **物理文件落盘**：可以在 VS Code 或本地文件树中直接查看、复制和提交该图片文件。
+- **Agent 全自动引用**：工具返回值与卡片底部会携带实体文件的绝对路径，Agent 可直接将其嵌入代码（如 `<img src="./dsh-image-gen/image-xxxx.png" />`），无需任何人工搬运。
+
+### 5. 查看原生生图画廊
 
 点击会话顶栏的 **`[画廊]`** Tab，即可集中查看和搜索所有对话生成的历史图片：
 

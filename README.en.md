@@ -88,15 +88,16 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 </details>
 
-### 2. Configure API Key
+### 2. Configure API Key & Workspace Settings
 
 Open DSH Web (`http://localhost:3080`):
 
 1. Navigate to **Settings → Plugins → Image generation**.
-2. Select Provider, input API Key, click **Save**.
+2. Select Provider, input API Key.
+3. Optionally enable **Save to workspace** (enabled by default) and specify subfolder, then click **Save**.
 
 <div align="center">
-  <img src="docs/assets/settings-preview.png" alt="Settings preview" width="720" />
+  <img src="docs/assets/settings-preview.png?v=0.1.7" alt="Settings preview" width="720" />
 </div>
 
 ### 3. Generate Images in Chat
@@ -109,7 +110,14 @@ Generate a minimalist modern architecture living room illustration.
 
 The Agent will call `generate_image` and return the image directly in the conversation stream.
 
-### 4. Browse Native Image Gallery
+### 4. Automated Workspace File Output
+
+Upon generation, the plugin automatically writes the physical image file to the designated workspace subfolder (`dsh-image-gen/` by default):
+
+- **Local Physical File**: View, edit, or commit generated images directly within VS Code or your project tree.
+- **Automated Agent References**: The tool result carries the absolute file path, allowing Agents to embed images into code (e.g. `<img src="./dsh-image-gen/image-xxxx.png" />`) without manual file handling.
+
+### 5. Browse Native Image Gallery
 
 Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all generated images across conversations:
 
