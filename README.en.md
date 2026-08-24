@@ -110,14 +110,7 @@ Generate a minimalist modern architecture living room illustration.
 
 The Agent will call `generate_image` and return the image directly in the conversation stream.
 
-### 4. Automated Workspace File Output
-
-Upon generation, the plugin automatically writes the physical image file to the designated workspace subfolder (`dsh-image-gen/` by default):
-
-- **Local Physical File**: View, edit, or commit generated images directly within VS Code or your project tree.
-- **Automated Agent References**: The tool result carries the absolute file path, allowing Agents to embed images into code (e.g. `<img src="./dsh-image-gen/image-xxxx.png" />`) without manual file handling.
-
-### 5. Browse Native Image Gallery
+### 4. Browse Native Image Gallery
 
 Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all generated images across conversations:
 
@@ -135,7 +128,7 @@ Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all
 - 🎨 **Multi-Provider Support**: Supports Google Gemini, OpenAI Images, OpenAI Compatible API, ByteDance Seedream / Volcengine Ark, and Aliyun DashScope (Wanx / Qwen-Image).
 - 🔑 **BYOK (Bring Your Own Key)**: Uses your own API keys managed securely by DSH credentials service with write-only protection.
 - 🖼️ **Durable Session Persistence**: Images integrate with DSH Attachment and conversation lifecycle, preserved across reloads.
-- 💾 **Workspace File Output**: By default each generated image is also written as a file into the current session workspace (`dsh-image-gen/` subfolder); the tool result carries the absolute file path. Can be disabled or re-pointed in settings.
+- 💾 **Workspace File Output**: By default each generated image is also written as a file into the current session workspace; the tool result carries the absolute file path. Can be disabled or re-pointed in settings.
 - ⚙️ **Native Web Settings**: Configure providers, keys, models, and endpoints directly in DSH settings.
 
 ---
