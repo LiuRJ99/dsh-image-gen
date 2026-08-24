@@ -27,6 +27,9 @@ export {
   type ImageProvider,
 }
 
+/** Default workspace subfolder that receives generated image files. */
+export const DEFAULT_WORKSPACE_FOLDER = 'dsh-image-gen'
+
 /** Google API credential reference. */
 export const GOOGLE_API_KEY_ENV = 'GEMINI_API_KEY'
 /** OpenAI Platform or compatible relay credential reference. */
@@ -53,6 +56,10 @@ export interface Config {
   seedreamModel?: string
   dashscopeEndpoint?: string
   dashscopeModel?: string
+  /** Also write every generated image as a file under the session workspace. */
+  saveToWorkspace?: boolean
+  /** Workspace subfolder for generated images; empty means the workspace root. */
+  workspaceFolder?: string
 }
 
 /** Cordis configuration schema. */
@@ -66,6 +73,8 @@ export const Config: z<Config> = z.object({
   seedreamModel: z.string().default(DEFAULT_SEEDREAM_MODEL),
   dashscopeEndpoint: z.string().default(DEFAULT_DASHSCOPE_ENDPOINT),
   dashscopeModel: z.string().default(DEFAULT_DASHSCOPE_MODEL),
+  saveToWorkspace: z.boolean().default(true),
+  workspaceFolder: z.string().default(DEFAULT_WORKSPACE_FOLDER),
 })
 
 /** Resolve exactly one provider profile for a tool call. */

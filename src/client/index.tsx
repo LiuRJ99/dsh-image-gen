@@ -30,6 +30,8 @@ interface ImageSettings {
   seedreamModel?: string
   dashscopeEndpoint?: string
   dashscopeModel?: string
+  saveToWorkspace?: boolean
+  workspaceFolder?: string
 }
 interface SettingsFace { scope: SettingsScope<ImageSettings>; credentials: ConnectionHandle['api']['credentials']; locale?: LocaleService | undefined }
 interface ImageCardFace { locale?: LocaleService | undefined }
@@ -63,9 +65,14 @@ const DICT = {
     endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
     endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
     model: '模型',
+    saveToWorkspace: '保存到工作区',
+    saveToWorkspaceHint: '每次生成后，把图片文件保存到当前会话工作区。',
+    folder: '工作区文件夹',
+    folderHint: '相对当前会话工作区的子目录；留空表示工作区根目录。',
     saving: '保存中…',
     save: '保存',
     saved: '已保存',
+    savedToPath: '已保存到',
     checkingKey: '正在检查 API Key…',
     keyConfigured: '已配置 API Key',
     keyNotConfigured: '尚未配置 API Key',
@@ -98,9 +105,14 @@ const DICT = {
     endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
     endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
     model: 'Model',
+    saveToWorkspace: 'Save to workspace',
+    saveToWorkspaceHint: 'Write each generated image as a file into the session workspace.',
+    folder: 'Workspace folder',
+    folderHint: 'Subdirectory of the session workspace; empty means the workspace root.',
     saving: 'Saving…',
     save: 'Save',
     saved: 'Saved',
+    savedToPath: 'Saved to',
     checkingKey: 'Checking API Key…',
     keyConfigured: 'API Key configured',
     keyNotConfigured: 'API Key not configured',
@@ -139,6 +151,9 @@ const STYLE = `
 .dsh-ig-btn-reset:hover{background:var(--dsw-alias-bg-layer-2,#edf0f3);border-color:var(--dsw-alias-label-dimmed,#9ca3af)}
 .dsh-ig-hint,.dsh-ig-status{margin:0;color:var(--dsw-alias-label-tertiary,#7b818b);font-size:12px;line-height:1.4}
 .dsh-ig-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2,#eee)}
+.dsh-ig-check-row{display:flex;align-items:center;gap:8px;cursor:pointer}
+.dsh-ig-check-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--dsw-alias-brand-primary,#4c78ff);margin:0}
+.dsh-ig-savedto{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#7b818b);word-break:break-all}
 .dsh-ig-save{appearance:none;border:0;border-radius:8px;padding:6px 16px;background:var(--dsw-alias-label-primary,#111827);color:var(--dsw-alias-bg-layer-3,#fff);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .15s}
 .dsh-ig-save:disabled{opacity:.4;cursor:default}
 
@@ -268,6 +283,8 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   const [provider, setProvider] = useState<Provider>('google')
   const [model, setModel] = useState('')
   const [baseURL, setBaseURL] = useState('')
+  const [saveToWorkspace, setSaveToWorkspace] = useState(true)
+  const [workspaceFolder, setWorkspaceFolder] = useState('dsh-image-gen')
   const [key, setKey] = useState('')
   const [configured, setConfigured] = useState<boolean | undefined>()
   const [saving, setSaving] = useState(false)
@@ -302,6 +319,8 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     const value = snapshot.value
     const next = value?.provider ?? 'google'
     setProvider(next); setModel(modelOf(next, value)); setBaseURL(baseURLOf(next, value))
+    setSaveToWorkspace(value?.saveToWorkspace ?? true)
+    setWorkspaceFolder(value?.workspaceFolder ?? 'dsh-image-gen')
   }, [snapshot])
 
   useEffect(() => {
@@ -318,6 +337,8 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
       await props.scope.set('provider', provider)
       await props.scope.set(provider === 'google' ? 'googleModel' : provider === 'openai' ? 'openaiModel' : provider === 'seedream' ? 'seedreamModel' : 'dashscopeModel', model)
       await props.scope.set(provider === 'google' ? 'googleEndpoint' : provider === 'openai' ? 'openaiBaseURL' : provider === 'seedream' ? 'seedreamBaseURL' : 'dashscopeEndpoint', baseURL)
+      await props.scope.set('saveToWorkspace', saveToWorkspace)
+      await props.scope.set('workspaceFolder', workspaceFolder.trim())
       if (key.trim().length > 0) {
         const response = await props.credentials.set({ ref: KEY_REF[provider], value: key.trim() })
         if (!response.result.ok) throw new Error(response.result.error.message)
@@ -369,6 +390,20 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
             <span className="dsh-ig-label">{t('model')}</span>
             <input className="dsh-ig-input" value={model} onChange={event => { setModel(event.target.value) }} required />
           </label>
+          <div className="dsh-ig-field">
+            <label className="dsh-ig-check-row">
+              <input type="checkbox" checked={saveToWorkspace} onChange={event => { setSaveToWorkspace(event.target.checked) }} />
+              <span className="dsh-ig-label">{t('saveToWorkspace')}</span>
+            </label>
+            <span className="dsh-ig-hint">{t('saveToWorkspaceHint')}</span>
+          </div>
+          {saveToWorkspace ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('folder')}</span>
+              <input className="dsh-ig-input" value={workspaceFolder} onChange={event => { setWorkspaceFolder(event.target.value) }} placeholder="dsh-image-gen" />
+              <span className="dsh-ig-hint">{t('folderHint')}</span>
+            </label>
+          ) : null}
           <div className="dsh-ig-actions">
             <p className="dsh-ig-status" role="status">{message || keyStatus}</p>
             <button className="dsh-ig-save" type="submit" disabled={saving || !snapshot.writable}>{saving ? t('saving') : t('save')}</button>
@@ -382,6 +417,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 /** Render the durable attachment referenced by a completed image tool call. */
 export function GeneratedImageCard(props: ImageCardProps) {
   const attachment = imageRef(props.block)
+  const savedTo = imageSavedTo(props.block)
   const [url, setUrl] = useState<string>()
   const [blob, setBlob] = useState<Blob>()
   const [error, setError] = useState<string>()
@@ -492,6 +528,7 @@ export function GeneratedImageCard(props: ImageCardProps) {
   if (attachment === undefined) return <div className="dsh-ig-loading">{t('generating')}</div>
   return <section className="dsh-ig-result" aria-label={t('generatedTitle')}>
     <div className="dsh-ig-result-title">{t('generatedTitle')}</div>
+    {savedTo !== undefined ? <div className="dsh-ig-savedto">{t('savedToPath')}: {savedTo}</div> : null}
     {error !== undefined ? <div className="dsh-ig-error">{error}</div> : null}
     {url === undefined && error === undefined ? <div className="dsh-ig-loading">{t('loading')}</div> : null}
     {url !== undefined ? <div className="dsh-ig-container">
@@ -538,3 +575,11 @@ function baseURLOf(provider: Provider, value: ImageSettings | undefined): string
 }
 
 function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined { if (!('kind' in block) || block.resultView?.card !== 'generic') return undefined; const image = block.resultView.content?.find(item => item.type === 'image'); return image?.type === 'image' ? image.attachment : undefined }
+
+/** The workspace file path a completed image call saved, when the result meta carries one. */
+function imageSavedTo(block: ToolCallBlock): string | undefined {
+  if (!('kind' in block)) return undefined
+  const meta = (block as unknown as { meta?: { savedTo?: unknown } }).meta
+    ?? (block.resultView as unknown as { meta?: { savedTo?: unknown } } | undefined)?.meta
+  return typeof meta?.savedTo === 'string' ? meta.savedTo : undefined
+}
