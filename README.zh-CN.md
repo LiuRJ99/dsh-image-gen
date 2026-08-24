@@ -53,7 +53,7 @@ DeepSeek Harness 已经可以让 Agent 调用不同工具完成任务，本项�
 graph LR
     A[用户 Prompt] --> B[DeepSeek Harness Agent]
     B --> C[generate_image 工具]
-    C --> D[Gemini / OpenAI / Seedream]
+    C --> D[Gemini / OpenAI / Seedream / DashScope]
     D --> E[图片数据]
     E --> F[当前 Conversation 对话流]
 ```
@@ -124,7 +124,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 - 💬 **对话中直接生图**：不需要切换到其他网站，也不需要手动复制 Prompt，直接告诉 Agent 你想画什么即可。
 - 🖼️ **历史生图画廊**：顶栏自带「画廊」Tab，自动汇总所有历史生成的图片，支持关键词搜索、厂商筛选与一键复制/下载。
 - 🔍 **交互式图片工具**：支持点击全屏大图预览、一键复制图片到剪贴板、本地下载与新标签页打开。
-- 🎨 **多 Provider 支持**：目前支持 Google Gemini、OpenAI Images、OpenAI Compatible API 以及 ByteDance Seedream / Volcengine Ark。Provider、模型和 Endpoint 都可以在设置界面中自由修改。
+- 🎨 **多 Provider 支持**：支持 Google Gemini、OpenAI Images、OpenAI Compatible API、ByteDance Seedream / 火山方舟以及阿里云 DashScope（通义万相 / Qwen-Image）。Provider、模型和 Endpoint 均可在设置中自由定制。
 - 🔑 **BYOK (自带 Key)**：插件使用你自己的 API Key。API Key 通过 DeepSeek Harness 的 `credentials` 服务管理，采用写保护隔离，不需要写进项目源码或配置文件，前端不存明文。
 - 🖼️ **图片跟随会话保存**：生成结果会接入 DeepSeek Harness 的 Attachment / Conversation 体系，重新打开历史会话后，仍然可以看到之前生成的图片。
 - ⚙️ **原生设置界面**：Provider、API Key、模型和 Endpoint 都可以直接在 DSH Web 设置中修改，不需要手动编辑配置文件。
@@ -139,6 +139,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 | **OpenAI Images** | `gpt-image-2` | `https://api.openai.com/v1` |
 | **OpenAI Compatible** | 自定义 | 自定义 Base URL |
 | **ByteDance Seedream / 火山方舟** | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` |
+| **Aliyun DashScope / 通义万相** | `wanx2.1-t2i-turbo` | `https://dashscope.aliyuncs.com/api/v1` |
 
 ---
 

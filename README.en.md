@@ -53,7 +53,7 @@ DeepSeek Harness empowers agents to use tools for various tasks. This project ad
 graph LR
     A[User Prompt] --> B[DeepSeek Harness Agent]
     B --> C[generate_image Tool]
-    C --> D[Gemini / OpenAI / Seedream]
+    C --> D[Gemini / OpenAI / Seedream / DashScope]
     D --> E[Image Data]
     E --> F[In-chat Conversation Stream]
 ```
@@ -124,7 +124,7 @@ Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all
 - 💬 **In-Chat Image Generation**: Tell your Agent what you want to draw without switching tabs or tools.
 - 🖼️ **Native Image Gallery**: Dedicated "Gallery" tab automatically collecting all generated images with keyword search, provider filtering, and quick copy/download.
 - 🔍 **Interactive Image Tools**: High-res fullscreen preview, one-click copy to clipboard, local download, and open in new tab.
-- 🎨 **Multi-Provider Support**: Supports Google Gemini, OpenAI Images, OpenAI Compatible API, and ByteDance Seedream / Volcengine Ark.
+- 🎨 **Multi-Provider Support**: Supports Google Gemini, OpenAI Images, OpenAI Compatible API, ByteDance Seedream / Volcengine Ark, and Aliyun DashScope (Wanx / Qwen-Image).
 - 🔑 **BYOK (Bring Your Own Key)**: Uses your own API keys managed securely by DSH credentials service with write-only protection.
 - 🖼️ **Durable Session Persistence**: Images integrate with DSH Attachment and conversation lifecycle, preserved across reloads.
 - ⚙️ **Native Web Settings**: Configure providers, keys, models, and endpoints directly in DSH settings.
@@ -139,6 +139,7 @@ Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all
 | **OpenAI Images** | `gpt-image-2` | `https://api.openai.com/v1` |
 | **OpenAI Compatible** | Custom | Custom Base URL |
 | **ByteDance Seedream / Volcengine Ark** | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` |
+| **Aliyun DashScope / Wanx** | `wanx2.1-t2i-turbo` | `https://dashscope.aliyuncs.com/api/v1` |
 
 ---
 
