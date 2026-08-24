@@ -20,13 +20,28 @@ import { saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type LocaleService } from './gallery-view.js'
 
 type Provider = ImageProvider
-interface ImageSettings { provider?: Provider; googleModel?: string; googleEndpoint?: string; openaiBaseURL?: string; openaiModel?: string; seedreamBaseURL?: string; seedreamModel?: string }
+interface ImageSettings {
+  provider?: Provider
+  googleModel?: string
+  googleEndpoint?: string
+  openaiBaseURL?: string
+  openaiModel?: string
+  seedreamBaseURL?: string
+  seedreamModel?: string
+  dashscopeEndpoint?: string
+  dashscopeModel?: string
+}
 interface SettingsFace { scope: SettingsScope<ImageSettings>; credentials: ConnectionHandle['api']['credentials']; locale?: LocaleService | undefined }
 interface ImageCardFace { locale?: LocaleService | undefined }
 type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
 type ImageCardProps = PropsRuntime<'tool.call.toolview'> & InjectFace<ImageCardFace>
 
-const KEY_REF: Record<Provider, string> = { google: 'GEMINI_API_KEY', openai: 'OPENAI_API_KEY', seedream: 'ARK_API_KEY' }
+const KEY_REF: Record<Provider, string> = {
+  google: 'GEMINI_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  seedream: 'ARK_API_KEY',
+  dashscope: 'DASHSCOPE_API_KEY',
+}
 
 const DICT = {
   zh: {
@@ -36,6 +51,7 @@ const DICT = {
     providerGoogle: 'Google Gemini',
     providerOpenAI: 'OpenAI / 中转站',
     providerSeedream: '字节 Seedream',
+    providerDashScope: '阿里 DashScope (通义万相 / Qwen)',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: '留空即可保留已配置的 Key',
     apiKeyHint: '安全保存为 {key}；页面不会读回明文。',
@@ -45,6 +61,7 @@ const DICT = {
     endpointHintGoogle: 'Google 官方地址或反代端点（全路径）。',
     endpointHintOpenAI: '中转站请填其 OpenAI 兼容的 /v1 地址。',
     endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
+    endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
     model: '模型',
     saving: '保存中…',
     save: '保存',
@@ -69,6 +86,7 @@ const DICT = {
     providerGoogle: 'Google Gemini',
     providerOpenAI: 'OpenAI / Relay',
     providerSeedream: 'ByteDance Seedream',
+    providerDashScope: 'Aliyun DashScope (Wanx / Qwen)',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: 'Leave empty to keep configured key',
     apiKeyHint: 'Securely saved as {key}; never read back in plaintext.',
@@ -78,6 +96,7 @@ const DICT = {
     endpointHintGoogle: 'Official Google endpoint or reverse proxy (full path).',
     endpointHintOpenAI: 'OpenAI-compatible /v1 base URL for relays.',
     endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
+    endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
     model: 'Model',
     saving: 'Saving…',
     save: 'Save',
@@ -215,8 +234,6 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('settings.plugin.item', () => register({
     name: 'settings.plugin.item',
     key: IMAGE_GENERATION_NAMESPACE,
-    id: IMAGE_GENERATION_NAMESPACE,
-    order: 100,
     inject: (): SettingsFace => ({ scope, credentials: api.credentials, locale }),
   }, ImageGenerationSettingsCard))
 
@@ -275,6 +292,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     google: t('providerGoogle'),
     openai: t('providerOpenAI'),
     seedream: t('providerSeedream'),
+    dashscope: t('providerDashScope'),
   }
 
   useEffect(() => {
@@ -295,8 +313,8 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     event.preventDefault(); setSaving(true); setMessage('')
     try {
       await props.scope.set('provider', provider)
-      await props.scope.set(provider === 'google' ? 'googleModel' : provider === 'openai' ? 'openaiModel' : 'seedreamModel', model)
-      await props.scope.set(provider === 'google' ? 'googleEndpoint' : provider === 'openai' ? 'openaiBaseURL' : 'seedreamBaseURL', baseURL)
+      await props.scope.set(provider === 'google' ? 'googleModel' : provider === 'openai' ? 'openaiModel' : provider === 'seedream' ? 'seedreamModel' : 'dashscopeModel', model)
+      await props.scope.set(provider === 'google' ? 'googleEndpoint' : provider === 'openai' ? 'openaiBaseURL' : provider === 'seedream' ? 'seedreamBaseURL' : 'dashscopeEndpoint', baseURL)
       if (key.trim().length > 0) {
         const response = await props.credentials.set({ ref: KEY_REF[provider], value: key.trim() })
         if (!response.result.ok) throw new Error(response.result.error.message)
@@ -327,6 +345,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               <option value="google">{t('providerGoogle')}</option>
               <option value="openai">{t('providerOpenAI')}</option>
               <option value="seedream">{t('providerSeedream')}</option>
+              <option value="dashscope">{t('providerDashScope')}</option>
             </select>
             <span className="dsh-ig-hint">{providerLabels[provider]}</span>
           </label>
@@ -341,7 +360,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               <input className="dsh-ig-input" type="url" value={baseURL} onChange={event => { setBaseURL(event.target.value) }} required />
               <button type="button" className="dsh-ig-btn-reset" title={t('resetTitle')} onClick={() => { setBaseURL(DEFAULT_BASE_URLS[provider]) }}>{t('reset')}</button>
             </div>
-            <span className="dsh-ig-hint">{provider === 'google' ? t('endpointHintGoogle') : provider === 'openai' ? t('endpointHintOpenAI') : t('endpointHintSeedream')}</span>
+            <span className="dsh-ig-hint">{provider === 'google' ? t('endpointHintGoogle') : provider === 'openai' ? t('endpointHintOpenAI') : provider === 'seedream' ? t('endpointHintSeedream') : t('endpointHintDashScope')}</span>
           </label>
           <label className="dsh-ig-field">
             <span className="dsh-ig-label">{t('model')}</span>
@@ -506,12 +525,12 @@ export function GeneratedImageCard(props: ImageCardProps) {
 }
 
 function modelOf(provider: Provider, value: ImageSettings | undefined): string {
-  const stored = provider === 'google' ? value?.googleModel : provider === 'openai' ? value?.openaiModel : value?.seedreamModel
+  const stored = provider === 'google' ? value?.googleModel : provider === 'openai' ? value?.openaiModel : provider === 'seedream' ? value?.seedreamModel : value?.dashscopeModel
   return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_MODELS[provider]
 }
 
 function baseURLOf(provider: Provider, value: ImageSettings | undefined): string {
-  const stored = provider === 'google' ? value?.googleEndpoint : provider === 'openai' ? value?.openaiBaseURL : value?.seedreamBaseURL
+  const stored = provider === 'google' ? value?.googleEndpoint : provider === 'openai' ? value?.openaiBaseURL : provider === 'seedream' ? value?.seedreamBaseURL : value?.dashscopeEndpoint
   return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_BASE_URLS[provider]
 }
 

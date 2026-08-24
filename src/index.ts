@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defineTool, type ToolResult } from '@deepseek-ai/dsh-tools'
 import { Config, resolveProvider, type AspectRatio, type ImageProvider, type ImageSize } from './config.js'
+import { generateDashScopeImage } from './dashscope.js'
 import { generateGoogleImage } from './google.js'
 import { IMAGE_ROUTE, imageAttachmentFromMeta, serveImage } from './image-route.js'
 import { generateOpenAICompatibleImage } from './openai-compatible.js'
@@ -44,7 +45,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       prompt: { type: 'string', required: true, description: 'Complete description of the image to generate.' },
       aspect_ratio: { type: 'string', enum: ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'], description: 'Optional output aspect ratio for Google Gemini.' },
       image_size: { type: 'string', enum: ['1K', '2K', '4K'], description: 'Optional output resolution for Google Gemini.' },
-      size: { type: 'string', description: 'Optional dimensions or size tier for OpenAI or Seedream.' },
+      size: { type: 'string', description: 'Optional dimensions or size tier for OpenAI, Seedream, or DashScope.' },
     },
     output: {
       schema: {
@@ -74,6 +75,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         const imageSize = (args.image_size ?? active.imageSize) as ImageSize
         const generated = await generateGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: args.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal: exec.signal })
         return saveGenerated(ctx, generated, active.provider, active.model, `${aspectRatio}, ${imageSize}`)
+      }
+      if (active.provider === 'dashscope') {
+        const size = args.size ?? active.imageSize
+        const generated = await generateDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: args.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal: exec.signal })
+        return saveGenerated(ctx, generated, active.provider, active.model, size)
       }
       const size = args.size ?? active.imageSize
       const generated = await generateOpenAICompatibleImage({ provider: active.provider, apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: args.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal: exec.signal })
