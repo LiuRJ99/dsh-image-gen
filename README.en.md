@@ -122,7 +122,7 @@ Click the **`[Gallery]`** Tab in the top navigation bar to browse and search all
 ## ✨ Key Features
 
 - 💬 **In-Chat Image Generation**: Tell your Agent what you want to draw without switching tabs or tools.
-- 🖼️ **Native Image Gallery**: Dedicated "Gallery" tab automatically collecting all generated images with keyword search, provider filtering, and quick copy/download.
+- 🖼️ **Native Image Gallery**: Dedicated "Gallery" tab automatically collecting all generated images with keyword search, provider filtering, single-item deletion (with confirmation and persistent tombstones), and quick copy/download.
 - 🔍 **Interactive Image Tools**: High-res fullscreen preview, one-click copy to clipboard, local download, and open in new tab.
 - 🎨 **Multi-Provider Support**: Supports Google Gemini, OpenAI Images, OpenAI Compatible API, ByteDance Seedream / Volcengine Ark, and Aliyun DashScope (Wanx / Qwen-Image).
 - 🔑 **BYOK (Bring Your Own Key)**: Uses your own API keys managed securely by DSH credentials service with write-only protection.
