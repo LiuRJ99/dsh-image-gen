@@ -8,6 +8,7 @@ import { IMAGE_ROUTE, type ImageProvider } from '../shared.js'
 import {
   getGalleryItems,
   subscribeGallery,
+  deleteGalleryItem,
   type GalleryItem,
 } from './gallery-store.js'
 
@@ -24,6 +25,7 @@ const DICT = {
     filterGoogle: 'Google Gemini',
     filterOpenAI: 'OpenAI / 中转站',
     filterSeedream: '字节 Seedream',
+    filterDashScope: '阿里 DashScope',
     emptyTitle: '暂无生图记录',
     emptyDesc: '在对话中让 Agent 生图后，生成的图片会自动收录到这里。',
     noMatchTitle: '未找到匹配结果',
@@ -35,6 +37,9 @@ const DICT = {
     download: '下载图片',
     copyImg: '复制图片',
     copyPpt: '复制 Prompt',
+    delete: '从画廊删除',
+    confirmDelete: '确定要从画廊中删除这张图片吗？（不会影响原聊天记录）',
+    deleted: '已从画廊删除',
     model: '模型',
     prompt: 'Prompt',
     close: '关闭 (Esc)',
@@ -46,6 +51,7 @@ const DICT = {
     filterGoogle: 'Google Gemini',
     filterOpenAI: 'OpenAI / Relay',
     filterSeedream: 'ByteDance Seedream',
+    filterDashScope: 'Aliyun DashScope',
     emptyTitle: 'No images generated yet',
     emptyDesc: 'Images generated during conversations will automatically appear here.',
     noMatchTitle: 'No matching images',
@@ -57,6 +63,9 @@ const DICT = {
     download: 'Download',
     copyImg: 'Copy Image',
     copyPpt: 'Copy Prompt',
+    delete: 'Delete from gallery',
+    confirmDelete: 'Are you sure you want to remove this image from the gallery? (Chat history will not be affected)',
+    deleted: 'Deleted from gallery',
     model: 'Model',
     prompt: 'Prompt',
     close: 'Close (Esc)',
@@ -199,6 +208,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
             <option value="google">{t('filterGoogle')}</option>
             <option value="openai">{t('filterOpenAI')}</option>
             <option value="seedream">{t('filterSeedream')}</option>
+            <option value="dashscope">{t('filterDashScope')}</option>
           </select>
         </div>
       </header>
@@ -334,6 +344,23 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 <span>{t('download')}</span>
               </button>
+
+              <button
+                type="button"
+                className="dsh-ig-lightbox-btn dsh-ig-lightbox-btn-danger"
+                title={t('delete')}
+                onClick={async () => {
+                  if (!window.confirm(t('confirmDelete'))) return
+                  await deleteGalleryItem(previewItem.id)
+                  setPreviewItem(null)
+                  setPreviewUrl(null)
+                  setPreviewBlob(null)
+                  showToast(t('deleted'))
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                <span>{t('delete')}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -463,6 +490,19 @@ const GalleryCard: FC<GalleryCardProps> = ({ item, t, onPreview, onToast }) => {
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+          </button>
+          <button
+            type="button"
+            className="dsh-ig-tool-btn dsh-ig-tool-btn-danger"
+            title={t('delete')}
+            onClick={async (e) => {
+              e.stopPropagation()
+              if (!window.confirm(t('confirmDelete'))) return
+              await deleteGalleryItem(item.id)
+              onToast(t('deleted'))
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           </button>
         </div>
       </div>

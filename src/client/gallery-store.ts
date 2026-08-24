@@ -1,6 +1,7 @@
 /**
  * Lightweight IndexedDB persistence layer for Image Generation Gallery.
  * Stores lightweight metadata indexes; image binaries remain managed by DSH Attachment service.
+ * Supports tombstones to ensure deleted items are never resurrected when revisiting conversations.
  */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ImageProvider } from '../shared.js'
@@ -18,10 +19,12 @@ export interface GalleryItem {
 }
 
 const DB_NAME = 'dsh_image_gen_db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_NAME = 'gallery_history'
+const TOMBSTONE_STORE = 'gallery_tombstones'
 
 let dbPromise: Promise<IDBDatabase> | null = null
+let tombstonesCache: Set<string> | null = null
 
 function getDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
@@ -38,6 +41,9 @@ function getDB(): Promise<IDBDatabase> {
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
         store.createIndex('createdAt', 'createdAt', { unique: false })
       }
+      if (!db.objectStoreNames.contains(TOMBSTONE_STORE)) {
+        db.createObjectStore(TOMBSTONE_STORE, { keyPath: 'id' })
+      }
     }
 
     request.onsuccess = () => {
@@ -49,6 +55,33 @@ function getDB(): Promise<IDBDatabase> {
     }
   })
   return dbPromise
+}
+
+async function loadTombstones(db: IDBDatabase): Promise<Set<string>> {
+  if (tombstonesCache) return tombstonesCache
+  return new Promise<Set<string>>((resolve) => {
+    if (!db.objectStoreNames.contains(TOMBSTONE_STORE)) {
+      tombstonesCache = new Set()
+      resolve(tombstonesCache)
+      return
+    }
+    try {
+      const tx = db.transaction(TOMBSTONE_STORE, 'readonly')
+      const store = tx.objectStore(TOMBSTONE_STORE)
+      const req = store.getAllKeys()
+      req.onsuccess = () => {
+        tombstonesCache = new Set(req.result.map(String))
+        resolve(tombstonesCache)
+      }
+      req.onerror = () => {
+        tombstonesCache = new Set()
+        resolve(tombstonesCache)
+      }
+    } catch {
+      tombstonesCache = new Set()
+      resolve(tombstonesCache)
+    }
+  })
 }
 
 type GalleryListener = () => void
@@ -76,12 +109,17 @@ export function subscribeGallery(listener: GalleryListener): () => void {
 
 /**
  * Save or update a gallery record by attachmentId.
+ * Skipped if the item was previously deleted (tombstoned).
  */
 export async function saveGalleryItem(
   item: Omit<GalleryItem, 'createdAt'> & { createdAt?: number }
 ): Promise<void> {
   try {
     const db = await getDB()
+    const tombstones = await loadTombstones(db)
+    if (tombstones.has(item.id)) {
+      return
+    }
     const record: GalleryItem = {
       ...item,
       createdAt: item.createdAt ?? Date.now(),
@@ -130,17 +168,21 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
 }
 
 /**
- * Delete a single gallery record by ID.
+ * Delete a single gallery record by ID and record a tombstone.
  */
 export async function deleteGalleryItem(id: string): Promise<void> {
   try {
     const db = await getDB()
+    const tombstones = await loadTombstones(db)
+    tombstones.add(id)
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const tx = db.transaction([STORE_NAME, TOMBSTONE_STORE], 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      const req = store.delete(id)
-      req.onsuccess = () => resolve()
-      req.onerror = () => reject(req.error)
+      const tombstoneStore = tx.objectStore(TOMBSTONE_STORE)
+      store.delete(id)
+      tombstoneStore.put({ id, deletedAt: Date.now() })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
     })
     notifyListeners()
   } catch (err) {
@@ -149,17 +191,20 @@ export async function deleteGalleryItem(id: string): Promise<void> {
 }
 
 /**
- * Clear all gallery records.
+ * Clear all gallery records and reset tombstones.
  */
 export async function clearGallery(): Promise<void> {
   try {
     const db = await getDB()
+    if (tombstonesCache) tombstonesCache.clear()
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const tx = db.transaction([STORE_NAME, TOMBSTONE_STORE], 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      const req = store.clear()
-      req.onsuccess = () => resolve()
-      req.onerror = () => reject(req.error)
+      const tombstoneStore = tx.objectStore(TOMBSTONE_STORE)
+      store.clear()
+      tombstoneStore.clear()
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
     })
     notifyListeners()
   } catch (err) {
