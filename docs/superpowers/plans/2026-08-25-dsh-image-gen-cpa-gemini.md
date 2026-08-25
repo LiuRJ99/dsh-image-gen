@@ -129,7 +129,7 @@ export interface CpaImageGenerationService {
 }
 ~~~
 
-- [ ] **Step 1: Write the failing service-contract tests.**
+- [x] **Step 1: Write the failing service-contract tests.**
 
   Add tests that inject a fake `fetch` and assert the exact request/response behavior:
 
@@ -169,7 +169,7 @@ it('rejects a successful response that contains no image', async () => {
 })
 ~~~
 
-- [ ] **Step 2: Run the focused test and verify it fails.**
+- [x] **Step 2: Run the focused test and verify it fails.**
 
   Run from `dsh-cpa-plugin`:
 
@@ -179,7 +179,7 @@ node --test test/image-generation.test.js
 
   Expected: FAIL because `generateCpaImage` and `CpaImageGenerationService` do not yet exist.
 
-- [ ] **Step 3: Implement the normalized request/response functions.**
+- [x] **Step 3: Implement the normalized request/response functions.**
 
   Add `generateCpaImage` with these exact rules:
 
@@ -192,7 +192,7 @@ node --test test/image-generation.test.js
   7. Decode `choices[0].message.images[].image_url.url` for Gemini output, accepting only `data:image/<supported>;base64,...` URLs.
   8. Bound response reads using the existing CPA catalog response limit pattern and throw a typed `LlmError` for non-2xx, malformed JSON, missing image, unsupported media type, or oversized image data.
 
-- [ ] **Step 4: Register the Host service.**
+- [x] **Step 4: Register the Host service.**
 
   In `apply` in `dsh-cpa-plugin/src/index.ts`, provide the service after `readCredential` has been installed:
 
@@ -208,7 +208,7 @@ ctx.provide(IMAGE_GENERATION_SERVICE, {
 
   The route lookup must happen inside `generate`, not at plugin startup, so changing the CPA endpoint or model API key takes effect without restarting the image plugin.
 
-- [ ] **Step 5: Run the focused test and verify it passes.**
+- [x] **Step 5: Run the focused test and verify it passes.**
 
 ~~~bash
 node --test test/image-generation.test.js
@@ -216,7 +216,7 @@ node --test test/image-generation.test.js
 
   Expected: all service tests pass, including the negative no-image response.
 
-- [ ] **Step 6: Commit the service contract.**
+- [x] **Step 6: Commit the service contract.**
 
 ~~~bash
 git add src/image-generation.ts src/index.ts package.json test/image-generation.test.js
@@ -243,7 +243,7 @@ export function isImageOnlyModel(model) {
 }
 ~~~
 
-- [ ] **Step 1: Add failing catalog and selector tests.**
+- [x] **Step 1: Add failing catalog and selector tests.**
 
   Cover these cases:
 
@@ -256,7 +256,7 @@ assert.equal(isImageOnlyModel({ id: 'gemini-3.1-flash-lite' }), false)
 
   The client test must assert that a group containing only image-only models renders no selectable model row, while a group containing `gemini-3.1-flash-lite` still renders one.
 
-- [ ] **Step 2: Run the focused tests and verify the new cases fail.**
+- [x] **Step 2: Run the focused tests and verify the new cases fail.**
 
 ~~~bash
 node --test test/catalog.test.js test/client.test.js
@@ -264,7 +264,7 @@ node --test test/catalog.test.js test/client.test.js
 
   Expected: FAIL for the Gemini image recognition and rendered-row assertions.
 
-- [ ] **Step 3: Extend the explicit image-only ID set.**
+- [x] **Step 3: Extend the explicit image-only ID set.**
 
   Add exactly these IDs to the CPA image-only set:
 
@@ -278,17 +278,17 @@ const IMAGE_ONLY_MODEL_IDS = new Set([
 
   Keep `gemini-3.1-flash-lite` outside the set. Do not classify `-high`, `-low`, `-agent`, or `-extra-low` aliases as image-only based on suffixes.
 
-- [ ] **Step 4: Filter both CPA client surfaces.**
+- [x] **Step 4: Filter both CPA client surfaces.**
 
   Apply `isImageOnlyModel` before grouping in `cpa-model-select.tsx` and before rendering editable model rows in `cpa-model-settings.tsx`. Keep the Host route and image service independent from this presentation filter.
 
-- [ ] **Step 5: Run the focused tests and verify they pass.**
+- [x] **Step 5: Run the focused tests and verify they pass.**
 
 ~~~bash
 node --test test/catalog.test.js test/client.test.js
 ~~~
 
-- [ ] **Step 6: Commit the selector policy.**
+- [x] **Step 6: Commit the selector policy.**
 
 ~~~bash
 git add src/catalog.js src/client/cpa-model-select.tsx src/client/cpa-model-settings.tsx test/catalog.test.js test/client.test.js
@@ -307,11 +307,11 @@ git commit -m "fix: hide image-only models from CPA selectors"
 - Consumes: `dshCpaImageGeneration` from Task 1.
 - Produces: no `llm/stream` middleware that treats image models as normal chat selections; all image generation starts from the standalone `generate_image` tool.
 
-- [ ] **Step 1: Add the negative regression test.**
+- [x] **Step 1: Add the negative regression test.**
 
   Assert that the main provider no longer calls `/images/generations` when an image model is selected through the normal LLM stream path. The test should use a fake `llm/stream` request and assert that the next middleware is called.
 
-- [ ] **Step 2: Run the regression test and verify it fails.**
+- [x] **Step 2: Run the regression test and verify it fails.**
 
 ~~~bash
 node --test test/index.test.js test/cpa-image-stream.test.js
@@ -319,11 +319,11 @@ node --test test/index.test.js test/cpa-image-stream.test.js
 
   Expected: the existing image-stream interception still captures the request.
 
-- [ ] **Step 3: Remove the legacy interception and migrate any GPT parser assertions.**
+- [x] **Step 3: Remove the legacy interception and migrate any GPT parser assertions.**
 
   Delete the `isImageGenerationModel`/`streamCpaImage` listener from `src/index.js`. Move only the tested GPT response decoding behavior into `src/image-generation.ts`; do not preserve a second image-generation network owner.
 
-- [ ] **Step 4: Run all CPA tests.**
+- [x] **Step 4: Run all CPA tests.**
 
 ~~~bash
 npm test
@@ -332,7 +332,7 @@ npm run typecheck
 
   Expected: the Node test suite passes and TypeScript reports no new errors. Existing environment-only peer-resolution errors must be recorded separately rather than treated as a feature failure.
 
-- [ ] **Step 5: Commit the single-owner transition.**
+- [x] **Step 5: Commit the single-owner transition.**
 
 ~~~bash
 git add src/index.js test/index.test.js test/cpa-image-stream.test.js
@@ -358,7 +358,7 @@ git commit -m "refactor: route image generation through CPA service"
 - Consumes: `dshCpaImageGeneration` and `ImageEngine` from `@LiuRJ99/dsh-cpa-plugin/image-generation`.
 - Produces: the same `generate_image` tool name and output presentation, with no direct credential dependency.
 
-- [ ] **Step 1: Write the failing engine-only configuration tests.**
+- [x] **Step 1: Write the failing engine-only configuration tests.**
 
   Replace provider-specific defaults with these assertions:
 
@@ -374,7 +374,7 @@ expect(Config({ engine: 'gemini' }).engine).toBe('gemini')
 
   Add a service-contract test that passes a fake `dshCpaImageGeneration.generate` and verifies the tool forwards `engine`, `prompt`, `aspectRatio`, `imageSize`, and `signal` without resolving credentials.
 
-- [ ] **Step 2: Run the focused tests and verify they fail.**
+- [x] **Step 2: Run the focused tests and verify they fail.**
 
 ~~~bash
 pnpm exec vitest run tests/config.spec.ts tests/cpa-service-contract.spec.ts
@@ -382,7 +382,7 @@ pnpm exec vitest run tests/config.spec.ts tests/cpa-service-contract.spec.ts
 
   Expected: FAIL because the current configuration still contains four providers and `src/index.ts` resolves `GEMINI_API_KEY`/other provider keys.
 
-- [ ] **Step 3: Reduce the Host configuration.**
+- [x] **Step 3: Reduce the Host configuration.**
 
   Change `Config` to this shape:
 
@@ -396,7 +396,7 @@ export interface Config {
 
   Set the default engine to `gpt`, preserve the existing workspace defaults, and remove `credentialRef`, `credentials`, and all provider adapter imports from the image plugin Host.
 
-- [ ] **Step 4: Inject the CPA service into the tool.**
+- [x] **Step 4: Inject the CPA service into the tool.**
 
   Change the Bundle dependency declaration to include `dshCpaImageGeneration` and register the tool only after that service is available. The execute path must call:
 
@@ -413,7 +413,7 @@ const generated = await imageService.generate({
 
   Continue using `saveGenerated` for Attachment and workspace persistence. Keep `presentResult` and `dsh-image-gen` presentation metadata unchanged except for replacing provider labels with engine labels.
 
-- [ ] **Step 5: Update native Bundle packaging.**
+- [x] **Step 5: Update native Bundle packaging.**
 
   Replace the current `provider: google` patch with an engine-only config:
 
@@ -427,13 +427,13 @@ const generated = await imageService.generate({
 
   Add `@LiuRJ99/dsh-cpa-plugin` as a peer/dev dependency and expose the service contract through the package's type export. Remove direct credential/provider peer dependencies that are no longer imported.
 
-- [ ] **Step 6: Run focused plugin tests and verify they pass.**
+- [x] **Step 6: Run focused plugin tests and verify they pass.**
 
 ~~~bash
 pnpm exec vitest run tests/config.spec.ts tests/cpa-service-contract.spec.ts
 ~~~
 
-- [ ] **Step 7: Commit the Host refactor.**
+- [x] **Step 7: Commit the Host refactor.**
 
 ~~~bash
 git add src/index.ts src/config.ts src/shared.ts package.json cordis.patch.yml tests/config.spec.ts tests/cpa-service-contract.spec.ts
@@ -454,7 +454,7 @@ git commit -m "refactor: make image plugin CPA-backed"
 - Consumes: `ImageEngine` and the existing DSH settings/slot services.
 - Produces: a settings card with no API key, endpoint, or raw model fields; Gallery items labeled `GPT Image 2` or `Gemini Image`.
 
-- [ ] **Step 1: Add the metadata migration test.**
+- [x] **Step 1: Add the metadata migration test.**
 
   Cover the existing records and new records:
 
@@ -464,11 +464,11 @@ expect(normalizeGalleryItem({ provider: 'google', model: 'gemini-3.1-flash-image
 expect(normalizeGalleryItem({ engine: 'gemini', model: 'gemini-3.1-flash-image' })).toMatchObject({ engine: 'gemini' })
 ~~~
 
-- [ ] **Step 2: Bump the IndexedDB schema and normalize legacy records.**
+- [x] **Step 2: Bump the IndexedDB schema and normalize legacy records.**
 
   Move Gallery metadata to `engine: 'gpt' | 'gemini'`, keep `model` as internal metadata, and map legacy `provider: 'openai'` to `gpt` and `provider: 'google'` to `gemini`. Keep Attachment IDs unchanged so existing images remain readable.
 
-- [ ] **Step 3: Replace the settings form.**
+- [x] **Step 3: Replace the settings form.**
 
   Remove `credentials` from `SettingsFace`, delete provider/API-key/endpoint/model controls, and retain:
 
@@ -480,11 +480,11 @@ expect(normalizeGalleryItem({ engine: 'gemini', model: 'gemini-3.1-flash-image' 
 
   The UI must never render `GEMINI_API_KEY`, `CPA_MODEL_API_KEY`, or a raw model ID.
 
-- [ ] **Step 4: Update the image card and Gallery labels.**
+- [x] **Step 4: Update the image card and Gallery labels.**
 
   Derive the displayed label from `engine`, preserve prompt/output metadata, and keep copy/download/fullscreen behavior unchanged. Do not add a second binary store.
 
-- [ ] **Step 5: Run the client/build checks.**
+- [x] **Step 5: Run the client/build checks.**
 
 ~~~bash
 pnpm exec vitest run tests/gallery-store.spec.ts
@@ -493,7 +493,7 @@ pnpm run typecheck
 
   Expected: migration tests pass and no client typecheck error is introduced by removing credentials from the settings face.
 
-- [ ] **Step 6: Commit the UI migration.**
+- [x] **Step 6: Commit the UI migration.**
 
 ~~~bash
 git add src/client/index.tsx src/client/gallery-store.ts src/client/gallery-view.tsx src/shared.ts tests/gallery-store.spec.ts
@@ -515,7 +515,7 @@ git commit -m "feat: add GPT and Gemini image engine settings"
 - Consumes: the native DSH Bundle manifest in `package.json` and `cordis.patch.yml`.
 - Produces: optional Codex discovery metadata without replacing DSH runtime packaging.
 
-- [ ] **Step 1: Add the Codex plugin manifest.**
+- [x] **Step 1: Add the Codex plugin manifest.**
 
   Create:
 
@@ -530,15 +530,15 @@ git commit -m "feat: add GPT and Gemini image engine settings"
 
   Keep the DSH `dsh.bundle` and `dsh.client` fields in `package.json`; `.codex-plugin/plugin.json` is an additional Codex-facing layer, not a replacement.
 
-- [ ] **Step 2: Write the image-generation skill.**
+- [x] **Step 2: Write the image-generation skill.**
 
   The skill must instruct the agent to call `generate_image` for explicit image requests, provide a complete visual prompt, avoid reading the generated file to verify it, and describe the two engine labels without exposing credentials.
 
-- [ ] **Step 3: Rewrite the installation skill.**
+- [x] **Step 3: Rewrite the installation skill.**
 
   Replace direct provider-key setup with CPA setup: install both `@LiuRJ99/dsh-cpa-plugin` and `dsh-image-gen`, configure the CPA model route in DSH settings, verify `gemini-3.1-flash-image` or `gpt-image-2` is present in the Host route, and run one `generate_image` smoke test.
 
-- [ ] **Step 4: Update package files and README instructions.**
+- [x] **Step 4: Update package files and README instructions.**
 
   Include `.codex-plugin/plugin.json` and both skills in the published files list. Document the distinct request paths:
 
@@ -547,7 +547,7 @@ GPT Image 2      -> CPA /v1/images/generations
 Gemini Image     -> CPA /v1/chat/completions -> message.images
 ~~~
 
-- [ ] **Step 5: Run packaging validation.**
+- [x] **Step 5: Run packaging validation.**
 
 ~~~bash
 pnpm run pack:check
@@ -555,7 +555,7 @@ pnpm run pack:check
 
   Expected: the dry-run package contains the DSH Bundle artifacts, Codex manifest, and both skills, and does not contain local response captures or credentials.
 
-- [ ] **Step 6: Commit documentation and packaging metadata.**
+- [x] **Step 6: Commit documentation and packaging metadata.**
 
 ~~~bash
 git add .codex-plugin/plugin.json skills package.json README.md README.zh-CN.md README.en.md
@@ -572,14 +572,14 @@ git commit -m "docs: document CPA-backed image generation"
 - Consumes: the service contract, engine-only image plugin, selector filters, and package manifests from Tasks 1–6.
 - Produces: evidence that both image engines work through the standalone tool and that ordinary model selection remains text-only.
 
-- [ ] **Step 1: Install dependencies in both repositories.**
+- [x] **Step 1: Install dependencies in both repositories.**
 
 ~~~bash
 pnpm install
 cd ../dsh-cpa-plugin && npm install
 ~~~
 
-- [ ] **Step 2: Run all unit and static checks.**
+- [x] **Step 2: Run all unit and static checks.**
 
 ~~~bash
 pnpm test
@@ -606,7 +606,7 @@ workspace saving writes one image file when enabled
 
   Select `Gemini Image`, use the same simple prompt, and verify the same four outputs. The Host trace must show `/v1/chat/completions`; it must not call `/v1/images/generations` for Gemini.
 
-- [ ] **Step 5: Verify model-selector negatives.**
+- [x] **Step 5: Verify model-selector negatives.**
 
   Open the ordinary CPA model selector and assert that `gpt-image-2` and `gemini-3.1-flash-image` are absent while `gemini-3.1-flash-lite` remains selectable.
 

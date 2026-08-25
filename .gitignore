@@ -4,3 +4,8 @@ lib/
 .DS_Store
 *.log
 .smoke-home/
+# >>> Comet managed project state >>>
+!/.comet/
+/.comet/*
+!/.comet/config.yaml
+# <<< Comet managed project state <<<
