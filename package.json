@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",
@@ -30,10 +30,13 @@
     "lib/client.js",
     "lib/client.js.map",
     "lib/types/**/*.d.ts",
-    "skills/**/*.md",
+    ".codex-plugin/plugin.json",
+    "skills/imagegen/SKILL.md",
+    "skills/install-dsh-image-gen/SKILL.md",
     "cordis.patch.yml",
     "README.md",
     "README.zh-CN.md",
+    "README.en.md",
     "LICENSE"
   ],
   "dsh": {
