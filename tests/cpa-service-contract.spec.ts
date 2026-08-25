@@ -1,11 +1,15 @@
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
-import { apply, inject } from '../src/index.js'
+import { apply, inject, name, version } from '../src/index.js'
 
 vi.mock('@deepseek-ai/dsh-settings', () => ({
   installSettingsSection: vi.fn(),
   settingsNamespace: (name: string) => name,
+}))
+
+vi.mock('@deepseek-ai/dsh-tools', () => ({
+  defineTool: (tool: unknown) => tool,
 }))
 
 interface RegisteredTool {
@@ -24,6 +28,11 @@ const attachment: ImageAttachmentRef = {
 describe('CPA image service contract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('exports plugin metadata', () => {
+    expect(name).toBe('dsh-image-gen')
+    expect(version).toBe('0.2.0')
   })
 
   it('declares and uses the injected service without resolving credentials', async () => {

@@ -19,6 +19,8 @@ export { IMAGE_ROUTE, imageAttachmentFromMeta } from './image-route.js'
 
 /** Cordis plugin name. */
 export const name = 'dsh-image-gen'
+/** Cordis plugin version. */
+export const version = '0.2.0'
 /** Host services required by the Bundle. */
 export const inject = ['tools', 'attachments', 'webServer', IMAGE_GENERATION_SERVICE]
 
