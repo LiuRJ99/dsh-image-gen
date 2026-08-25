@@ -1,7 +1,7 @@
 {
   "name": "dsh-image-gen",
   "version": "0.1.7",
-  "description": "Bring ChatGPT-like image generation to DeepSeek Harness — Gemini, OpenAI, Seedream, DashScope & more.",
+  "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",
   "repository": {
@@ -75,17 +75,12 @@
     "ai-image-generation",
     "multimodal",
     "gemini",
-    "openai",
-    "openai-compatible",
-    "seedream",
-    "dashscope",
-    "wanx",
-    "aliyun",
-    "volcengine",
-    "byok",
+    "gpt-image",
+    "cpa",
     "cordis"
   ],
   "peerDependencies": {
+    "@LiuRJ99/dsh-cpa-plugin": ">=0.3.0 <0.4.0",
     "@deepseek-ai/cordis": ">=4.0.0 <5",
     "@deepseek-ai/dsh-attachment": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-api-remotes": ">=0.1.0-rc.5 <0.2.0",
@@ -96,7 +91,6 @@
     "@deepseek-ai/dsh-client-ui-settings-plugins": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-client-ui-tool": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-credentials": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-settings": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc.5 <0.2.0",
@@ -104,6 +98,7 @@
     "react": ">=18.2.0 <19"
   },
   "devDependencies": {
+    "@LiuRJ99/dsh-cpa-plugin": "file:../../../dsh-cpa-plugin/.worktrees/dsh-cpa-image-provider/LiuRJ99-dsh-cpa-plugin-0.3.0.tgz",
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
     "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.6",
@@ -114,7 +109,6 @@
     "@deepseek-ai/dsh-client-ui-settings-plugins": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-tool": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-credentials": "0.1.0-rc.6",
     "@deepseek-ai/dsh-host-webserver": "0.1.0-rc.6",
     "@deepseek-ai/dsh-settings": "0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",

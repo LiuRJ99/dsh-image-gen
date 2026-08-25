@@ -1,11 +1,20 @@
 /** Values shared by the Host and browser Bundle faces. */
+import type { ImageEngine } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+
+export type { ImageEngine } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
 
 /** Browser route used by the generated-image card. */
 export const IMAGE_ROUTE = '/plugins/dsh-image-gen/image'
 /** Namespace persisted through DSH Settings. */
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'
 
-/** Supported providers. */
+/** Engines exposed by the CPA image-generation service. */
+export const IMAGE_ENGINES = ['gpt', 'gemini'] as const satisfies readonly ImageEngine[]
+
+/**
+ * Legacy browser-facing provider exports retained until the settings/Gallery
+ * migration in Task 5. The Host configuration and tool no longer consume them.
+ */
 export const IMAGE_PROVIDERS = ['google', 'openai', 'seedream', 'dashscope'] as const
 export type ImageProvider = typeof IMAGE_PROVIDERS[number]
 
@@ -34,4 +43,3 @@ export const DEFAULT_BASE_URLS: Record<ImageProvider, string> = {
   seedream: DEFAULT_SEEDREAM_BASE_URL,
   dashscope: DEFAULT_DASHSCOPE_ENDPOINT,
 }
-
