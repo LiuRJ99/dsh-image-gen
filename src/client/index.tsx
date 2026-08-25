@@ -2,7 +2,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { SettingsScope, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -10,61 +9,30 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import {
-  DEFAULT_BASE_URLS,
-  DEFAULT_MODELS,
   IMAGE_GENERATION_NAMESPACE,
   IMAGE_ROUTE,
-  type ImageProvider,
+  type ImageEngine,
 } from '../shared.js'
-import { saveGalleryItem } from './gallery-store.js'
+import { galleryEngineLabel, normalizeGalleryItem, saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type LocaleService } from './gallery-view.js'
 
-type Provider = ImageProvider
 interface ImageSettings {
-  provider?: Provider
-  googleModel?: string
-  googleEndpoint?: string
-  openaiBaseURL?: string
-  openaiModel?: string
-  seedreamBaseURL?: string
-  seedreamModel?: string
-  dashscopeEndpoint?: string
-  dashscopeModel?: string
+  engine?: ImageEngine
   saveToWorkspace?: boolean
   workspaceFolder?: string
 }
-interface SettingsFace { scope: SettingsScope<ImageSettings>; credentials: ConnectionHandle['api']['credentials']; locale?: LocaleService | undefined }
+interface SettingsFace { scope: SettingsScope<ImageSettings>; locale?: LocaleService | undefined }
 interface ImageCardFace { locale?: LocaleService | undefined }
 type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
 type ImageCardProps = PropsRuntime<'tool.call.toolview'> & InjectFace<ImageCardFace>
 
-const KEY_REF: Record<Provider, string> = {
-  google: 'GEMINI_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  seedream: 'ARK_API_KEY',
-  dashscope: 'DASHSCOPE_API_KEY',
-}
-
 const DICT = {
   zh: {
     title: '图像生成',
-    description: '选择厂商并配置生图模型。',
-    provider: 'Provider',
-    providerGoogle: 'Google Gemini',
-    providerOpenAI: 'OpenAI / 中转站',
-    providerSeedream: '字节 Seedream',
-    providerDashScope: '阿里 DashScope (通义万相 / Qwen)',
-    apiKeyLabel: '{provider} API Key',
-    apiKeyPlaceholder: '留空即可保留已配置的 Key',
-    apiKeyHint: '安全保存为 {key}；页面不会读回明文。',
-    endpoint: '接口地址',
-    reset: '重置',
-    resetTitle: '重置为默认官方地址',
-    endpointHintGoogle: 'Google 官方地址或反代端点（全路径）。',
-    endpointHintOpenAI: '中转站请填其 OpenAI 兼容的 /v1 地址。',
-    endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
-    endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
-    model: '模型',
+    description: '选择图片生成引擎并配置工作区保存。',
+    engine: '生成引擎',
+    engineGPT: 'GPT Image 2',
+    engineGemini: 'Gemini Image',
     saveToWorkspace: '保存到工作区',
     saveToWorkspaceHint: '每次生成后，把图片文件保存到当前会话工作区。',
     folder: '工作区文件夹',
@@ -73,9 +41,6 @@ const DICT = {
     save: '保存',
     saved: '已保存',
     savedToPath: '已保存到',
-    checkingKey: '正在检查 API Key…',
-    keyConfigured: '已配置 API Key',
-    keyNotConfigured: '尚未配置 API Key',
     generating: '正在生成图片…',
     loading: '正在加载图片…',
     loadFailed: '图片读取失败 ({status})',
@@ -88,23 +53,10 @@ const DICT = {
   },
   en: {
     title: 'Image Generation',
-    description: 'Select provider and configure image generation models.',
-    provider: 'Provider',
-    providerGoogle: 'Google Gemini',
-    providerOpenAI: 'OpenAI / Relay',
-    providerSeedream: 'ByteDance Seedream',
-    providerDashScope: 'Aliyun DashScope (Wanx / Qwen)',
-    apiKeyLabel: '{provider} API Key',
-    apiKeyPlaceholder: 'Leave empty to keep configured key',
-    apiKeyHint: 'Securely saved as {key}; never read back in plaintext.',
-    endpoint: 'Endpoint / Base URL',
-    reset: 'Reset',
-    resetTitle: 'Reset to official default URL',
-    endpointHintGoogle: 'Official Google endpoint or reverse proxy (full path).',
-    endpointHintOpenAI: 'OpenAI-compatible /v1 base URL for relays.',
-    endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
-    endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
-    model: 'Model',
+    description: 'Select an image engine and configure workspace saving.',
+    engine: 'Image engine',
+    engineGPT: 'GPT Image 2',
+    engineGemini: 'Gemini Image',
     saveToWorkspace: 'Save to workspace',
     saveToWorkspaceHint: 'Write each generated image as a file into the session workspace.',
     folder: 'Workspace folder',
@@ -113,9 +65,6 @@ const DICT = {
     save: 'Save',
     saved: 'Saved',
     savedToPath: 'Saved to',
-    checkingKey: 'Checking API Key…',
-    keyConfigured: 'API Key configured',
-    keyNotConfigured: 'API Key not configured',
     generating: 'Generating image…',
     loading: 'Loading image…',
     loadFailed: 'Failed to load image ({status})',
@@ -199,7 +148,6 @@ const STYLE = `
 .dsh-ig-gallery-card-meta{padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--dsw-alias-bg-layer-2,#fff);flex:1}
 .dsh-ig-gallery-card-header{display:flex;align-items:center;justify-content:space-between;font-size:11px}
 .dsh-ig-tag{display:inline-block;padding:2px 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,#edf0f3);color:var(--dsw-alias-label-secondary,inherit);font-weight:500;text-transform:uppercase;font-size:10px}
-.dsh-ig-tag-model{background:rgba(76,120,255,0.1);color:#4c78ff}
 .dsh-ig-gallery-card-prompt{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-primary,inherit);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 .dsh-ig-gallery-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:360px;text-align:center;color:var(--dsw-alias-label-tertiary,#7b818b)}
 .dsh-ig-gallery-empty-icon{font-size:48px;margin-bottom:12px}
@@ -232,7 +180,6 @@ export const inject = ['slots', 'connection', 'remote', 'settingsScope', 'locale
 
 /** Mount the settings card, generated-image card, and native conversation gallery view. */
 export function apply(ctx: Context): void {
-  const { api } = ctx.get('connection') as ConnectionHandle
   const scope = ctx.settingsScope.bind<ImageSettings>({ namespace: IMAGE_GENERATION_NAMESPACE as never })
   const locale = ctx.get('locale') as LocaleService | undefined
 
@@ -252,7 +199,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('settings.plugin.item', () => register({
     name: 'settings.plugin.item',
     key: IMAGE_GENERATION_NAMESPACE,
-    inject: (): SettingsFace => ({ scope, credentials: api.credentials, locale }),
+    inject: (): SettingsFace => ({ scope, locale }),
   }, ImageGenerationSettingsCard))
 
   // 2. Tool result view card in chat stream
@@ -275,18 +222,14 @@ export function apply(ctx: Context): void {
   }, GalleryViewTab))
 }
 
-/** Edit provider settings and its write-only API credential. */
+/** Edit the selected image engine and workspace output settings. */
 export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   const [open, setOpen] = useState(false)
   const [snapshot, setSnapshot] = useState(() => props.scope.getSnapshot())
   const [lang, setLang] = useState(() => (props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'))
-  const [provider, setProvider] = useState<Provider>('google')
-  const [model, setModel] = useState('')
-  const [baseURL, setBaseURL] = useState('')
+  const [engine, setEngine] = useState<ImageEngine>('gpt')
   const [saveToWorkspace, setSaveToWorkspace] = useState(true)
   const [workspaceFolder, setWorkspaceFolder] = useState('dsh-image-gen')
-  const [key, setKey] = useState('')
-  const [configured, setConfigured] = useState<boolean | undefined>()
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -308,47 +251,22 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     return text
   }
 
-  const providerLabels: Record<Provider, string> = {
-    google: t('providerGoogle'),
-    openai: t('providerOpenAI'),
-    seedream: t('providerSeedream'),
-    dashscope: t('providerDashScope'),
-  }
-
   useEffect(() => {
     const value = snapshot.value
-    const next = value?.provider ?? 'google'
-    setProvider(next); setModel(modelOf(next, value)); setBaseURL(baseURLOf(next, value))
+    setEngine(value?.engine ?? 'gpt')
     setSaveToWorkspace(value?.saveToWorkspace ?? true)
     setWorkspaceFolder(value?.workspaceFolder ?? 'dsh-image-gen')
   }, [snapshot])
 
-  useEffect(() => {
-    let active = true
-    void props.credentials.describe({ refs: [KEY_REF[provider]] }).then(response => {
-      if (active) setConfigured(response.result.ok ? response.result.value.credentials[KEY_REF[provider]]?.configured ?? false : undefined)
-    }).catch(() => { if (active) setConfigured(undefined) })
-    return () => { active = false }
-  }, [props.credentials, provider])
-
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault(); setSaving(true); setMessage('')
     try {
-      await props.scope.set('provider', provider)
-      await props.scope.set(provider === 'google' ? 'googleModel' : provider === 'openai' ? 'openaiModel' : provider === 'seedream' ? 'seedreamModel' : 'dashscopeModel', model)
-      await props.scope.set(provider === 'google' ? 'googleEndpoint' : provider === 'openai' ? 'openaiBaseURL' : provider === 'seedream' ? 'seedreamBaseURL' : 'dashscopeEndpoint', baseURL)
+      await props.scope.set('engine', engine)
       await props.scope.set('saveToWorkspace', saveToWorkspace)
       await props.scope.set('workspaceFolder', workspaceFolder.trim())
-      if (key.trim().length > 0) {
-        const response = await props.credentials.set({ ref: KEY_REF[provider], value: key.trim() })
-        if (!response.result.ok) throw new Error(response.result.error.message)
-        setKey(''); setConfigured(true)
-      }
       setMessage(t('saved'))
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)) } finally { setSaving(false) }
   }
-
-  const keyStatus = configured === undefined ? t('checkingKey') : configured ? t('keyConfigured') : t('keyNotConfigured')
 
   return (
     <li className={`dsh-ig-card ${open ? 'dsh-ig-card-open' : ''}`}>
@@ -364,31 +282,11 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
       {open ? (
         <form className="dsh-ig-body" onSubmit={(event) => { void save(event) }}>
           <label className="dsh-ig-field">
-            <span className="dsh-ig-label">{t('provider')}</span>
-            <select className="dsh-ig-input" value={provider} onChange={event => { const next = event.target.value as Provider; setProvider(next); setModel(modelOf(next, snapshot.value)); setBaseURL(baseURLOf(next, snapshot.value)); setKey('') }}>
-              <option value="google">{t('providerGoogle')}</option>
-              <option value="openai">{t('providerOpenAI')}</option>
-              <option value="seedream">{t('providerSeedream')}</option>
-              <option value="dashscope">{t('providerDashScope')}</option>
+            <span className="dsh-ig-label">{t('engine')}</span>
+            <select className="dsh-ig-input" value={engine} onChange={event => { setEngine(event.target.value as ImageEngine) }}>
+              <option value="gpt">{t('engineGPT')}</option>
+              <option value="gemini">{t('engineGemini')}</option>
             </select>
-            <span className="dsh-ig-hint">{providerLabels[provider]}</span>
-          </label>
-          <label className="dsh-ig-field">
-            <span className="dsh-ig-label">{t('apiKeyLabel', { provider: providerLabels[provider] })}</span>
-            <input className="dsh-ig-input" type="password" autoComplete="off" value={key} onChange={event => { setKey(event.target.value) }} placeholder={configured ? t('apiKeyPlaceholder') : ''} />
-            <span className="dsh-ig-hint">{t('apiKeyHint', { key: KEY_REF[provider] })}</span>
-          </label>
-          <label className="dsh-ig-field">
-            <span className="dsh-ig-label">{t('endpoint')}</span>
-            <div className="dsh-ig-input-group">
-              <input className="dsh-ig-input" type="url" value={baseURL} onChange={event => { setBaseURL(event.target.value) }} required />
-              <button type="button" className="dsh-ig-btn-reset" title={t('resetTitle')} onClick={() => { setBaseURL(DEFAULT_BASE_URLS[provider]) }}>{t('reset')}</button>
-            </div>
-            <span className="dsh-ig-hint">{provider === 'google' ? t('endpointHintGoogle') : provider === 'openai' ? t('endpointHintOpenAI') : provider === 'seedream' ? t('endpointHintSeedream') : t('endpointHintDashScope')}</span>
-          </label>
-          <label className="dsh-ig-field">
-            <span className="dsh-ig-label">{t('model')}</span>
-            <input className="dsh-ig-input" value={model} onChange={event => { setModel(event.target.value) }} required />
           </label>
           <div className="dsh-ig-field">
             <label className="dsh-ig-check-row">
@@ -405,7 +303,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
             </label>
           ) : null}
           <div className="dsh-ig-actions">
-            <p className="dsh-ig-status" role="status">{message || keyStatus}</p>
+            <p className="dsh-ig-status" role="status">{message}</p>
             <button className="dsh-ig-save" type="submit" disabled={saving || !snapshot.writable}>{saving ? t('saving') : t('save')}</button>
           </div>
         </form>
@@ -418,6 +316,9 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 export function GeneratedImageCard(props: ImageCardProps) {
   const attachment = imageRef(props.block)
   const savedTo = imageSavedTo(props.block)
+  const metadata = imageMetadata(props.block)
+  const normalizedMetadata = normalizeGalleryItem({ engine: metadata.engine, provider: metadata.provider })
+  const engine = normalizedMetadata.engine
   const [url, setUrl] = useState<string>()
   const [blob, setBlob] = useState<Blob>()
   const [error, setError] = useState<string>()
@@ -445,25 +346,16 @@ export function GeneratedImageCard(props: ImageCardProps) {
   // Auto-collect into gallery IndexedDB
   useEffect(() => {
     if (attachment === undefined) return
-    const blockAny = props.block as unknown as {
-      meta?: Record<string, unknown>
-      resultView?: { meta?: Record<string, unknown> }
-      call?: { args?: { prompt?: string } }
-    }
-    const meta = blockAny.meta ?? blockAny.resultView?.meta
-    const prompt = typeof meta?.prompt === 'string' ? meta.prompt : blockAny.call?.args?.prompt ?? 'Generated Image'
-    const provider = (typeof meta?.provider === 'string' ? meta.provider : 'google') as ImageProvider
-    const model = typeof meta?.model === 'string' ? meta.model : ''
-    const output = typeof meta?.output === 'string' ? meta.output : ''
-
-    void saveGalleryItem({
+    const item = normalizeGalleryItem({
       id: attachment.attachmentId,
       attachment,
-      prompt,
-      provider,
-      model,
-      output,
+      prompt: metadata.prompt,
+      engine: metadata.engine,
+      provider: metadata.provider,
+      model: typeof metadata.model === 'string' ? metadata.model : '',
+      output: typeof metadata.output === 'string' ? metadata.output : '',
     })
+    void saveGalleryItem(item)
   }, [attachment?.attachmentId])
 
   useEffect(() => {
@@ -527,7 +419,7 @@ export function GeneratedImageCard(props: ImageCardProps) {
 
   if (attachment === undefined) return <div className="dsh-ig-loading">{t('generating')}</div>
   return <section className="dsh-ig-result" aria-label={t('generatedTitle')}>
-    <div className="dsh-ig-result-title">{t('generatedTitle')}</div>
+    <div className="dsh-ig-result-title" title={normalizedMetadata.normalizationError}>{t('generatedTitle')} · {galleryEngineLabel(engine)}</div>
     {savedTo !== undefined ? <div className="dsh-ig-savedto">{t('savedToPath')}: {savedTo}</div> : null}
     {error !== undefined ? <div className="dsh-ig-error">{error}</div> : null}
     {url === undefined && error === undefined ? <div className="dsh-ig-loading">{t('loading')}</div> : null}
@@ -564,17 +456,31 @@ export function GeneratedImageCard(props: ImageCardProps) {
   </section>
 }
 
-function modelOf(provider: Provider, value: ImageSettings | undefined): string {
-  const stored = provider === 'google' ? value?.googleModel : provider === 'openai' ? value?.openaiModel : provider === 'seedream' ? value?.seedreamModel : value?.dashscopeModel
-  return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_MODELS[provider]
-}
-
-function baseURLOf(provider: Provider, value: ImageSettings | undefined): string {
-  const stored = provider === 'google' ? value?.googleEndpoint : provider === 'openai' ? value?.openaiBaseURL : provider === 'seedream' ? value?.seedreamBaseURL : value?.dashscopeEndpoint
-  return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_BASE_URLS[provider]
-}
-
 function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined { if (!('kind' in block) || block.resultView?.card !== 'generic') return undefined; const image = block.resultView.content?.find(item => item.type === 'image'); return image?.type === 'image' ? image.attachment : undefined }
+
+interface ImageMetadata {
+  prompt: string
+  engine?: unknown
+  provider?: unknown
+  model?: unknown
+  output?: unknown
+}
+
+function imageMetadata(block: ToolCallBlock): ImageMetadata {
+  const blockAny = block as unknown as {
+    meta?: Record<string, unknown>
+    resultView?: { meta?: Record<string, unknown> }
+    call?: { args?: { prompt?: string } }
+  }
+  const meta = blockAny.meta ?? blockAny.resultView?.meta
+  return {
+    prompt: typeof meta?.prompt === 'string' ? meta.prompt : blockAny.call?.args?.prompt ?? 'Generated Image',
+    engine: meta?.engine,
+    provider: meta?.provider,
+    model: meta?.model,
+    output: meta?.output,
+  }
+}
 
 /** The workspace file path a completed image call saved, when the result meta carries one. */
 function imageSavedTo(block: ToolCallBlock): string | undefined {

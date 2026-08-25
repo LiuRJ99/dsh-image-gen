@@ -3,9 +3,9 @@
  * Fully i18n-reactive (Chinese & English).
  */
 import { useEffect, useState, useMemo, type FC, type MouseEvent } from 'react'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { IMAGE_ROUTE, type ImageProvider } from '../shared.js'
+import { IMAGE_ROUTE } from '../shared.js'
 import {
+  galleryEngineLabel,
   getGalleryItems,
   subscribeGallery,
   deleteGalleryItem,
@@ -21,15 +21,14 @@ const DICT = {
   zh: {
     totalCount: '共 {count} 张生成图片',
     searchPlaceholder: '搜索 Prompt 关键词…',
-    filterAll: '全部厂商',
-    filterGoogle: 'Google Gemini',
-    filterOpenAI: 'OpenAI / 中转站',
-    filterSeedream: '字节 Seedream',
-    filterDashScope: '阿里 DashScope',
+    filterAll: '全部引擎',
+    filterGPT: 'GPT Image 2',
+    filterGemini: 'Gemini Image',
+    filterUnknown: '未知引擎',
     emptyTitle: '暂无生图记录',
     emptyDesc: '在对话中让 Agent 生图后，生成的图片会自动收录到这里。',
     noMatchTitle: '未找到匹配结果',
-    noMatchDesc: '尝试更换搜索关键词或选择其他厂商。',
+    noMatchDesc: '尝试更换搜索关键词或选择其他引擎。',
     copiedPrompt: '已复制 Prompt',
     copiedImage: '已复制图片',
     copyFailed: '复制失败',
@@ -40,22 +39,20 @@ const DICT = {
     delete: '从画廊删除',
     confirmDelete: '确定要从画廊中删除这张图片吗？（不会影响原聊天记录）',
     deleted: '已从画廊删除',
-    model: '模型',
     prompt: 'Prompt',
     close: '关闭 (Esc)',
   },
   en: {
     totalCount: '{count} images total',
     searchPlaceholder: 'Search prompt keywords…',
-    filterAll: 'All Providers',
-    filterGoogle: 'Google Gemini',
-    filterOpenAI: 'OpenAI / Relay',
-    filterSeedream: 'ByteDance Seedream',
-    filterDashScope: 'Aliyun DashScope',
+    filterAll: 'All engines',
+    filterGPT: 'GPT Image 2',
+    filterGemini: 'Gemini Image',
+    filterUnknown: 'Unknown engine',
     emptyTitle: 'No images generated yet',
     emptyDesc: 'Images generated during conversations will automatically appear here.',
     noMatchTitle: 'No matching images',
-    noMatchDesc: 'Try a different search keyword or provider filter.',
+    noMatchDesc: 'Try a different search keyword or engine filter.',
     copiedPrompt: 'Prompt copied',
     copiedImage: 'Image copied',
     copyFailed: 'Copy failed',
@@ -66,7 +63,6 @@ const DICT = {
     delete: 'Delete from gallery',
     confirmDelete: 'Are you sure you want to remove this image from the gallery? (Chat history will not be affected)',
     deleted: 'Deleted from gallery',
-    model: 'Model',
     prompt: 'Prompt',
     close: 'Close (Esc)',
   },
@@ -77,7 +73,7 @@ export type DictKey = keyof typeof DICT.zh
 export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
   const [items, setItems] = useState<GalleryItem[]>([])
   const [search, setSearch] = useState('')
-  const [selectedProvider, setSelectedProvider] = useState<string>('all')
+  const [selectedEngine, setSelectedEngine] = useState<string>('all')
   const [previewItem, setPreviewItem] = useState<GalleryItem | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null)
@@ -155,16 +151,15 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      if (selectedProvider !== 'all' && item.provider !== selectedProvider) return false
+      if (selectedEngine !== 'all' && item.engine !== selectedEngine) return false
       if (search.trim().length > 0) {
         const q = search.trim().toLowerCase()
         const matchPrompt = item.prompt?.toLowerCase().includes(q)
-        const matchModel = item.model?.toLowerCase().includes(q)
-        if (!matchPrompt && !matchModel) return false
+        if (!matchPrompt) return false
       }
       return true
     })
-  }, [items, search, selectedProvider])
+  }, [items, search, selectedEngine])
 
   return (
     <div className="dsh-ig-gallery-page">
@@ -201,14 +196,13 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
           </div>
           <select
             className="dsh-ig-gallery-select"
-            value={selectedProvider}
-            onChange={(e) => setSelectedProvider(e.target.value)}
+            value={selectedEngine}
+            onChange={(e) => setSelectedEngine(e.target.value)}
           >
             <option value="all">{t('filterAll')}</option>
-            <option value="google">{t('filterGoogle')}</option>
-            <option value="openai">{t('filterOpenAI')}</option>
-            <option value="seedream">{t('filterSeedream')}</option>
-            <option value="dashscope">{t('filterDashScope')}</option>
+            <option value="gpt">{t('filterGPT')}</option>
+            <option value="gemini">{t('filterGemini')}</option>
+            <option value="unknown">{t('filterUnknown')}</option>
           </select>
         </div>
       </header>
@@ -264,10 +258,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="dsh-ig-lightbox-meta">
-              <span className="dsh-ig-tag">{previewItem.provider}</span>
-              {previewItem.model ? (
-                <span className="dsh-ig-tag dsh-ig-tag-model">{previewItem.model}</span>
-              ) : null}
+              <span className="dsh-ig-tag" title={previewItem.normalizationError}>{galleryEngineLabel(previewItem.engine)}</span>
             </div>
             <button
               type="button"
@@ -335,7 +326,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
                 onClick={() => {
                   const a = document.createElement('a')
                   a.href = previewUrl
-                  a.download = `dsh-${previewItem.provider}-${previewItem.id}.png`
+                  a.download = `dsh-${previewItem.engine}-${previewItem.id}.png`
                   document.body.appendChild(a)
                   a.click()
                   document.body.removeChild(a)
@@ -436,7 +427,7 @@ const GalleryCard: FC<GalleryCardProps> = ({ item, t, onPreview, onToast }) => {
     if (!url) return
     const a = document.createElement('a')
     a.href = url
-    a.download = `dsh-${item.provider}-${item.id}.png`
+    a.download = `dsh-${item.engine}-${item.id}.png`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -509,10 +500,7 @@ const GalleryCard: FC<GalleryCardProps> = ({ item, t, onPreview, onToast }) => {
 
       <div className="dsh-ig-gallery-card-meta">
         <div className="dsh-ig-gallery-card-header">
-          <span className="dsh-ig-tag">{item.provider}</span>
-          {item.model ? (
-            <span className="dsh-ig-tag dsh-ig-tag-model">{item.model}</span>
-          ) : null}
+          <span className="dsh-ig-tag" title={item.normalizationError}>{galleryEngineLabel(item.engine)}</span>
         </div>
         <p className="dsh-ig-gallery-card-prompt" title={item.prompt}>
           {item.prompt}

@@ -4,22 +4,114 @@
  * Supports tombstones to ensure deleted items are never resurrected when revisiting conversations.
  */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { ImageProvider } from '../shared.js'
+import type { ImageEngine } from '../shared.js'
+
+export type GalleryEngine = ImageEngine | 'unknown'
 
 export interface GalleryItem {
   id: string
   attachment: ImageAttachmentRef
   prompt: string
-  provider: ImageProvider
+  engine: GalleryEngine
   model: string
   createdAt: number
   aspectRatio?: string
   imageSize?: string
   output?: string
+  /** Retained only when a legacy record cannot be mapped to an engine. */
+  legacyProvider?: string
+  /** Retained only when a record contains an unsupported engine value. */
+  legacyEngine?: string
+  /** Diagnostic for records that cannot be mapped without guessing. */
+  normalizationError?: string
+}
+
+/**
+ * Input accepted by the pure metadata normalizer. The required GalleryItem
+ * fields are intentionally optional so legacy metadata-only records can be
+ * normalized without constructing browser or Attachment state in tests.
+ */
+export type GalleryItemInput = Partial<Omit<GalleryItem, 'engine' | 'model' | 'legacyProvider' | 'legacyEngine' | 'normalizationError'>> & {
+  engine?: unknown
+  model?: unknown
+  provider?: unknown
+  legacyProvider?: unknown
+  legacyEngine?: unknown
+  normalizationError?: unknown
+}
+
+/** Display label for a normalized engine, including an explicit unknown case. */
+export function galleryEngineLabel(engine: GalleryEngine): string {
+  if (engine === 'gpt') return 'GPT Image 2'
+  if (engine === 'gemini') return 'Gemini Image'
+  return 'Unknown image engine'
+}
+
+/**
+ * Normalize current and legacy Gallery metadata without inferring unknown
+ * providers. Legacy OpenAI/Google records are mapped to the CPA engines;
+ * unsupported values remain visible as an explicit unknown record.
+ */
+export function normalizeGalleryItem(item: GalleryItemInput): GalleryItem {
+  const {
+    engine: rawEngine,
+    provider: rawProvider,
+    model: rawModel,
+    legacyProvider: rawLegacyProvider,
+    legacyEngine: rawLegacyEngine,
+    normalizationError: rawNormalizationError,
+    ...rest
+  } = item
+  const model = typeof rawModel === 'string' ? rawModel : ''
+  const previousLegacyProvider = typeof rawLegacyProvider === 'string' ? rawLegacyProvider : undefined
+  const previousLegacyEngine = typeof rawLegacyEngine === 'string' ? rawLegacyEngine : undefined
+  const previousError = typeof rawNormalizationError === 'string' ? rawNormalizationError : undefined
+
+  if (rawEngine === 'gpt' || rawEngine === 'gemini') {
+    return { ...rest, engine: rawEngine, model } as GalleryItem
+  }
+  if (rawEngine === 'unknown') {
+    const legacyProvider = previousLegacyProvider ?? (typeof rawProvider === 'string' ? rawProvider : undefined)
+    return {
+      ...rest,
+      engine: 'unknown',
+      model,
+      ...(legacyProvider === undefined ? {} : { legacyProvider }),
+      ...(previousLegacyEngine === undefined ? {} : { legacyEngine: previousLegacyEngine }),
+      normalizationError: previousError ?? 'Unknown image engine metadata',
+    } as GalleryItem
+  }
+  if (rawEngine !== undefined) {
+    const legacyEngine = typeof rawEngine === 'string' ? rawEngine : String(rawEngine)
+    return {
+      ...rest,
+      engine: 'unknown',
+      model,
+      legacyEngine,
+      normalizationError: `Unknown gallery engine "${legacyEngine}"`,
+    } as GalleryItem
+  }
+  if (rawProvider === 'openai') {
+    return { ...rest, engine: 'gpt', model } as GalleryItem
+  }
+  if (rawProvider === 'google') {
+    return { ...rest, engine: 'gemini', model } as GalleryItem
+  }
+
+  const legacyProvider = typeof rawProvider === 'string' ? rawProvider : previousLegacyProvider
+  return {
+    ...rest,
+    engine: 'unknown',
+    model,
+    ...(legacyProvider === undefined ? {} : { legacyProvider }),
+    normalizationError: legacyProvider === undefined
+      ? 'Missing image engine metadata'
+      : `Unknown legacy image provider "${legacyProvider}"`,
+  } as GalleryItem
 }
 
 const DB_NAME = 'dsh_image_gen_db'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_NAME = 'gallery_history'
 const TOMBSTONE_STORE = 'gallery_tombstones'
 
@@ -120,10 +212,10 @@ export async function saveGalleryItem(
     if (tombstones.has(item.id)) {
       return
     }
-    const record: GalleryItem = {
+    const record = normalizeGalleryItem({
       ...item,
       createdAt: item.createdAt ?? Date.now(),
-    }
+    })
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
@@ -153,7 +245,7 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
       req.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
         if (cursor) {
-          items.push(cursor.value as GalleryItem)
+          items.push(normalizeGalleryItem(cursor.value as GalleryItemInput))
           cursor.continue()
         } else {
           resolve(items)
