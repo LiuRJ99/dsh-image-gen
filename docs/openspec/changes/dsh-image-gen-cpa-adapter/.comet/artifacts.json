@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "docs/openspec/changes/dsh-image-gen-cpa-adapter/proposal.md",
+  "openspec_design": "docs/openspec/changes/dsh-image-gen-cpa-adapter/design.md",
+  "openspec_tasks": "docs/openspec/changes/dsh-image-gen-cpa-adapter/tasks.md",
+  "openspec_delta_spec": "docs/openspec/changes/dsh-image-gen-cpa-adapter/specs/cpa-backed-image-generation/spec.md",
+  "handoff_context": "docs/openspec/changes/dsh-image-gen-cpa-adapter/.comet/handoff/spec-context.json",
+  "handoff_markdown": "docs/openspec/changes/dsh-image-gen-cpa-adapter/.comet/handoff/spec-context.md"
+}
