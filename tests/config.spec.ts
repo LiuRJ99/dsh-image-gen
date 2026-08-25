@@ -17,4 +17,25 @@ describe('Config Schema validation', () => {
   it('accepts the Gemini engine', () => {
     expect(Config({ engine: 'gemini' }).engine).toBe('gemini')
   })
+
+  it('strips legacy provider, credentialRef, and other undeclared fields', () => {
+    const validated = Config({
+      engine: 'gemini',
+      provider: 'google',
+      credentialRef: 'legacy',
+      googleModel: 'legacy-model',
+      unexpected: true,
+    } as never)
+
+    expect(validated).toEqual({
+      engine: 'gemini',
+      saveToWorkspace: true,
+      workspaceFolder: 'dsh-image-gen',
+    })
+  })
+
+  it('keeps an object schema for DSH serialization', () => {
+    expect(Config.type).toBe('object')
+    expect(JSON.stringify(Config.toJSON())).toContain('engine')
+  })
 })

@@ -98,7 +98,6 @@
     "react": ">=18.2.0 <19"
   },
   "devDependencies": {
-    "@LiuRJ99/dsh-cpa-plugin": "file:../../../dsh-cpa-plugin/.worktrees/dsh-cpa-image-provider/LiuRJ99-dsh-cpa-plugin-0.3.0.tgz",
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
     "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.6",

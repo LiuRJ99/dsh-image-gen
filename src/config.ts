@@ -23,8 +23,21 @@ export interface Config {
 }
 
 /** Cordis configuration schema. */
-export const Config: z<Config> = z.object({
+const ConfigSchema = z.object({
   engine: z.union(IMAGE_ENGINES).default('gpt'),
   saveToWorkspace: z.boolean().default(true),
   workspaceFolder: z.string().default(DEFAULT_WORKSPACE_FOLDER),
+})
+
+/**
+ * Keep the schema as an object for DSH serialization/rendering, while using
+ * schemastery's public strict resolver to drop legacy and unknown fields.
+ */
+export const Config: z<Config> = new Proxy(ConfigSchema, {
+  apply(target, _thisArg, args) {
+    return z.resolve(args[0], target, args[1], true)[0]
+  },
+  construct(target, args) {
+    return z.resolve(args[0], target, args[1], true)[0]
+  },
 })
