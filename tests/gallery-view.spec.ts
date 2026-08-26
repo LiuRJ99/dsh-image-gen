@@ -137,8 +137,13 @@ describe('formatResolution', () => {
 })
 
 describe('formatDate', () => {
-  it('formats a timestamp as YYYY-MM-DD HH:mm', () => {
-    expect(formatDate(new Date(2025, 4, 18, 14, 30).getTime())).toBe('2025-05-18 14:30')
+  it('formats a timestamp as YYYY-MM-DD HH:mm:ss', () => {
+    expect(formatDate(new Date(2025, 4, 18, 14, 30, 45).getTime())).toBe('2025-05-18 14:30:45')
+  })
+
+  it('handles 10-digit second timestamps as well', () => {
+    const seconds = Math.floor(new Date(2025, 4, 18, 14, 30, 45).getTime() / 1000)
+    expect(formatDate(seconds)).toBe('2025-05-18 14:30:45')
   })
 
   it('falls back to a dash for invalid input', () => {

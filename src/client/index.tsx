@@ -420,9 +420,10 @@ export function GeneratedImageCard(props: ImageCardProps) {
       provider: metadata.provider,
       model: typeof metadata.model === 'string' ? metadata.model : '',
       output: typeof metadata.output === 'string' ? metadata.output : '',
+      createdAt: metadata.createdAt,
     })
     void saveGalleryItem(item)
-  }, [attachment?.attachmentId])
+  }, [attachment?.attachmentId, metadata.createdAt, metadata.prompt, metadata.engine, metadata.model, metadata.output])
 
   useEffect(() => {
     if (!previewOpen) return
@@ -530,6 +531,7 @@ interface ImageMetadata {
   provider?: unknown
   model?: unknown
   output?: unknown
+  createdAt?: number | undefined
 }
 
 function imageMetadata(block: ToolCallBlock): ImageMetadata {
@@ -545,6 +547,7 @@ function imageMetadata(block: ToolCallBlock): ImageMetadata {
     provider: meta?.provider,
     model: meta?.model,
     output: meta?.output,
+    createdAt: typeof meta?.createdAt === 'number' ? meta.createdAt : undefined,
   }
 }
 

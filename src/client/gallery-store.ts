@@ -46,7 +46,8 @@ export interface GalleryItem {
  * fields are intentionally optional so legacy metadata-only records can be
  * normalized without constructing browser or Attachment state in tests.
  */
-export type GalleryItemInput = Partial<Omit<GalleryItem, 'engine' | 'model' | 'legacyProvider' | 'legacyEngine' | 'normalizationError'>> & {
+export type GalleryItemInput = Partial<Omit<GalleryItem, 'engine' | 'model' | 'legacyProvider' | 'legacyEngine' | 'normalizationError' | 'createdAt'>> & {
+  createdAt?: number | undefined
   engine?: unknown
   model?: unknown
   provider?: unknown
@@ -107,15 +108,16 @@ export function formatBytes(bytes: number | undefined | null): string {
   return `${roundOne(mb / 1024)} GB`
 }
 
-/** Formatted creation time, e.g. `2025-05-18 14:30`. */
+/** Formatted creation time, e.g. `2025-05-18 14:30:45`. */
 export function formatDate(timestamp: number, lang: 'zh' | 'en' = 'zh'): string {
   if (!Number.isFinite(timestamp)) return '—'
-  const date = new Date(timestamp)
+  const ms = timestamp < 1e11 ? timestamp * 1000 : timestamp
+  const date = new Date(ms)
   if (Number.isNaN(date.getTime())) return '—'
   const pad = (n: number): string => String(n).padStart(2, '0')
   const ymd = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-  const hm = `${pad(date.getHours())}:${pad(date.getMinutes())}`
-  return lang === 'en' ? `${ymd} ${hm}` : `${ymd} ${hm}`
+  const hms = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  return lang === 'en' ? `${ymd} ${hms}` : `${ymd} ${hms}`
 }
 
 /** Compare two gallery items by the active sort option. */
@@ -327,9 +329,10 @@ export function subscribeGallery(listener: GalleryListener): () => void {
 /**
  * Save or update a gallery record by attachmentId.
  * Skipped if the item was previously deleted (tombstoned).
+ * Preserves the existing `createdAt` timestamp if already saved and not explicitly provided.
  */
 export async function saveGalleryItem(
-  item: Omit<GalleryItem, 'createdAt'> & { createdAt?: number }
+  item: Omit<GalleryItem, 'createdAt'> & { createdAt?: number | undefined }
 ): Promise<void> {
   try {
     const db = await getDB()
@@ -337,10 +340,42 @@ export async function saveGalleryItem(
     if (tombstones.has(item.id)) {
       return
     }
+
+    let existingItem: GalleryItem | undefined
+    try {
+      existingItem = await new Promise<GalleryItem | undefined>((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly')
+        const store = tx.objectStore(STORE_NAME)
+        const req = store.get(item.id)
+        req.onsuccess = () => {
+          const res = req.result as GalleryItemInput | undefined
+          resolve(res ? normalizeGalleryItem(res) : undefined)
+        }
+        req.onerror = () => resolve(undefined)
+      })
+    } catch {
+      existingItem = undefined
+    }
+
+    const resolvedCreatedAt = item.createdAt ?? existingItem?.createdAt ?? (Math.floor(Date.now() / 1000) * 1000)
     const record = normalizeGalleryItem({
       ...item,
-      createdAt: item.createdAt ?? Date.now(),
+      createdAt: resolvedCreatedAt,
     })
+
+    if (
+      existingItem &&
+      existingItem.createdAt === record.createdAt &&
+      existingItem.engine === record.engine &&
+      existingItem.prompt === record.prompt &&
+      existingItem.model === record.model &&
+      existingItem.output === record.output &&
+      existingItem.aspectRatio === record.aspectRatio &&
+      existingItem.imageSize === record.imageSize
+    ) {
+      return
+    }
+
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)

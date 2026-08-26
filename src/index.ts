@@ -28,6 +28,8 @@ interface GeneratedValue {
   attachment: ImageAttachmentRef
   engine: ImageEngine
   output: string
+  /** Creation timestamp in milliseconds when the image was generated. */
+  createdAt: number
   /** Absolute path of the workspace file copy, when the image was saved to the session workspace. */
   savedTo?: string
   /** Why the workspace file copy could not be written, when generation still succeeded. */
@@ -63,6 +65,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               attachmentId: { type: 'string', required: true }, mediaType: { type: 'string', required: true }, bytes: { type: 'integer', required: true }, width: { type: 'integer', required: true }, height: { type: 'integer', required: true }, name: { type: 'string' },
             } },
             engine: { type: 'string', required: true }, output: { type: 'string', required: true },
+            createdAt: { type: 'integer', required: true },
             savedTo: { type: 'string' }, saveError: { type: 'string' },
           },
         },
@@ -75,6 +78,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           attachment: value.attachment,
           engine: value.engine,
           output: value.output,
+          createdAt: value.createdAt,
           ...(typeof value.savedTo === 'string' ? { savedTo: value.savedTo } : {}),
           prompt: (args as { prompt: string }).prompt,
         }),
@@ -113,7 +117,7 @@ async function saveGenerated(
 ): Promise<GeneratedValue> {
   if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) throw new Error(`This DSH deployment does not accept ${generated.mediaType} generated images`)
   const attachment = await ctx.attachments.saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'generated-image' })
-  const value: GeneratedValue = { attachment, engine, output }
+  const value: GeneratedValue = { attachment, engine, output, createdAt: Math.floor(Date.now() / 1000) * 1000 }
   if (config.saveToWorkspace === false) return value
   const workspaceRoot = exec.agent?.session.header.cwd
   if (workspaceRoot === undefined) return value
