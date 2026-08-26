@@ -1,9 +1,11 @@
 /**
  * Native Workspace Gallery View Component for DSH `conversation.view` slot.
  * Fully i18n-reactive (Chinese & English) with multi-mode sorting, engine/ratio
- * filtering, grid/list/table view modes, and localStorage preference persistence.
+ * filtering, grid/list/table view modes, localStorage preference persistence,
+ * virtualized rendering, and thumbnail-vs-full image loading.
  */
-import { useEffect, useState, useMemo, type FC } from 'react'
+import { useEffect, useMemo, useRef, useState, type FC } from 'react'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { IMAGE_ROUTE } from '../shared.js'
 import {
   ASPECT_RATIO_FILTERS,
@@ -22,6 +24,18 @@ import {
   type SortOption,
   type ViewMode,
 } from './gallery-store.js'
+import { buildImageRequestBody, useGalleryImage } from './gallery-image.js'
+import {
+  GRID_GAP,
+  LIST_ROW_HEIGHT,
+  TABLE_HEADER_HEIGHT,
+  TABLE_ROW_HEIGHT,
+  gridCellWidth,
+  gridColumns,
+  gridRowHeight,
+  useContainerWidth,
+  useVirtualWindow,
+} from './gallery-virtual.js'
 
 export interface LocaleService {
   getSnapshot(): { active: string }
@@ -182,6 +196,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
     const active = locale?.getSnapshot?.()?.active
     return active?.startsWith('en') ? 'en' : 'zh'
   })
+  const bodyRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!locale?.subscribe) return
@@ -280,6 +295,31 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
     const next = processedItems[previewIndex + delta]
     if (next) setPreviewId(next.id)
   }
+
+  // --- Virtualization layout -------------------------------------------------
+  const bodyWidth = useContainerWidth(bodyRef)
+  const contentWidth = Math.max(0, bodyWidth - 56) // body padding 28px each side
+  const columns = viewMode === 'grid' ? gridColumns(contentWidth) : 1
+  const cellWidth = gridCellWidth(contentWidth, columns)
+  const rowHeight = viewMode === 'grid' ? gridRowHeight(cellWidth) : viewMode === 'list' ? LIST_ROW_HEIGHT : TABLE_ROW_HEIGHT
+  const rowCount = viewMode === 'grid' ? Math.ceil(processedItems.length / columns) : processedItems.length
+  const offsetTop = viewMode === 'table' ? TABLE_HEADER_HEIGHT : 0
+  const win = useVirtualWindow(bodyRef, rowCount, rowHeight, offsetTop)
+
+  const visibleStart = viewMode === 'grid' ? win.start * columns : win.start
+  const visibleEnd = viewMode === 'grid' ? Math.min(win.end * columns, processedItems.length) : win.end
+  const visibleItems = useMemo(
+    () => processedItems.slice(visibleStart, visibleEnd),
+    [processedItems, visibleStart, visibleEnd],
+  )
+  const visibleGridRows = useMemo(() => {
+    if (viewMode !== 'grid') return []
+    const rows: GalleryItem[][] = []
+    for (let r = win.start; r < win.end; r++) {
+      rows.push(processedItems.slice(r * columns, r * columns + columns))
+    }
+    return rows
+  }, [processedItems, win.start, win.end, columns, viewMode])
 
   return (
     <div className="dsh-ig-gallery-page">
@@ -412,7 +452,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
       </header>
 
       {/* Content */}
-      <div className="dsh-ig-gallery-page-body">
+      <div className="dsh-ig-gallery-page-body" ref={bodyRef}>
         {items.length === 0 ? (
           <div className="dsh-ig-gallery-empty">
             <div className="dsh-ig-gallery-empty-icon">🖼️</div>
@@ -426,39 +466,90 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
             <div className="dsh-ig-gallery-empty-desc">{t('noMatchDesc')}</div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="dsh-ig-gallery-grid">
-            {processedItems.map((item) => (
-              <GalleryGridCard
-                key={item.id}
-                item={item}
-                lang={lang}
-                t={t}
-                onPreview={openPreview}
-                onToast={showToast}
-              />
-            ))}
+          <div className="dsh-ig-gallery-virtual" style={{ position: 'relative', height: win.totalHeight }}>
+            {visibleGridRows.map((rowItems, ri) => {
+              const rowIndex = win.start + ri
+              return (
+                <div
+                  key={rowIndex}
+                  className="dsh-ig-gallery-grid-row"
+                  style={{
+                    top: rowIndex * rowHeight,
+                    height: rowHeight - GRID_GAP,
+                    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {rowItems.map((item) => (
+                    <GalleryGridCard
+                      key={item.id}
+                      item={item}
+                      lang={lang}
+                      t={t}
+                      onPreview={openPreview}
+                      onToast={showToast}
+                    />
+                  ))}
+                </div>
+              )
+            })}
           </div>
         ) : viewMode === 'list' ? (
-          <div className="dsh-ig-gallery-list">
-            {processedItems.map((item) => (
-              <GalleryListItem
-                key={item.id}
-                item={item}
-                lang={lang}
-                t={t}
-                onPreview={openPreview}
-                onToast={showToast}
-              />
-            ))}
+          <div className="dsh-ig-gallery-virtual" style={{ position: 'relative', height: win.totalHeight }}>
+            {visibleItems.map((item, i) => {
+              const index = visibleStart + i
+              return (
+                <div
+                  key={item.id}
+                  className="dsh-ig-gallery-list-virtual-item"
+                  style={{ top: index * LIST_ROW_HEIGHT, height: LIST_ROW_HEIGHT - 12 }}
+                >
+                  <GalleryListItem
+                    item={item}
+                    lang={lang}
+                    t={t}
+                    onPreview={openPreview}
+                    onToast={showToast}
+                  />
+                </div>
+              )
+            })}
           </div>
         ) : (
-          <GalleryTableView items={processedItems} lang={lang} t={t} onPreview={openPreview} onToast={showToast} />
+          <div className="dsh-ig-gallery-table-wrap">
+            <table className="dsh-ig-gallery-table">
+              <thead>
+                <tr>
+                  <th className="dsh-ig-table-th-thumb" />
+                  <th>{t('colPrompt')}</th>
+                  <th>{t('colEngine')}</th>
+                  <th>{t('colResolution')}</th>
+                  <th>{t('colSize')}</th>
+                  <th>{t('colTime')}</th>
+                  <th>{t('colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {win.padTop > 0 && <tr className="dsh-ig-gallery-spacer" style={{ height: win.padTop }}><td colSpan={7} /></tr>}
+                {visibleItems.map((item) => (
+                  <GalleryTableRow
+                    key={item.id}
+                    item={item}
+                    lang={lang}
+                    t={t}
+                    onPreview={openPreview}
+                    onToast={showToast}
+                  />
+                ))}
+                {win.padBottom > 0 && <tr className="dsh-ig-gallery-spacer" style={{ height: win.padBottom }}><td colSpan={7} /></tr>}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {toast && <div className="dsh-ig-gallery-page-toast">{toast}</div>}
 
-      {/* Pure Centered Lightbox Preview with prev/next navigation */}
+      {/* Pure Centered Lightbox Preview with prev/next navigation (full image) */}
       {previewItem && (
         <GalleryLightbox
           item={previewItem}
@@ -475,7 +566,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
   )
 }
 
-/** Pure centered lightbox with self-loaded image, prev/next nav, and a position counter. */
+/** Pure centered lightbox with self-loaded full image, prev/next nav, and a position counter. */
 const GalleryLightbox: FC<{
   item: GalleryItem
   index: number
@@ -486,7 +577,7 @@ const GalleryLightbox: FC<{
   onClose: () => void
   onToast: (msg: string) => void
 }> = ({ item, index, total, t, onPrev, onNext, onClose, onToast }) => {
-  const { url, blob, loading, error } = useGalleryImage(item)
+  const { url, blob, loading, error } = useGalleryImage(item.attachment, 'full')
 
   // Arrow-key navigation while the lightbox is open.
   useEffect(() => {
@@ -558,53 +649,6 @@ const GalleryLightbox: FC<{
   )
 }
 
-/** Fetch a gallery item's image blob + object URL on mount. */
-function useGalleryImage(item: GalleryItem): {
-  url: string | undefined
-  blob: Blob | undefined
-  loading: boolean
-  error: string | undefined
-} {
-  const [url, setUrl] = useState<string>()
-  const [blob, setBlob] = useState<Blob>()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string>()
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let objectUrl: string | undefined
-
-    void fetch(IMAGE_ROUTE, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ attachment: item.attachment }),
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const resBlob = await response.blob()
-        if (controller.signal.aborted) return
-        setBlob(resBlob)
-        objectUrl = URL.createObjectURL(resBlob)
-        setUrl(objectUrl)
-        setLoading(false)
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : String(err))
-          setLoading(false)
-        }
-      })
-
-    return () => {
-      controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [item.attachment])
-
-  return { url, blob, loading, error }
-}
-
 interface ViewItemProps {
   item: GalleryItem
   lang: 'zh' | 'en'
@@ -615,27 +659,27 @@ interface ViewItemProps {
 
 /** Grid card: visual-first thumbnail with floating quick actions. */
 const GalleryGridCard: FC<ViewItemProps> = ({ item, t, onPreview, onToast }) => {
-  const { url, blob, loading, error } = useGalleryImage(item)
+  const { url, loading, error } = useGalleryImage(item.attachment, 'thumb')
 
   return (
     <div
       className="dsh-ig-gallery-card"
       onClick={() => {
-        if (url && blob) onPreview(item)
+        if (url) onPreview(item)
       }}
     >
       <div className="dsh-ig-gallery-card-media">
         {loading && <div className="dsh-ig-gallery-card-loading">...</div>}
         {error && <div className="dsh-ig-gallery-card-error">⚠️ {error}</div>}
         {url && (
-          <img className="dsh-ig-gallery-card-img" src={url} alt={item.prompt} loading="lazy" />
+          <img className="dsh-ig-gallery-card-img" src={url} alt={item.prompt} loading="lazy" decoding="async" />
         )}
 
         <div className="dsh-ig-card-toolbar">
-          <button type="button" className="dsh-ig-tool-btn" title={t('copyImg')} onClick={(e) => { e.stopPropagation(); if (blob) void handleCopyImage(blob, t, onToast) }}>
+          <button type="button" className="dsh-ig-tool-btn" title={t('copyImg')} onClick={(e) => { e.stopPropagation(); void handleCopyImageFull(item, t, onToast) }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           </button>
-          <button type="button" className="dsh-ig-tool-btn" title={t('download')} onClick={(e) => { e.stopPropagation(); if (url) handleDownload(item, url) }}>
+          <button type="button" className="dsh-ig-tool-btn" title={t('download')} onClick={(e) => { e.stopPropagation(); void handleDownloadFull(item, t, onToast) }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </button>
           <button type="button" className="dsh-ig-tool-btn" title={t('copyPpt')} onClick={(e) => { e.stopPropagation(); void handleCopyPrompt(item, t, onToast) }}>
@@ -659,19 +703,19 @@ const GalleryGridCard: FC<ViewItemProps> = ({ item, t, onPreview, onToast }) => 
 
 /** List row: horizontal thumbnail + full prompt + metadata + action bar. */
 const GalleryListItem: FC<ViewItemProps> = ({ item, lang, t, onPreview, onToast }) => {
-  const { url, blob, loading, error } = useGalleryImage(item)
+  const { url, loading, error } = useGalleryImage(item.attachment, 'thumb')
 
   return (
     <div
       className="dsh-ig-gallery-list-item"
       onClick={() => {
-        if (url && blob) onPreview(item)
+        if (url) onPreview(item)
       }}
     >
       <div className="dsh-ig-gallery-list-thumb">
         {loading && <div className="dsh-ig-gallery-card-loading">...</div>}
         {error && <div className="dsh-ig-gallery-card-error">⚠️</div>}
-        {url && <img src={url} alt={item.prompt} loading="lazy" />}
+        {url && <img src={url} alt={item.prompt} loading="lazy" decoding="async" />}
       </div>
 
       <div className="dsh-ig-gallery-list-main">
@@ -687,58 +731,26 @@ const GalleryListItem: FC<ViewItemProps> = ({ item, lang, t, onPreview, onToast 
         </div>
       </div>
 
-      <GalleryActionsBar item={item} url={url} blob={blob} t={t} onToast={onToast} />
-    </div>
-  )
-}
-
-/** Compact table view with a header row and one row per item. */
-const GalleryTableView: FC<{
-  items: GalleryItem[]
-  lang: 'zh' | 'en'
-  t: Translate
-  onPreview: (item: GalleryItem) => void
-  onToast: (msg: string) => void
-}> = ({ items, lang, t, onPreview, onToast }) => {
-  return (
-    <div className="dsh-ig-gallery-table-wrap">
-      <table className="dsh-ig-gallery-table">
-        <thead>
-          <tr>
-            <th className="dsh-ig-table-th-thumb" />
-            <th>{t('colPrompt')}</th>
-            <th>{t('colEngine')}</th>
-            <th>{t('colResolution')}</th>
-            <th>{t('colSize')}</th>
-            <th>{t('colTime')}</th>
-            <th>{t('colActions')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <GalleryTableRow key={item.id} item={item} lang={lang} t={t} onPreview={onPreview} onToast={onToast} />
-          ))}
-        </tbody>
-      </table>
+      <GalleryActionsBar item={item} t={t} onToast={onToast} />
     </div>
   )
 }
 
 const GalleryTableRow: FC<ViewItemProps> = ({ item, lang, t, onPreview, onToast }) => {
-  const { url, blob, loading, error } = useGalleryImage(item)
+  const { url, loading, error } = useGalleryImage(item.attachment, 'thumb')
 
   return (
     <tr
       className="dsh-ig-gallery-table-row"
       onClick={() => {
-        if (url && blob) onPreview(item)
+        if (url) onPreview(item)
       }}
     >
       <td className="dsh-ig-table-cell-thumb">
         <div className="dsh-ig-gallery-table-thumb">
           {loading && <div className="dsh-ig-gallery-card-loading">...</div>}
           {error && <div className="dsh-ig-gallery-card-error">⚠️</div>}
-          {url && <img src={url} alt={item.prompt} loading="lazy" />}
+          {url && <img src={url} alt={item.prompt} loading="lazy" decoding="async" />}
         </div>
       </td>
       <td className="dsh-ig-table-cell-prompt">
@@ -754,7 +766,7 @@ const GalleryTableRow: FC<ViewItemProps> = ({ item, lang, t, onPreview, onToast 
       <td>{formatBytes(item.attachment?.bytes)}</td>
       <td>{formatDate(item.createdAt, lang)}</td>
       <td onClick={(e) => e.stopPropagation()}>
-        <GalleryActionsBar item={item} url={url} blob={blob} t={t} onToast={onToast} />
+        <GalleryActionsBar item={item} t={t} onToast={onToast} />
       </td>
     </tr>
   )
@@ -763,20 +775,18 @@ const GalleryTableRow: FC<ViewItemProps> = ({ item, lang, t, onPreview, onToast 
 /** Inline icon action bar shared by list and table views. */
 const GalleryActionsBar: FC<{
   item: GalleryItem
-  url: string | undefined
-  blob: Blob | undefined
   t: Translate
   onToast: (msg: string) => void
-}> = ({ item, url, blob, t, onToast }) => {
+}> = ({ item, t, onToast }) => {
   return (
     <div className="dsh-ig-gallery-actions-row">
       <button type="button" className="dsh-ig-action-btn" title={t('copyPpt')} onClick={(e) => { e.stopPropagation(); void handleCopyPrompt(item, t, onToast) }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
       </button>
-      <button type="button" className="dsh-ig-action-btn" title={t('copyImg')} onClick={(e) => { e.stopPropagation(); if (blob) void handleCopyImage(blob, t, onToast) }}>
+      <button type="button" className="dsh-ig-action-btn" title={t('copyImg')} onClick={(e) => { e.stopPropagation(); void handleCopyImageFull(item, t, onToast) }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       </button>
-      <button type="button" className="dsh-ig-action-btn" title={t('download')} onClick={(e) => { e.stopPropagation(); if (url) handleDownload(item, url) }}>
+      <button type="button" className="dsh-ig-action-btn" title={t('download')} onClick={(e) => { e.stopPropagation(); void handleDownloadFull(item, t, onToast) }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </button>
       <button type="button" className="dsh-ig-action-btn dsh-ig-action-btn-danger" title={t('delete')} onClick={(e) => { e.stopPropagation(); void handleDelete(item, t, onToast) }}>
@@ -813,6 +823,37 @@ function handleDownload(item: GalleryItem, url: string): void {
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
+}
+
+/** Lazily fetch the full-resolution bytes for a card's copy/download action. */
+async function fetchFullImage(ref: ImageAttachmentRef): Promise<Blob> {
+  const response = await fetch(IMAGE_ROUTE, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: buildImageRequestBody(ref, 'full', 0),
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.blob()
+}
+
+async function handleDownloadFull(item: GalleryItem, t: Translate, onToast: (msg: string) => void): Promise<void> {
+  try {
+    const blob = await fetchFullImage(item.attachment)
+    const url = URL.createObjectURL(blob)
+    handleDownload(item, url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch {
+    onToast(t('copyFailed'))
+  }
+}
+
+async function handleCopyImageFull(item: GalleryItem, t: Translate, onToast: (msg: string) => void): Promise<void> {
+  try {
+    const blob = await fetchFullImage(item.attachment)
+    await handleCopyImage(blob, t, onToast)
+  } catch {
+    onToast(t('copyFailed'))
+  }
 }
 
 export async function copyImageBlob(blob: Blob): Promise<boolean> {

@@ -7,6 +7,26 @@
 
 ---
 
+## [0.4.0] - 2026-08-26
+
+### 新增 (Added)
+- **服务端高性能缩略图生成与缓存 (Sharp Thumbnail Generation & HTTP Caching)**：
+  - 后端 `/dsh-image-gen/image` 路由集成 `sharp` 图片处理引擎，支持按需生成高质量 WebP 缩略图（默认 300px 宽，70% 质量，支持 1..1024px 动态请求与无放大安全限制）。
+  - 缩略图响应配置不可变长效缓存头（`public, max-age=604800, immutable`），显著降低前端图片传输开销与首屏加载延迟。
+  - 原图响应配置短期私有缓存（`private, max-age=300`），保证安全的同时提升重复查看性能。
+- **画廊虚拟化滚动与窗口化渲染 (Gallery Virtualization & Windowing)**：
+  - 新增 `gallery-virtual.ts` 布局计算引擎，支持网格（Grid）、列表（List）与表格（Table）全视图模式的虚拟化窗口计算。
+  - 动态计算可视区域行高与占位 Spacer，搭配首尾 Overscan 缓冲行，保证超大图片集合下的毫秒级滚动流畅度与低 DOM/内存占用。
+  - 响应式自适应容器宽度变化，动态计算网格列数与卡片高度。
+- **图文按需解耦加载 (Decoupled Thumb vs Full Image Loading)**：
+  - 网格瀑布流、列表与表格项统一请求轻量 WebP 缩略图，大幅减少初始渲染与滚动时的内存占用。
+  - 大图预览（Lightbox）、一键复制高清图与下载原图操作按需异步拉取原分辨率二进制数据。
+- **测试套件扩充**：
+  - 新增 `tests/image-route.spec.ts`，覆盖图片路由、WebP 缩略图生成、参数限制与 HTTP 响应头校验。
+  - 新增 `tests/gallery-virtual.spec.ts`，覆盖列数计算、窗口切片、Spacer 高度及 Overscan 边界条件测试。
+
+---
+
 ## [0.3.0] - 2026-08-26
 
 ### 新增 (Added)

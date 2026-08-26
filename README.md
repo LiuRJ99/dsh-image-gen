@@ -53,7 +53,7 @@ flowchart LR
 
 ```bash
 dsh plugin --profile web add @LiuRJ99/dsh-cpa-plugin
-dsh plugin --profile web add dsh-image-gen@0.3.0
+dsh plugin --profile web add dsh-image-gen@0.4.0
 ```
 
 本地发布包也使用同一命令形状：
