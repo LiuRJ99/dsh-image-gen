@@ -8,6 +8,21 @@ import type { ImageEngine } from '../shared.js'
 
 export type GalleryEngine = ImageEngine | 'unknown'
 
+/** Sort modes exposed by the gallery toolbar (persisted to localStorage). */
+export type SortOption = 'time-desc' | 'time-asc' | 'prompt-asc' | 'prompt-desc' | 'size-desc'
+
+/** Layout modes the gallery can render (persisted to localStorage). */
+export type ViewMode = 'grid' | 'list' | 'table'
+
+/** Selectable aspect-ratio buckets for the ratio filter. */
+export type AspectRatioFilter = 'all' | '1:1' | '16:9' | '9:16' | '4:3' | '3:4' | '3:2' | '2:3'
+
+/** Ordered sort options for the toolbar dropdown. */
+export const SORT_OPTIONS: readonly SortOption[] = ['time-desc', 'time-asc', 'prompt-asc', 'prompt-desc', 'size-desc']
+
+/** Ordered ratio buckets for the toolbar dropdown. */
+export const ASPECT_RATIO_FILTERS: readonly AspectRatioFilter[] = ['all', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']
+
 export interface GalleryItem {
   id: string
   attachment: ImageAttachmentRef
@@ -45,6 +60,116 @@ export function galleryEngineLabel(engine: GalleryEngine): string {
   if (engine === 'gpt') return 'GPT Image 2'
   if (engine === 'gemini') return 'Gemini Image'
   return 'Unknown image engine'
+}
+
+/** Canonical aspect-ratio bucket for a gallery item, or `undefined` when unknown. */
+export function extractAspectRatio(item: GalleryItem): AspectRatioFilter {
+  const value = item.aspectRatio ?? item.output
+  if (typeof value === 'string' && value.trim() !== '') {
+    const match = value.match(/(\d+)\s*:\s*(\d+)/)
+    if (match) {
+      const w = Number(match[1])
+      const h = Number(match[2])
+      if (w > 0 && h > 0) {
+        const gcd = greatestCommonDivisor(w, h)
+        return `${w / gcd}:${h / gcd}` as AspectRatioFilter
+      }
+    }
+  }
+  const width = item.attachment?.width
+  const height = item.attachment?.height
+  if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+    const gcd = greatestCommonDivisor(width, height)
+    return `${width / gcd}:${height / gcd}` as AspectRatioFilter
+  }
+  return 'all'
+}
+
+/** Format an image resolution, e.g. `1024×1024`, or an empty string when unknown. */
+export function formatResolution(item: GalleryItem): string {
+  const width = item.attachment?.width
+  const height = item.attachment?.height
+  if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+    return `${width}×${height}`
+  }
+  const ratio = extractAspectRatio(item)
+  return ratio === 'all' ? '' : ratio
+}
+
+/** Human-readable file size, e.g. `1.4 MB` / `340 KB` / `12 B`. */
+export function formatBytes(bytes: number | undefined | null): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${roundOne(kb)} KB`
+  const mb = kb / 1024
+  if (mb < 1024) return `${roundOne(mb)} MB`
+  return `${roundOne(mb / 1024)} GB`
+}
+
+/** Formatted creation time, e.g. `2025-05-18 14:30`. */
+export function formatDate(timestamp: number, lang: 'zh' | 'en' = 'zh'): string {
+  if (!Number.isFinite(timestamp)) return '—'
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const ymd = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  const hm = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return lang === 'en' ? `${ymd} ${hm}` : `${ymd} ${hm}`
+}
+
+/** Compare two gallery items by the active sort option. */
+export function compareGalleryItems(a: GalleryItem, b: GalleryItem, sortOption: SortOption): number {
+  switch (sortOption) {
+    case 'time-asc':
+      return a.createdAt - b.createdAt
+    case 'prompt-asc':
+      return (a.prompt || '').localeCompare(b.prompt || '')
+    case 'prompt-desc':
+      return (b.prompt || '').localeCompare(a.prompt || '')
+    case 'size-desc':
+      return (b.attachment?.bytes || 0) - (a.attachment?.bytes || 0)
+    case 'time-desc':
+    default:
+      return b.createdAt - a.createdAt
+  }
+}
+
+/** Memoizable filter + sort pipeline over the raw gallery list. */
+export function processGalleryItems(
+  items: readonly GalleryItem[],
+  options: { search: string; selectedEngine: string; selectedRatio: AspectRatioFilter; sortOption: SortOption },
+): GalleryItem[] {
+  const query = options.search.trim().toLowerCase()
+  const filtered = items.filter((item) => {
+    if (options.selectedEngine !== 'all' && item.engine !== options.selectedEngine) return false
+    if (options.selectedRatio !== 'all' && extractAspectRatio(item) !== options.selectedRatio) return false
+    if (query !== '' && !(item.prompt || '').toLowerCase().includes(query)) return false
+    return true
+  })
+  return filtered.sort((a, b) => compareGalleryItems(a, b, options.sortOption))
+}
+
+/** Count of gallery items for one engine bucket (`all` counts everything). */
+export function countByEngine(items: readonly GalleryItem[], engine: string): number {
+  if (engine === 'all') return items.length
+  return items.reduce((count, item) => (item.engine === engine ? count + 1 : count), 0)
+}
+
+function greatestCommonDivisor(a: number, b: number): number {
+  let x = a
+  let y = b
+  while (y !== 0) {
+    const next = x % y
+    x = y
+    y = next
+  }
+  return x
+}
+
+function roundOne(value: number): string {
+  const rounded = Math.round(value * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
 /**

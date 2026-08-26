@@ -1,17 +1,17 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shanliuling/dsh-image-gen.git"
+    "url": "git+https://github.com/LiuRJ99/dsh-image-gen.git"
   },
   "bugs": {
-    "url": "https://github.com/shanliuling/dsh-image-gen/issues"
+    "url": "https://github.com/LiuRJ99/dsh-image-gen/issues"
   },
-  "homepage": "https://github.com/shanliuling/dsh-image-gen#readme",
+  "homepage": "https://github.com/LiuRJ99/dsh-image-gen#readme",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -84,10 +84,10 @@
     "cordis"
   ],
   "peerDependencies": {
-    "@LiuRJ99/dsh-cpa-plugin": ">=0.3.0 <0.4.0",
+    "@LiuRJ99/dsh-cpa-plugin": ">=0.3.0 <0.5.0",
     "@deepseek-ai/cordis": ">=4.0.0 <5",
-    "@deepseek-ai/dsh-attachment": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-api-remotes": ">=0.1.0-rc.5 <0.2.0",
+    "@deepseek-ai/dsh-attachment": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.5 <0.2.0",
@@ -102,9 +102,10 @@
     "react": ">=18.2.0 <19"
   },
   "devDependencies": {
+    "@LiuRJ99/dsh-cpa-plugin": "link:../dsh-cpa-plugin",
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
     "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-connection": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.6",

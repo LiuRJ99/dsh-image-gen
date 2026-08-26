@@ -53,7 +53,7 @@ Install the Provider first, then the Adapter in the same DSH Web profile:
 
 ```bash
 dsh plugin --profile web add @LiuRJ99/dsh-cpa-plugin
-dsh plugin --profile web add dsh-image-gen@0.2.0
+dsh plugin --profile web add dsh-image-gen@0.3.0
 ```
 
 Local release tarballs use the same command shape:

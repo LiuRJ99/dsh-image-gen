@@ -4,6 +4,14 @@ lib/
 .DS_Store
 *.log
 .smoke-home/
+.worktrees/
+.agents/
+.claude/
+.codex/
+image-*.png
+image-*.jpg
+image-*.jpeg
+image-*.webp
 # >>> Comet managed project state >>>
 !/.comet/
 /.comet/*

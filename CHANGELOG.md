@@ -7,6 +7,30 @@
 
 ---
 
+## [0.3.0] - 2026-08-26
+
+### 新增 (Added)
+- **画廊多视图模式 (Multi-View: Grid / List / Table)**：
+  - **网格视图 (Grid)**：视觉优先的卡片瀑布流布局与悬浮快捷操作栏。
+  - **列表视图 (List)**：横向图文卡片列表，展示完整 Prompt、引擎/模型标签、分辨率、文件大小、创建时间与独立操作栏。
+  - **表格视图 (Table)**：紧凑明细表格，支持批量信息快速扫读与操作。
+  - 视图模式自动持久化至 `localStorage`（`dsh-image-gen:viewMode`）。
+- **多维度排序支持 (Sorting)**：
+  - 支持「最新生成 (time-desc)」、「最早生成 (time-asc)」、「Prompt A→Z (prompt-asc)」、「Prompt Z→A (prompt-desc)」、「文件大小 (size-desc)」。
+  - 排序选择自动持久化至 `localStorage`（`dsh-image-gen:sortOption`）。
+- **引擎分类标签与动态计数 (Category Pills & Badges)**：
+  - 工具栏提供 全部 (All) / GPT Image 2 / Gemini Image / 未知引擎 分类标签，实时展示各分类下的图片数量 Badge。
+- **图片比例筛选 (Aspect Ratio Filtering)**：
+  - 支持按图片比例筛选（全部 / 1:1 / 16:9 / 9:16 / 4:3 / 3:4 / 3:2 / 2:3），智能解析并归一化宽高比。
+- **画廊交互与预览体验增强**：
+  - 搜索框支持一键清空按钮与实时过滤。
+  - 大图预览（Lightbox）新增上一张/下一张切换并展示完整元数据。
+  - 完善中英文双语字典（`DICT`）与响应式小屏布局适配。
+- **测试套件扩充**：
+  - 新增 `tests/gallery-view.spec.ts`，覆盖纯函数排序、多条件过滤、宽高比提取、字节与时间格式化等 22 项测试用例。
+
+---
+
 ## [0.2.0] - 2026-08-25
 
 ### 新增 (Added)

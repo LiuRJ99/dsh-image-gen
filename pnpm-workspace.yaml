@@ -1,1 +1,3 @@
 autoInstallPeers: false
+overrides:
+  '@LiuRJ99/dsh-cpa-plugin': link:../dsh-cpa-plugin

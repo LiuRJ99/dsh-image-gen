@@ -26,14 +26,14 @@ description: Install, configure, diagnose, verify, or remove the CPA-backed dsh-
 4. Install the Adapter only after the Provider:
 
    ```sh
-   dsh plugin --profile <profile> add dsh-image-gen@0.2.0
+   dsh plugin --profile <profile> add dsh-image-gen@0.3.0
    ```
 
    The same command accepts local tarballs in the same order. For example:
 
    ```sh
    dsh plugin --profile <profile> add ./path/to/dsh-cpa-plugin-0.3.0.tgz
-   dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.2.0.tgz
+   dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.3.0.tgz
    ```
 
 5. If pnpm blocks a dependency's `prepare` script, explain that the allowance executes repository code during installation. Add only the exact package key pnpm reports to the profile's `pnpm-workspace.yaml`, then retry after the user approves.

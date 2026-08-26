@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Native DSH image generation backed by dsh-cpa-plugin.",
   "skills": ["./skills/imagegen"]
 }

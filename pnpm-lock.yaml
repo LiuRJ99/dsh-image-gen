@@ -4,9 +4,16 @@ settings:
   autoInstallPeers: false
   excludeLinksFromLockfile: false
 
+overrides:
+  '@LiuRJ99/dsh-cpa-plugin': link:../dsh-cpa-plugin
+
 importers:
 
   .:
+    dependencies:
+      '@LiuRJ99/dsh-cpa-plugin':
+        specifier: link:../dsh-cpa-plugin
+        version: link:../dsh-cpa-plugin
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.1
