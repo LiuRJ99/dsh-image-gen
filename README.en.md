@@ -53,10 +53,12 @@ Install the Provider first, then the Adapter in the same DSH Web profile:
 
 ```bash
 dsh plugin --profile web add @LiuRJ99/dsh-cpa-plugin
-dsh plugin --profile web add dsh-image-gen@0.4.0
+dsh plugin --profile web add dsh-image-gen@0.4.1
 ```
 
 Local release tarballs use the same command shape:
+
+Server-side thumbnails use the `sharp` peer supplied by the DSH host. Do not install another `sharp` copy into the Web profile, or macOS may load duplicate native `libvips` libraries.
 
 ```bash
 dsh plugin --profile web add <provider-package-or-tarball>

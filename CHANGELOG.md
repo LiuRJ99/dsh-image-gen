@@ -7,6 +7,14 @@
 
 ---
 
+## [0.4.1] - 2026-08-27
+
+### 修复 (Fixed)
+- 将服务端缩略图使用的 `sharp` 改为 DSH Host 提供的 peer dependency，并保留开发依赖用于本地构建，避免 Web profile 安装第二份原生 `libvips` 动态库。
+- 将 `sharp` peer contract 对齐到 `^0.35.4`，与当前 DSH attachment runtime 的 native `libvips` 版本保持兼容。
+
+---
+
 ## [0.4.0] - 2026-08-26
 
 ### 新增 (Added)

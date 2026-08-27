@@ -53,10 +53,12 @@ flowchart LR
 
 ```bash
 dsh plugin --profile web add @LiuRJ99/dsh-cpa-plugin
-dsh plugin --profile web add dsh-image-gen@0.4.0
+dsh plugin --profile web add dsh-image-gen@0.4.1
 ```
 
 本地发布包也使用同一命令形状：
+
+服务端缩略图使用 DSH Host 已提供的 `sharp` peer，不要再向 Web profile 单独安装一份 `sharp`，以免加载重复的原生 `libvips`。
 
 ```bash
 dsh plugin --profile web add <provider-package-or-tarball>

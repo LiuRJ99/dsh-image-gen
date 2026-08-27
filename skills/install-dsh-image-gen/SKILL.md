@@ -26,17 +26,18 @@ description: Install, configure, diagnose, verify, or remove the CPA-backed dsh-
 4. Install the Adapter only after the Provider:
 
    ```sh
-   dsh plugin --profile <profile> add dsh-image-gen@0.4.0
+   dsh plugin --profile <profile> add dsh-image-gen@0.4.1
    ```
 
    The same command accepts local tarballs in the same order. For example:
 
    ```sh
    dsh plugin --profile <profile> add ./path/to/dsh-cpa-plugin-0.3.0.tgz
-   dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.4.0.tgz
+   dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.4.1.tgz
    ```
 
-5. If pnpm blocks a dependency's `prepare` script, explain that the allowance executes repository code during installation. Add only the exact package key pnpm reports to the profile's `pnpm-workspace.yaml`, then retry after the user approves.
+5. The Adapter's server-side thumbnail route uses `sharp` as a peer supplied by the DSH Host. Do not add a separate `sharp` dependency to the profile; that can load duplicate native `libvips` libraries on macOS.
+6. If pnpm blocks a dependency's `prepare` script, explain that the allowance executes repository code during installation. Add only the exact package key pnpm reports to the profile's `pnpm-workspace.yaml`, then retry after the user approves.
 
 ## Configure and diagnose
 
