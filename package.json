@@ -102,7 +102,13 @@
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/schemastery": ">=3.18.0 <4",
     "react": ">=18.2.0 <19",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "dsh-better-sidebar": "^0.16.1 || ^0.17.0"
+  },
+  "peerDependenciesMeta": {
+    "dsh-better-sidebar": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@LiuRJ99/dsh-cpa-plugin": "link:../dsh-cpa-plugin",

@@ -21,7 +21,7 @@ export const TABLE_ROW_HEIGHT = 64
 /** Table header height in px (must match `.dsh-ig-gallery-table thead th`). */
 export const TABLE_HEADER_HEIGHT = 41
 /** Horizontal padding on the gallery body in px (must match `.dsh-ig-gallery-page-body`). */
-export const BODY_PADDING_X = 28
+export const BODY_PADDING_X = 14
 /** Rows rendered above and below the visible window. */
 export const OVERSCAN_ROWS = 3
 

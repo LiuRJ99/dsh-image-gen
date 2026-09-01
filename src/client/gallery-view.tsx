@@ -26,6 +26,7 @@ import {
 } from './gallery-store.js'
 import { buildImageRequestBody, useGalleryImage } from './gallery-image.js'
 import {
+  BODY_PADDING_X,
   GRID_GAP,
   LIST_ROW_HEIGHT,
   TABLE_HEADER_HEIGHT,
@@ -177,7 +178,13 @@ const ENGINE_FILTERS: readonly EngineFilterOption[] = [
   { value: 'unknown', labelKey: 'filterUnknown' },
 ]
 
-export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
+export interface GalleryViewTabProps {
+  locale?: LocaleService | undefined
+  scope?: { sessionId: string; cwd?: string | undefined; repoRoot?: string | undefined } | undefined
+  visible?: boolean | undefined
+}
+
+export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope: _scope, visible: _visible }) => {
   const [items, setItems] = useState<GalleryItem[]>([])
   const [search, setSearch] = useState('')
   const [selectedEngine, setSelectedEngine] = useState<string>('all')
@@ -231,18 +238,6 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
       setToast(null)
     }, 2000)
   }
-
-  // Hide chat input composer while browsing gallery
-  useEffect(() => {
-    const seat = document.querySelector('[data-composer-seat]') as HTMLElement | null
-    if (seat) {
-      const prevDisplay = seat.style.display
-      seat.style.display = 'none'
-      return () => {
-        seat.style.display = prevDisplay
-      }
-    }
-  }, [])
 
   useEffect(() => {
     let active = true
@@ -298,7 +293,7 @@ export const GalleryViewTab: FC<{ locale?: LocaleService }> = ({ locale }) => {
 
   // --- Virtualization layout -------------------------------------------------
   const bodyWidth = useContainerWidth(bodyRef)
-  const contentWidth = Math.max(0, bodyWidth - 56) // body padding 28px each side
+  const contentWidth = Math.max(0, bodyWidth - BODY_PADDING_X * 2)
   const columns = viewMode === 'grid' ? gridColumns(contentWidth) : 1
   const cellWidth = gridCellWidth(contentWidth, columns)
   const rowHeight = viewMode === 'grid' ? gridRowHeight(cellWidth) : viewMode === 'list' ? LIST_ROW_HEIGHT : TABLE_ROW_HEIGHT

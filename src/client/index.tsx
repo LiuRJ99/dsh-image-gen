@@ -15,6 +15,7 @@ import {
 } from '../shared.js'
 import { galleryEngineLabel, normalizeGalleryItem, saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type LocaleService } from './gallery-view.js'
+import { registerBetterSidebarTab } from './sidebar-tab.js'
 
 interface ImageSettings {
   engine?: ImageEngine
@@ -120,34 +121,35 @@ const STYLE = `
 .dsh-ig-error{color:var(--dsw-alias-label-error,#d33);font-size:13px}
 .dsh-ig-loading{color:var(--dsw-alias-label-tertiary,#7b818b);font-size:13px}
 
-/* Native Workspace Gallery View (Renders seamlessly inside DSH Session View) */
-.dsh-ig-gallery-page{width:100%;height:100%;background:var(--dsw-alias-bg-layer-1,#ffffff);display:flex;flex-direction:column;overflow:hidden;flex:1}
-.dsh-ig-gallery-page-header{display:flex;flex-direction:column;gap:12px;padding:14px 28px;border-bottom:1px solid var(--dsw-alias-border-l2,#e5e7eb);background:var(--dsw-alias-bg-layer-1,#ffffff);flex-shrink:0}
-.dsh-ig-gallery-page-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.dsh-ig-gallery-page-title-row{display:flex;align-items:center;gap:12px;min-width:0}
-.dsh-ig-gallery-page-title{font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary,inherit);white-space:nowrap}
-.dsh-ig-gallery-page-count{font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary,#4b5563);background:var(--dsw-alias-bg-layer-3,#f3f4f6);padding:3px 10px;border-radius:20px;white-space:nowrap}
-.dsh-ig-gallery-pills{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dsh-ig-gallery-pill{appearance:none;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:500;color:var(--dsw-alias-label-secondary,#4b5563);background:var(--dsw-alias-bg-layer-2,#fff);cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+/* Gallery View (Optimized for both Sidebar Panels and Floating Windows) */
+.dsh-ig-sidebar-tab{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.dsh-ig-gallery-page{width:100%;height:100%;background:var(--dsw-alias-bg-layer-1,#ffffff);display:flex;flex-direction:column;overflow:hidden;flex:1;box-sizing:border-box}
+.dsh-ig-gallery-page-header{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,#e5e7eb);background:var(--dsw-alias-bg-layer-1,#ffffff);flex-shrink:0}
+.dsh-ig-gallery-page-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dsh-ig-gallery-page-title-row{display:flex;align-items:center;gap:8px;min-width:0}
+.dsh-ig-gallery-page-title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,inherit);white-space:nowrap}
+.dsh-ig-gallery-page-count{font-size:11px;font-weight:500;color:var(--dsw-alias-label-secondary,#4b5563);background:var(--dsw-alias-bg-layer-3,#f3f4f6);padding:2px 8px;border-radius:20px;white-space:nowrap}
+.dsh-ig-gallery-pills{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dsh-ig-gallery-pill{appearance:none;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary,#4b5563);background:var(--dsw-alias-bg-layer-2,#fff);cursor:pointer;transition:background .15s,border-color .15s,color .15s}
 .dsh-ig-gallery-pill:hover{border-color:var(--dsw-alias-brand-primary,#4c78ff);color:var(--dsw-alias-label-primary,inherit)}
 .dsh-ig-gallery-pill.is-active{background:var(--dsw-alias-brand-primary,#4c78ff);border-color:var(--dsw-alias-brand-primary,#4c78ff);color:#fff}
-.dsh-ig-gallery-pill-badge{font-size:11px;font-weight:600;line-height:1;background:var(--dsw-alias-bg-layer-3,#eef1f4);color:var(--dsw-alias-label-secondary,inherit);border-radius:999px;padding:3px 7px;min-width:16px;text-align:center}
+.dsh-ig-gallery-pill-badge{font-size:11px;font-weight:600;line-height:1;background:var(--dsw-alias-bg-layer-3,#eef1f4);color:var(--dsw-alias-label-secondary,inherit);border-radius:999px;padding:2px 6px;min-width:14px;text-align:center}
 .dsh-ig-gallery-pill.is-active .dsh-ig-gallery-pill-badge{background:rgba(255,255,255,0.25);color:#fff}
-.dsh-ig-gallery-page-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.dsh-ig-gallery-search-wrap{position:relative;display:flex;align-items:center}
-.dsh-ig-gallery-search-icon{position:absolute;left:10px;color:var(--dsw-alias-label-tertiary,#9ca3af);pointer-events:none}
-.dsh-ig-gallery-search-input{padding:6px 28px 6px 32px;font-size:13px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:inherit;outline:none;width:200px;transition:border-color .15s,width .2s}
-.dsh-ig-gallery-search-input:focus{border-color:var(--dsw-alias-brand-primary,#4c78ff);width:240px}
-.dsh-ig-gallery-search-clear{appearance:none;border:0;background:transparent;position:absolute;right:6px;padding:3px;border-radius:50%;color:var(--dsw-alias-label-tertiary,#9ca3af);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
+.dsh-ig-gallery-page-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-ig-gallery-search-wrap{position:relative;display:flex;align-items:center;flex:1;min-width:110px;max-width:260px}
+.dsh-ig-gallery-search-icon{position:absolute;left:8px;color:var(--dsw-alias-label-tertiary,#9ca3af);pointer-events:none}
+.dsh-ig-gallery-search-input{padding:5px 24px 5px 28px;font-size:12px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:inherit;outline:none;width:100%;box-sizing:border-box;transition:border-color .15s}
+.dsh-ig-gallery-search-input:focus{border-color:var(--dsw-alias-brand-primary,#4c78ff)}
+.dsh-ig-gallery-search-clear{appearance:none;border:0;background:transparent;position:absolute;right:4px;padding:3px;border-radius:50%;color:var(--dsw-alias-label-tertiary,#9ca3af);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
 .dsh-ig-gallery-search-clear:hover{background:var(--dsw-alias-bg-layer-3,#eef1f4);color:var(--dsw-alias-label-primary,inherit)}
-.dsh-ig-gallery-select-wrap{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-tertiary,#7b818b)}
-.dsh-ig-gallery-select{padding:6px 12px;font-size:13px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:inherit;outline:none;cursor:pointer}
+.dsh-ig-gallery-select-wrap{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--dsw-alias-label-tertiary,#7b818b)}
+.dsh-ig-gallery-select{padding:5px 8px;font-size:12px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:inherit;outline:none;cursor:pointer}
 .dsh-ig-gallery-select:focus{border-color:var(--dsw-alias-brand-primary,#4c78ff)}
-.dsh-ig-gallery-view-toggle{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:9px;background:var(--dsw-alias-bg-layer-3,#f3f4f6)}
-.dsh-ig-view-toggle-btn{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#7b818b);border-radius:7px;padding:5px 8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
+.dsh-ig-gallery-view-toggle{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-3,#f3f4f6)}
+.dsh-ig-view-toggle-btn{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#7b818b);border-radius:6px;padding:4px 6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
 .dsh-ig-view-toggle-btn:hover{color:var(--dsw-alias-label-primary,inherit)}
 .dsh-ig-view-toggle-btn.is-active{background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-brand-primary,#4c78ff);box-shadow:0 1px 3px rgba(0,0,0,0.12)}
-.dsh-ig-gallery-page-body{flex:1;overflow-y:auto;padding:24px 28px}
+.dsh-ig-gallery-page-body{flex:1;overflow-y:auto;padding:12px 14px;box-sizing:border-box}
 .dsh-ig-gallery-virtual{width:100%}
 .dsh-ig-gallery-grid-row{position:absolute;left:0;right:0;display:grid;gap:20px}
 .dsh-ig-gallery-list-virtual-item{position:absolute;left:0;right:0;overflow:hidden}
@@ -230,14 +232,11 @@ const STYLE = `
 .dsh-ig-lightbox-btn-danger:hover{background:rgba(239,68,68,0.35)!important;color:#fff!important;border-color:rgba(239,68,68,0.7)!important}
 .dsh-ig-gallery-page-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;z-index:99999;animation:dsh-ig-fade .15s}
 
-/* Hide floating chat composer when gallery page is active */
-[data-conversation-scroll]:has(.dsh-ig-gallery-page) [data-composer-seat]{display:none!important}
-
 /* Responsive: stack gallery toolbar rows on narrow viewports */
 @media (max-width:720px){
-  .dsh-ig-gallery-page-top{flex-direction:column;align-items:flex-start;gap:10px}
-  .dsh-ig-gallery-page-header{padding:12px 16px}
-  .dsh-ig-gallery-page-body{padding:16px}
+  .dsh-ig-gallery-page-top{flex-direction:column;align-items:flex-start;gap:8px}
+  .dsh-ig-gallery-page-header{padding:10px 12px}
+  .dsh-ig-gallery-page-body{padding:10px 12px}
 }
 `
 
@@ -275,17 +274,25 @@ export function apply(ctx: Context): void {
     inject: (): ImageCardFace => ({ locale }),
   }, GeneratedImageCard))
 
-  // 3. Native conversation view tab (DSH official slot: 'conversation.view')
-  ;(ctx.slots.inject as any)('conversation.view', () => register({
-    name: 'conversation.view',
-    id: 'gallery',
-    order: 20,
-    label: () => {
-      const active = locale?.getSnapshot?.()?.active
-      return active?.startsWith('en') ? 'Gallery' : '画廊'
-    },
-    inject: () => ({ locale }),
-  }, GalleryViewTab))
+  // 3. Optional Better Sidebar gallery tab
+  ctx.effect(() => {
+    let unregister: (() => void) | undefined
+    const tryRegister = () => {
+      if (unregister !== undefined) return
+      const reg = registerBetterSidebarTab(ctx, locale)
+      if (reg.available) {
+        unregister = reg.disposer
+      }
+    }
+    tryRegister()
+    const timer = setInterval(tryRegister, 500)
+    const stopTimer = setTimeout(() => clearInterval(timer), 5000)
+    return () => {
+      clearInterval(timer)
+      clearTimeout(stopTimer)
+      unregister?.()
+    }
+  }, 'dsh-image-gen: better-sidebar tab registration')
 }
 
 /** Edit the selected image engine and workspace output settings. */
