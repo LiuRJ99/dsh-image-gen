@@ -1,8 +1,9 @@
 /** CPA-backed image-generation Bundle for DeepSeek Harness. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool, type ToolResult } from '@deepseek-ai/dsh-tools'
 import {
   IMAGE_GENERATION_SERVICE,
@@ -39,12 +40,15 @@ interface GeneratedValue {
 /** Register settings, the image route, and the model-callable tool. */
 export function apply(ctx: Context, config: Config = {}): void {
   let current: () => Config = () => config
-  installSettingsSection(ctx, settingsNamespace(IMAGE_GENERATION_NAMESPACE), Config, config, {
-    setSource: source => { current = source }, onChange: () => {},
+  const attachments = (ctx as Context & { attachments: AttachmentStore }).attachments
+  ctx.inject(['settings'], scope => {
+    scope.settings.installSection(ctx, IMAGE_GENERATION_NAMESPACE, Config, config, {
+      setSource: source => { current = source }, onChange: () => {},
+    })
   })
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: IMAGE_ROUTE,
-    handler: (req, res) => serveImage(req, res, { readImage: ref => ctx.attachments.readImage(ref) }),
+    handler: (req, res) => serveImage(req, res, { readImage: ref => attachments.readImage(ref) }),
   }), 'dsh-image-gen: image route')
 
   ctx.inject([IMAGE_GENERATION_SERVICE], imageCtx => {
@@ -94,7 +98,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ...(args.size === undefined ? {} : { size: args.size }),
           signal: exec.signal,
         })
-        return saveGenerated(ctx, generated, engine, outputOf(args), active, exec)
+        return saveGenerated(ctx, attachments, generated, engine, outputOf(args), active, exec)
       },
       presentResult: (_args, result) => imagePresentation(result),
     }))
@@ -109,14 +113,15 @@ export function apply(ctx: Context, config: Config = {}): void {
  */
 async function saveGenerated(
   ctx: Context,
+  attachments: AttachmentStore,
   generated: { data: Uint8Array; mediaType: ImageAttachmentRef['mediaType'] },
   engine: ImageEngine,
   output: string,
   config: Config,
   exec: { agent?: { session: { header: { cwd?: string } } }; signal: AbortSignal },
 ): Promise<GeneratedValue> {
-  if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) throw new Error(`This DSH deployment does not accept ${generated.mediaType} generated images`)
-  const attachment = await ctx.attachments.saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'generated-image' })
+  if (!attachments.imageLimits.mediaTypes.includes(generated.mediaType)) throw new Error(`This DSH deployment does not accept ${generated.mediaType} generated images`)
+  const attachment = await attachments.saveImage({ data: generated.data, mediaType: generated.mediaType, name: 'generated-image' })
   const value: GeneratedValue = { attachment, engine, output, createdAt: Math.floor(Date.now() / 1000) * 1000 }
   if (config.saveToWorkspace === false) return value
   const workspaceRoot = exec.agent?.session.header.cwd

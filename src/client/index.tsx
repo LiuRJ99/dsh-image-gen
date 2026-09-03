@@ -2,9 +2,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { SettingsScope, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -530,7 +533,11 @@ export function GeneratedImageCard(props: ImageCardProps) {
   </section>
 }
 
-function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined { if (!('kind' in block) || block.resultView?.card !== 'generic') return undefined; const image = block.resultView.content?.find(item => item.type === 'image'); return image?.type === 'image' ? image.attachment : undefined }
+function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined {
+  if (!('kind' in block) || block.kind !== 'tool-result') return undefined
+  const image = block.content.find(item => item.type === 'image')
+  return image?.type === 'image' ? image.attachment : undefined
+}
 
 interface ImageMetadata {
   prompt: string
@@ -542,14 +549,10 @@ interface ImageMetadata {
 }
 
 function imageMetadata(block: ToolCallBlock): ImageMetadata {
-  const blockAny = block as unknown as {
-    meta?: Record<string, unknown>
-    resultView?: { meta?: Record<string, unknown> }
-    call?: { args?: { prompt?: string } }
-  }
-  const meta = blockAny.meta ?? blockAny.resultView?.meta
+  const meta = record('meta' in block ? block.meta : undefined)
+  const prompt = 'call' in block && block.call !== null ? promptFromArgs(block.call.argsRaw) : undefined
   return {
-    prompt: typeof meta?.prompt === 'string' ? meta.prompt : blockAny.call?.args?.prompt ?? 'Generated Image',
+    prompt: typeof meta?.prompt === 'string' ? meta.prompt : prompt ?? 'Generated Image',
     engine: meta?.engine,
     provider: meta?.provider,
     model: meta?.model,
@@ -560,8 +563,23 @@ function imageMetadata(block: ToolCallBlock): ImageMetadata {
 
 /** The workspace file path a completed image call saved, when the result meta carries one. */
 function imageSavedTo(block: ToolCallBlock): string | undefined {
-  if (!('kind' in block)) return undefined
-  const meta = (block as unknown as { meta?: { savedTo?: unknown } }).meta
-    ?? (block.resultView as unknown as { meta?: { savedTo?: unknown } } | undefined)?.meta
+  if (!('kind' in block) || block.kind !== 'tool-result') return undefined
+  const meta = record(block.meta)
   return typeof meta?.savedTo === 'string' ? meta.savedTo : undefined
+}
+
+function promptFromArgs(argsRaw: string): string | undefined {
+  try {
+    const args = JSON.parse(argsRaw) as unknown
+    const prompt = record(args)?.prompt
+    return typeof prompt === 'string' ? prompt : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }

@@ -3,11 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
 import { apply, inject, name, version } from '../src/index.js'
 
-vi.mock('@deepseek-ai/dsh-settings', () => ({
-  installSettingsSection: vi.fn(),
-  settingsNamespace: (name: string) => name,
-}))
-
 vi.mock('@deepseek-ai/dsh-tools', () => ({
   defineTool: (tool: unknown) => tool,
 }))
@@ -53,6 +48,7 @@ describe('CPA image service contract', () => {
       logger: { warn: vi.fn() },
       effect: vi.fn((effect: () => unknown) => effect()),
       inject: vi.fn((deps: string[], callback: (scope: { get(name: string): unknown }) => unknown) => {
+        if (deps[0] === 'settings') return undefined
         expect(deps).toEqual([IMAGE_GENERATION_SERVICE])
         return callback({ get: name => name === IMAGE_GENERATION_SERVICE ? imageService : undefined })
       }),
