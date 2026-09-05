@@ -2,9 +2,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ImageAttachmentRef, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import sharp from 'sharp'
-import { IMAGE_ROUTE } from './shared.js'
+import { IMAGE_ROUTE, imageAttachment, imageAttachmentFromMeta, record } from './shared.js'
 
-export { IMAGE_ROUTE } from './shared.js'
+export { IMAGE_ROUTE, imageAttachmentFromMeta } from './shared.js'
 const MAX_BODY_BYTES = 4096
 
 /** Default thumbnail width in pixels when the browser asks for a thumbnail. */
@@ -31,16 +31,6 @@ export interface ImageRequest {
   attachment: ImageAttachmentRef
   kind: ImageRequestKind
   thumbWidth: number
-}
-
-/**
- * Validate the persisted reference carried by a tool presentation. Shared with
- * the client so the request body shape stays in one place.
- */
-export function imageAttachmentFromMeta(meta: unknown): ImageAttachmentRef | undefined {
-  const value = record(meta)
-  if (value?.kind !== 'dsh-image-gen') return undefined
-  return imageAttachment(value.attachment)
 }
 
 /** Serve one verified durable image reference to a same-origin browser request. */
@@ -113,22 +103,6 @@ function imageRequestFromBody(value: unknown): ImageRequest | undefined {
   const kind = root.kind === 'thumb' ? 'thumb' : 'full'
   const rawWidth = typeof root.thumbWidth === 'number' ? root.thumbWidth : DEFAULT_THUMB_WIDTH
   return { attachment, kind, thumbWidth: clampThumbWidth(rawWidth) }
-}
-
-function imageAttachment(value: unknown): ImageAttachmentRef | undefined {
-  const ref = record(value)
-  if (ref === undefined) return undefined
-  if (typeof ref.attachmentId !== 'string' || !mediaType(ref.mediaType) || typeof ref.bytes !== 'number' || typeof ref.width !== 'number' || typeof ref.height !== 'number') return undefined
-  if (ref.name !== undefined && typeof ref.name !== 'string') return undefined
-  return ref as unknown as ImageAttachmentRef
-}
-
-function mediaType(value: unknown): value is ImageAttachmentRef['mediaType'] {
-  return value === 'image/png' || value === 'image/jpeg' || value === 'image/webp' || value === 'image/gif'
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {

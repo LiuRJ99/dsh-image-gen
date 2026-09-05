@@ -14,11 +14,18 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import {
   IMAGE_GENERATION_NAMESPACE,
   IMAGE_ROUTE,
+  imageAttachmentFromMeta,
   type ImageEngine,
 } from '../shared.js'
 import { galleryEngineLabel, normalizeGalleryItem, saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type LocaleService } from './gallery-view.js'
 import { registerBetterSidebarTab } from './sidebar-tab.js'
+import {
+  TurnTailImagesCard,
+  SingleGeneratedImageView,
+  imageDeliverablesDefinition,
+  selectGeneratedImages,
+} from './turn-tail.js'
 
 interface ImageSettings {
   engine?: ImageEngine
@@ -123,6 +130,9 @@ const STYLE = `
 @keyframes dsh-ig-fade{from{opacity:0}to{opacity:1}}
 .dsh-ig-error{color:var(--dsw-alias-label-error,#d33);font-size:13px}
 .dsh-ig-loading{color:var(--dsw-alias-label-tertiary,#7b818b);font-size:13px}
+.dsh-ig-turntail-wrap{display:flex;flex-direction:column;gap:12px;margin:8px 0}
+.dsh-ig-file-btn{appearance:none;border:0;background:none;padding:0;font:inherit;color:var(--dsw-alias-brand-primary,#4c78ff);cursor:pointer;text-decoration:underline;word-break:break-all}
+.dsh-ig-file-btn:hover{color:var(--dsw-alias-brand-hover,#3b66e8)}
 
 /* Gallery View (Optimized for both Sidebar Panels and Floating Windows) */
 .dsh-ig-sidebar-tab{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
@@ -244,7 +254,7 @@ const STYLE = `
 `
 
 /** Required browser services. */
-export const inject = ['slots', 'connection', 'remote', 'settingsScope', 'locale']
+export const inject = ['slots', 'connection', 'remote', 'settingsScope', 'locale', 'uiConversation']
 
 /** Mount the settings card, generated-image card, and native conversation gallery view. */
 export function apply(ctx: Context): void {
@@ -277,7 +287,21 @@ export function apply(ctx: Context): void {
     inject: (): ImageCardFace => ({ locale }),
   }, GeneratedImageCard))
 
-  // 3. Optional Better Sidebar gallery tab
+  // 3. Direct turn-tail deliverable card (rendered outside of the collapsed Turn Process)
+  ctx.inject(['uiConversation'], (convCtx) => {
+    const uiConv = convCtx.get('uiConversation') as { events?: { register: (def: object) => () => void } } | undefined
+    if (uiConv?.events?.register) {
+      convCtx.effect(() => uiConv.events!.register(imageDeliverablesDefinition), 'dsh-image-gen: deliverables definition')
+    }
+  })
+  ctx.slots.inject('conversation.chat.turnTail', () => register({
+    name: 'conversation.chat.turnTail',
+    select: selectGeneratedImages,
+    locale: IMAGE_GENERATION_NAMESPACE,
+    inject: (): ImageCardFace => ({ locale }),
+  }, TurnTailImagesCard))
+
+  // 4. Optional Better Sidebar gallery tab
   ctx.effect(() => {
     let unregister: (() => void) | undefined
     const tryRegister = () => {
@@ -388,153 +412,32 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   )
 }
 
-/** Render the durable attachment referenced by a completed image tool call. */
+/** Render the durable attachment referenced by a completed image tool call inside the tool details. */
 export function GeneratedImageCard(props: ImageCardProps) {
   const attachment = imageRef(props.block)
   const savedTo = imageSavedTo(props.block)
   const metadata = imageMetadata(props.block)
-  const normalizedMetadata = normalizeGalleryItem({ engine: metadata.engine, provider: metadata.provider })
-  const engine = normalizedMetadata.engine
-  const [url, setUrl] = useState<string>()
-  const [blob, setBlob] = useState<Blob>()
-  const [error, setError] = useState<string>()
-  const [previewOpen, setPreviewOpen] = useState(false)
-  const [toast, setToast] = useState<string>()
-  const [lang, setLang] = useState(() => (props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'))
+  const lang = props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'
+  const generatingText = lang === 'en' ? DICT.en.generating : DICT.zh.generating
 
-  useEffect(() => {
-    return props.locale?.subscribe?.(() => {
-      setLang(props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh')
-    })
-  }, [props.locale])
-
-  const t = (keyName: DictKey, params?: Record<string, string>): string => {
-    const dict = lang === 'en' ? DICT.en : DICT.zh
-    let text: string = dict[keyName] || DICT.zh[keyName] || keyName
-    if (params) {
-      for (const [k, v] of Object.entries(params)) {
-        text = text.replace(`{${k}}`, v)
-      }
-    }
-    return text
-  }
-
-  // Auto-collect into gallery IndexedDB
-  useEffect(() => {
-    if (attachment === undefined) return
-    const item = normalizeGalleryItem({
-      id: attachment.attachmentId,
-      attachment,
-      prompt: metadata.prompt,
-      engine: metadata.engine,
-      provider: metadata.provider,
-      model: typeof metadata.model === 'string' ? metadata.model : '',
-      output: typeof metadata.output === 'string' ? metadata.output : '',
-      createdAt: metadata.createdAt,
-    })
-    void saveGalleryItem(item)
-  }, [attachment?.attachmentId, metadata.createdAt, metadata.prompt, metadata.engine, metadata.model, metadata.output])
-
-  useEffect(() => {
-    if (!previewOpen) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPreviewOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown) }
-  }, [previewOpen])
-
-  useEffect(() => {
-    if (attachment === undefined) return
-    const controller = new AbortController()
-    let objectUrl: string | undefined
-    void fetch(IMAGE_ROUTE, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ attachment }),
-    }).then(async response => {
-      if (!response.ok) throw new Error(t('loadFailed', { status: String(response.status) }))
-      const resBlob = await response.blob()
-      if (controller.signal.aborted) return
-      setBlob(resBlob)
-      objectUrl = URL.createObjectURL(resBlob)
-      setUrl(objectUrl)
-    }).catch(cause => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
-    })
-    return () => {
-      controller.abort()
-      if (objectUrl !== undefined) URL.revokeObjectURL(objectUrl)
-    }
-  }, [attachment?.attachmentId, lang])
-
-  const copy = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!blob) return
-    const ok = await copyImageBlob(blob)
-    setToast(ok ? t('copiedImage') : t('copyFailed'))
-    setTimeout(() => { setToast(undefined) }, 2000)
-  }
-
-  const download = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!url) return
-    const a = document.createElement('a')
-    a.href = url
-    a.download = attachment?.name || `dsh-image-${Date.now()}.png`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }
-
-  const openNewTab = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!url) return
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
-  if (attachment === undefined) return <div className="dsh-ig-loading">{t('generating')}</div>
-  return <section className="dsh-ig-result" aria-label={t('generatedTitle')}>
-    <div className="dsh-ig-result-title" title={normalizedMetadata.normalizationError}>{t('generatedTitle')} · {galleryEngineLabel(engine)}</div>
-    {savedTo !== undefined ? <div className="dsh-ig-savedto">{t('savedToPath')}: {savedTo}</div> : null}
-    {error !== undefined ? <div className="dsh-ig-error">{error}</div> : null}
-    {url === undefined && error === undefined ? <div className="dsh-ig-loading">{t('loading')}</div> : null}
-    {url !== undefined ? <div className="dsh-ig-container">
-      <img
-        className="dsh-ig-image"
-        src={url}
-        alt={attachment.name ?? 'Generated image'}
-        onClick={() => { setPreviewOpen(true) }}
-      />
-      <div className="dsh-ig-toolbar">
-        <button type="button" className="dsh-ig-tool-btn" title={t('copyImg')} onClick={(e) => { void copy(e) }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        </button>
-        <button type="button" className="dsh-ig-tool-btn" title={t('download')} onClick={download}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <button type="button" className="dsh-ig-tool-btn" title={t('openNewTab')} onClick={openNewTab}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </button>
-        {toast ? <div className="dsh-ig-toast">{toast}</div> : null}
-      </div>
-    </div> : null}
-
-    {previewOpen && url !== undefined ? <div className="dsh-ig-lightbox-backdrop" onClick={() => { setPreviewOpen(false) }}>
-      <div className="dsh-ig-lightbox-img-wrap" onClick={(e) => { e.stopPropagation() }}>
-        <img
-          className="dsh-ig-lightbox-img"
-          src={url}
-          alt={attachment.name ?? 'Generated image preview'}
-        />
-      </div>
-    </div> : null}
-  </section>
+  if (attachment === undefined) return <div className="dsh-ig-loading">{generatingText}</div>
+  return (
+    <SingleGeneratedImageView
+      attachment={attachment}
+      engine={metadata.engine}
+      savedTo={savedTo}
+      prompt={metadata.prompt}
+      createdAt={metadata.createdAt}
+      openFile={props.openFile}
+      locale={props.locale}
+    />
+  )
 }
 
-function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined {
+export function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined {
   if (!('kind' in block) || block.kind !== 'tool-result') return undefined
+  const fromMeta = imageAttachmentFromMeta(block.meta)
+  if (fromMeta !== undefined) return fromMeta
   const image = block.content.find(item => item.type === 'image')
   return image?.type === 'image' ? image.attachment : undefined
 }
