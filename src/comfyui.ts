@@ -1,6 +1,7 @@
 /** ComfyUI text-to-image and image-to-image adapters using an imported API-format workflow. */
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { prepareComfyUIWorkflow, randomSeed } from './comfyui-workflow.js'
+import { redactSecrets } from './redact.js'
 
 const ERROR_LIMIT = 4096
 const POLL_INTERVAL_MS = 500
@@ -95,10 +96,10 @@ async function uploadSourceImage(baseURL: URL, image: ComfyUISourceImage, signal
     body: form,
   })
   const text = await readBoundedText(response, ERROR_LIMIT)
-  if (!response.ok) throw new Error(`ComfyUI image upload failed (${response.status}): ${text}`)
+  if (!response.ok) throw new Error(`ComfyUI image upload failed (${response.status}): ${redactSecrets(text)}`)
   const payload = parseJsonRecord(text, 'ComfyUI /upload/image returned invalid JSON')
   if (typeof payload.name !== 'string' || payload.name.length === 0) {
-    throw new Error(`ComfyUI /upload/image returned no name: ${text}`)
+    throw new Error(`ComfyUI /upload/image returned no name: ${redactSecrets(text)}`)
   }
   const subfolder = typeof payload.subfolder === 'string' ? payload.subfolder : ''
   return subfolder.length > 0 ? `${subfolder}/${payload.name}` : payload.name
@@ -123,10 +124,10 @@ async function submitWorkflow(baseURL: URL, workflow: Record<string, unknown>, s
     body: JSON.stringify({ prompt: workflow }),
   })
   const text = await readBoundedText(response, ERROR_LIMIT)
-  if (!response.ok) throw new Error(`ComfyUI rejected the workflow (${response.status}): ${text}`)
+  if (!response.ok) throw new Error(`ComfyUI rejected the workflow (${response.status}): ${redactSecrets(text)}`)
   const payload = parseJsonRecord(text, 'ComfyUI /prompt returned invalid JSON')
   if (typeof payload.prompt_id !== 'string' || payload.prompt_id.length === 0) {
-    throw new Error(`ComfyUI /prompt returned no prompt_id: ${text}`)
+    throw new Error(`ComfyUI /prompt returned no prompt_id: ${redactSecrets(text)}`)
   }
   return payload.prompt_id
 }
@@ -138,13 +139,13 @@ async function waitForOutput(baseURL: URL, promptId: string, signal: AbortSignal
       redirect: 'error', signal, headers: { accept: 'application/json' },
     })
     const text = await readBoundedText(response, MAX_HISTORY_BYTES)
-    if (!response.ok) throw new Error(`ComfyUI history request failed (${response.status}): ${text.slice(0, ERROR_LIMIT)}`)
+    if (!response.ok) throw new Error(`ComfyUI history request failed (${response.status}): ${redactSecrets(text).slice(0, ERROR_LIMIT)}`)
     const history = parseJsonRecord(text, 'ComfyUI history returned invalid JSON')
     const entry = record(history[promptId])
     if (entry !== undefined) {
       const status = record(entry.status)
       if (status?.status_str === 'error') {
-        throw new Error(`ComfyUI workflow failed: ${JSON.stringify(status.messages ?? status).slice(0, ERROR_LIMIT)}`)
+        throw new Error(`ComfyUI workflow failed: ${redactSecrets(JSON.stringify(status.messages ?? status)).slice(0, ERROR_LIMIT)}`)
       }
       const output = firstOutputImage(entry.outputs)
       if (output !== undefined) return output

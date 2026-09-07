@@ -1,25 +1,23 @@
 /** Provider-aware orchestration for the browser image workbench. */
 import type { ImageAttachmentRef, ImageMediaType, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   ASPECT_RATIOS,
-  DASHSCOPE_API_KEY_ENV,
-  GOOGLE_API_KEY_ENV,
   IMAGE_SIZES,
-  OPENAI_API_KEY_ENV,
-  SEEDREAM_API_KEY_ENV,
   resolveProvider,
+  withProviderOverrides,
   type AspectRatio,
   type Config,
   type ImageSize,
 } from './config.js'
 import { editDashScopeImage, generateDashScopeImage } from './dashscope.js'
+import { requireApiKey, resolveApiKey } from './credentials.js'
 import { editGoogleImage, generateGoogleImage } from './google.js'
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './openai-compatible.js'
 import { editSeedreamImage } from './seedream.js'
 import {
   CLOUD_IMAGE_PROVIDERS,
+  PROVIDER_DISPLAY_NAMES,
   type CloudImageProvider,
   type StudioConfigResponse,
   type StudioGenerateRequest,
@@ -29,20 +27,6 @@ import {
   type StudioProviderProfile,
   type StudioReference,
 } from './shared.js'
-
-const PROVIDER_LABELS: Record<CloudImageProvider, string> = {
-  google: 'Google',
-  openai: 'OpenAI',
-  seedream: 'Seedream',
-  dashscope: 'DashScope',
-}
-
-const CREDENTIALS: Record<CloudImageProvider, string> = {
-  google: GOOGLE_API_KEY_ENV,
-  openai: OPENAI_API_KEY_ENV,
-  seedream: SEEDREAM_API_KEY_ENV,
-  dashscope: DASHSCOPE_API_KEY_ENV,
-}
 
 const RATIO_LABELS: Record<string, string> = {
   auto: '自动',
@@ -58,8 +42,7 @@ const RATIO_LABELS: Record<string, string> = {
 /** Return only browser-safe capability data. */
 export async function describeStudio(ctx: Context, config: Config): Promise<StudioConfigResponse> {
   const configuredEntries = await Promise.all(CLOUD_IMAGE_PROVIDERS.map(async provider => {
-    const credential = await ctx.credentials.resolve(credentialRef(CREDENTIALS[provider]))
-    return [provider, credential !== undefined && credential.value.trim().length > 0] as const
+    return [provider, await resolveApiKey(ctx, provider) !== undefined] as const
   }))
   const configured = Object.fromEntries(configuredEntries) as Record<CloudImageProvider, boolean>
   const profiles = CLOUD_IMAGE_PROVIDERS.map(provider => studioProfile(config, provider, configured[provider]))
@@ -80,12 +63,9 @@ export async function generateFromStudio(
 ): Promise<StudioGenerateResponse> {
   const profile = studioProfile(config, input.provider, true)
   assertAllowed(profile, input)
-  const active = resolveProvider(providerConfig(config, input.provider, input.model))
+  const active = resolveProvider(withProviderOverrides(config, input.provider, input.model))
   if (active.provider === 'comfyui') throw new Error('ComfyUI 暂未接入工作台')
-  const credential = await ctx.credentials.resolve(credentialRef(active.apiKeyEnv))
-  if (credential === undefined || credential.value.trim().length === 0) {
-    throw new Error(`${PROVIDER_LABELS[input.provider]} 尚未配置 API Key，请先到设置中配置`)
-  }
+  const credential = await requireApiKey(ctx, input.provider)
 
   const rawRefs = input.references ?? (input.reference ? [input.reference] : [])
   if (input.mode === 'edit' && rawRefs.length === 0) {
@@ -105,20 +85,20 @@ export async function generateFromStudio(
       const aspectRatio = input.ratio as AspectRatio
       const imageSize = input.quality as ImageSize
       generated = input.mode === 'edit'
-        ? await editGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateGoogleImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = `${aspectRatio}, ${imageSize}`
-    } else if (active.provider === 'openai') {
+    } else if (active.provider === 'openai' || active.provider === 'openai-compat') {
       const size = openAISize(input.ratio)
       generated = input.mode === 'edit'
-        ? await editOpenAICompatibleImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateOpenAICompatibleImage({ provider: 'openai', apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editOpenAICompatibleImage({ apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateOpenAICompatibleImage({ provider: active.provider, apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = size
     } else if (active.provider === 'seedream') {
       const size = input.quality
       generated = input.mode === 'edit'
-        ? await editSeedreamImage({ apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential.value, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editSeedreamImage({ apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = size
     } else {
       if (input.mode === 'edit' && sourceImages.length > 3) {
@@ -126,8 +106,8 @@ export async function generateFromStudio(
       }
       const size = dashScopeSize(input.ratio)
       generated = input.mode === 'edit'
-        ? await editDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateDashScopeImage({ apiKey: credential.value, endpoint: active.endpoint, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = size
     }
 
@@ -231,13 +211,20 @@ export async function runPool<T>(
 }
 
 export function studioProfile(config: Config, provider: CloudImageProvider, configured: boolean): StudioProviderProfile {
-  const active = resolveProvider(providerConfig(config, provider))
+  let active: ReturnType<typeof resolveProvider>
+  try {
+    active = resolveProvider(withProviderOverrides(config, provider))
+  } catch {
+    // Unconfigured openai-compat row: expose an empty model until the relay
+    // settings are filled in; generation still fails loudly with guidance.
+    return profile(provider, '', configured, ['1:1', '3:2', '2:3'].map(option), [{ value: 'standard', label: '标准（推荐）' }], '1:1', 'standard')
+  }
   if (active.provider === 'comfyui') throw new Error('Invalid cloud provider profile')
   const model = active.model
   if (provider === 'google') {
     return profile(provider, model, configured, ASPECT_RATIOS.map(option), IMAGE_SIZES.map(value => ({ value, label: value })), '1:1', '1K')
   }
-  if (provider === 'openai') {
+  if (provider === 'openai' || provider === 'openai-compat') {
     return profile(provider, model, configured, ['1:1', '3:2', '2:3'].map(option), [{ value: 'standard', label: '标准（推荐）' }], '1:1', 'standard')
   }
   if (provider === 'seedream') {
@@ -257,7 +244,7 @@ function profile(
 ): StudioProviderProfile {
   return {
     provider,
-    label: PROVIDER_LABELS[provider],
+    label: PROVIDER_DISPLAY_NAMES[provider],
     model,
     configured,
     supportsEditing: true,
@@ -270,16 +257,6 @@ function profile(
 
 function option(value: string): StudioOption {
   return { value, label: RATIO_LABELS[value] ?? value }
-}
-
-function providerConfig(config: Config, provider: CloudImageProvider, model?: string): Config {
-  if (model === undefined) return { ...config, provider }
-  switch (provider) {
-    case 'google': return { ...config, provider, googleModel: model }
-    case 'openai': return { ...config, provider, openaiModel: model }
-    case 'seedream': return { ...config, provider, seedreamModel: model }
-    case 'dashscope': return { ...config, provider, dashscopeModel: model }
-  }
 }
 
 function assertAllowed(profile: StudioProviderProfile, input: StudioGenerateRequest): void {

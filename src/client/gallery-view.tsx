@@ -61,7 +61,8 @@ const DICT = {
     // 筛选工具栏
     filterAllProviders: '全部提供商',
     filterGoogle: 'Google Gemini',
-    filterOpenAI: 'OpenAI / 中转站',
+    filterOpenAI: 'OpenAI',
+    filterOpenAICompat: 'OpenAI 兼容',
     filterSeedream: '字节 Seedream',
     filterDashScope: '阿里 DashScope',
     filterComfyUI: '本地 ComfyUI',
@@ -156,7 +157,8 @@ const DICT = {
     // Filter Toolbar
     filterAllProviders: 'All Providers',
     filterGoogle: 'Google Gemini',
-    filterOpenAI: 'OpenAI / Relay',
+    filterOpenAI: 'OpenAI',
+    filterOpenAICompat: 'OpenAI-compatible',
     filterSeedream: 'ByteDance Seedream',
     filterDashScope: 'Aliyun DashScope',
     filterComfyUI: 'Local ComfyUI',
@@ -1037,6 +1039,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
               <option value="all">{t('filterAllProviders')}</option>
               <option value="google">{t('filterGoogle')}</option>
               <option value="openai">{t('filterOpenAI')}</option>
+              <option value="openai-compat">{t('filterOpenAICompat')}</option>
               <option value="seedream">{t('filterSeedream')}</option>
               <option value="dashscope">{t('filterDashScope')}</option>
               <option value="comfyui">{t('filterComfyUI')}</option>

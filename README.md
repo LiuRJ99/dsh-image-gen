@@ -229,7 +229,8 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 | Provider                          | 对话生图 | 对话编辑 | Studio | 多模型对比 |
 | :-------------------------------- | :------: | :------: | :----: | :--------: |
 | **Google Gemini**                 |    ✅    | ✅ 多图  |   ✅   |     ✅     |
-| **OpenAI Images / Compatible**    |    ✅    | ✅ 多图  |   ✅   |     ✅     |
+| **OpenAI Images**                 |    ✅    | ✅ 多图  |   ✅   |     ✅     |
+| **OpenAI Compatible（中转站）**   |    ✅    | ✅ 多图  |   ✅   |     ✅     |
 | **ByteDance Seedream / 火山方舟** |    ✅    | ✅ 多图  |   ✅   |     ✅     |
 | **Aliyun DashScope / Qwen Image** |    ✅    | ✅ 多图  |   ✅   |     ✅     |
 | **Local ComfyUI**                 |    ✅    | ✅ 单图  |   —    |     —      |

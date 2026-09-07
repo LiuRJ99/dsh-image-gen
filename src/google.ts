@@ -1,6 +1,7 @@
 /** Google Gemini Interactions API adapter. */
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { AspectRatio, ImageSize } from './config.js'
+import { redactSecrets } from './redact.js'
 
 const ERROR_LIMIT = 4096
 const REQUESTED_MEDIA_TYPE = 'image/jpeg'
@@ -86,7 +87,7 @@ async function requestGoogleImage(input: GoogleRequestBase & {
     }),
   })
   const text = await readBoundedText(response, Math.ceil(input.maxBytes * 1.4) + ERROR_LIMIT, label)
-  if (!response.ok) throw new Error(`${label} failed (${response.status}): ${text.slice(0, ERROR_LIMIT)}`)
+  if (!response.ok) throw new Error(`${label} failed (${response.status}): ${redactSecrets(text, input.apiKey).slice(0, ERROR_LIMIT)}`)
   let payload: unknown
   try {
     payload = JSON.parse(text)
@@ -94,7 +95,7 @@ async function requestGoogleImage(input: GoogleRequestBase & {
     throw new Error(`${label} returned invalid JSON`)
   }
   const image = outputImage(payload)
-  if (image === undefined) throw new Error(`${label} returned no image: ${text.slice(0, ERROR_LIMIT)}`)
+  if (image === undefined) throw new Error(`${label} returned no image: ${redactSecrets(text, input.apiKey).slice(0, ERROR_LIMIT)}`)
   const mediaType = mediaTypeOf(image.mime_type ?? REQUESTED_MEDIA_TYPE)
   if (mediaType === undefined) throw new Error(`${label} returned unsupported media type ${JSON.stringify(image.mime_type)}`)
   const data = decodeBase64(image.data, label)

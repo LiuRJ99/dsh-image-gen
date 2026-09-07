@@ -229,7 +229,8 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | Provider | Chat generation | Chat editing | Studio | Multi-model comparison |
 | :--- | :---: | :---: | :---: | :---: |
 | **Google Gemini** | ✅ | ✅ Multiple | ✅ | ✅ |
-| **OpenAI Images / Compatible** | ✅ | ✅ Multiple | ✅ | ✅ |
+| **OpenAI Images** | ✅ | ✅ Multiple | ✅ | ✅ |
+| **OpenAI Compatible (relay)** | ✅ | ✅ Multiple | ✅ | ✅ |
 | **ByteDance Seedream / Volcengine Ark** | ✅ | ✅ Multiple | ✅ | ✅ |
 | **Aliyun DashScope / Qwen Image** | ✅ | ✅ Multiple | ✅ | ✅ |
 | **Local ComfyUI** | ✅ | ✅ Single | — | — |
