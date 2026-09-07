@@ -257,6 +257,13 @@ const STYLE = `
   .dsh-ig-gallery-page-header{padding:10px 12px}
   .dsh-ig-gallery-page-body{padding:10px 12px}
 }
+@media (max-width:600px){
+  .dsh-ig-gallery-list-item{flex-direction:column;align-items:flex-start;gap:10px}
+  .dsh-ig-gallery-list-thumb{width:100%;height:180px;align-self:stretch}
+  .dsh-ig-gallery-list-main{width:100%;flex:0 1 auto}
+  .dsh-ig-gallery-list-meta{margin-top:0;flex-wrap:wrap;gap:8px 14px}
+  .dsh-ig-gallery-actions-row{width:100%;flex-wrap:wrap;justify-content:flex-start}
+}
 `
 
 /** Required browser services. */
