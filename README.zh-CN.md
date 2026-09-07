@@ -53,7 +53,7 @@ flowchart LR
 
 ```bash
 dsh plugin --profile web add @LiuRJ99/dsh-cpa-plugin
-dsh plugin --profile web add dsh-image-gen@0.4.1
+dsh plugin --profile web add dsh-image-gen@0.5.0
 ```
 
 本地发布包也使用同一命令形状：
@@ -84,6 +84,17 @@ dsh plugin --profile web add <image-plugin-package-or-tarball>
 - 🖼️ 图片进入 DSH Attachment、Conversation 和原生 Gallery。
 - 💾 可将成功生成的图片保存到当前会话工作区。
 - 🎨 通过 CPA Provider 统一承载模型路由、协议和凭据，Adapter 不读取或保存 Provider key。
+
+## 灵感与 Gallery 管理
+
+- **灵感素材库**：内置固定 allowlist 的公开案例，支持分类、风格、场景筛选、搜索、收藏、复制 Prompt，以及选择 GPT Image 2 或 Gemini Image 后通过 CPA 生成。素材图片优先使用固定镜像，再回退到 jsDelivr/GitHub；浏览器只能提交 case ID，不能提交任意 URL。
+- **缓存边界**：素材索引/图片的浏览器 IndexedDB 缓存有大小上限；Host 的可选磁盘缓存位于 `~/.dsh/cache/dsh-image-gen/inspiration`，错误会降级为内置 SVG，不影响生图。刷新和清理会清除插件缓存；第三方网络仅访问代码中固定的 HTTPS 源。
+- **Gallery 管理**：Better Sidebar Gallery 保留 fork 的 DB v3、缩略图/原图缓存与虚拟化 Grid/Table，并增加 favorites、批量选择/删除、当前 workspace filter、Prompt 复制和 CPA-only 重新生成。列表视图会显示完整 Prompt。
+- **工作区治理**：普通 `generate_image` 只写当前 agent session 的 cwd，并使用原子写入和 realpath containment。动态发现的 DSH workspace 只用于严格的根目录校验；浏览器批量删除只接受已保存的生成文件路径，重新生成的浏览器请求只创建 Attachment，不扩大写盘授权。
+
+## 明确的 deferred 能力
+
+当前 CPA service 只有 `generate` 合同，因此本 Adapter **不实现也不宣称支持** native `edit_image`、Studio 原生 Provider backend、多模型原生对比或 `provider=comfyui`。编辑、多参考、Studio/ComfyUI 与 Provider/BYOK/API key 配置均保留为后续 CPA contract 设计，不会在本插件中读取或保存。
 
 ## 本地开发
 

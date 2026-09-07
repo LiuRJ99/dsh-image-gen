@@ -7,7 +7,9 @@ import { useEffect, useState, type MouseEvent } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
   IMAGE_ROUTE,
+  imageAttachment,
   imageAttachmentFromMeta,
+  record,
 } from '../shared.js'
 import { galleryEngineLabel, normalizeGalleryItem, saveGalleryItem } from './gallery-store.js'
 import { copyImageBlob, type LocaleService } from './gallery-view.js'
@@ -18,6 +20,11 @@ export interface GeneratedImageDeliverable {
   attachment: ImageAttachmentRef
   prompt: string
   engine: unknown
+  model?: unknown
+  output?: unknown
+  aspectRatio?: unknown
+  imageSize?: unknown
+  saveError?: unknown
   savedTo?: string | undefined
   createdAt?: number | undefined
 }
@@ -76,28 +83,43 @@ export const imageDeliverablesDefinition = {
 
     if (event.type === 'tool/result') {
       const data = event.data as {
-        message?: { source?: { callId?: string }; content?: Array<{ isError?: boolean; type?: string; attachment?: ImageAttachmentRef }> }
+        message?: { source?: { callId?: string }; content?: unknown; meta?: unknown }
         meta?: unknown
       } | undefined
-      const callId = String(data?.message?.source?.callId || '')
-      const isError = data?.message?.content?.[0]?.isError === true
-      if (isError) return context.state
+      const rawCallId = data?.message?.source?.callId
+      if (typeof rawCallId !== 'string' || rawCallId.trim() === '') return context.state
+      const callId = rawCallId
+      if (contentHasError(data?.message?.content)) return context.state
 
-      // 1. Try presentationMeta
-      let attachment = imageAttachmentFromMeta(data?.meta)
-      // 2. Fallback to message content
-      if (attachment === undefined && Array.isArray(data?.message?.content)) {
-        const item = data.message.content.find((c) => c.type === 'image' && c.attachment)
-        if (item?.attachment) attachment = item.attachment
-      }
+      // 1. Try presentationMeta. Older DSH result messages may carry the
+      // metadata on the message object rather than the event envelope.
+      let attachment = imageAttachmentFromMeta(data?.meta) ?? imageAttachmentFromMeta(data?.message?.meta)
+      // 2. Fallback to both modern block content and nested legacy result
+      // message content (`content[0].content`).
+      if (attachment === undefined) attachment = attachmentFromContent(data?.message?.content)
       if (attachment === undefined) return context.state
 
-      const meta = (typeof data?.meta === 'object' && data?.meta !== null ? data.meta : {}) as Record<string, unknown>
+      const meta = {
+        ...(imageMetaRecord(data?.message?.meta) ?? {}),
+        ...(imageMetaRecord(data?.meta) ?? {}),
+      }
       const callInfo = context.state.calls.get(callId)
       const prompt = typeof meta.prompt === 'string' ? meta.prompt : (callInfo?.prompt || 'Generated Image')
       const engine = meta.engine
+      const model = meta.model
+      const output = meta.output
+      const aspectRatio = meta.aspectRatio
+      const imageSize = meta.imageSize
+      const saveError = meta.saveError
       const savedTo = typeof meta.savedTo === 'string' ? meta.savedTo : undefined
-      const createdAt = typeof meta.createdAt === 'number' ? meta.createdAt : Date.now()
+      const rawCreatedAt = typeof meta.createdAt === 'number' && Number.isFinite(meta.createdAt)
+        ? meta.createdAt
+        : typeof event.time === 'number' && Number.isFinite(event.time)
+          ? event.time
+          : typeof event.seq === 'number' && Number.isFinite(event.seq)
+            ? event.seq
+            : 0
+      const createdAt = rawCreatedAt
 
       if (context.state.images.some((img) => img.callId === callId)) {
         return context.state
@@ -109,7 +131,12 @@ export const imageDeliverablesDefinition = {
         attachment,
         prompt,
         engine,
-        savedTo,
+        ...(model === undefined ? {} : { model }),
+        ...(output === undefined ? {} : { output }),
+        ...(aspectRatio === undefined ? {} : { aspectRatio }),
+        ...(imageSize === undefined ? {} : { imageSize }),
+        ...(saveError === undefined ? {} : { saveError }),
+        ...(savedTo === undefined ? {} : { savedTo }),
         createdAt,
       }
 
@@ -146,10 +173,40 @@ export function selectGeneratedImages(owner: {
   turn: { data: { get: (key: string) => unknown } }
   seq: number
 }): GeneratedImageDeliverable[] | null {
-  const data = owner.turn.data.get(IMAGE_DELIVERABLES_KIND) as { images?: GeneratedImageDeliverable[] } | undefined
-  if (!data?.images || data.images.length === 0) return null
-  const valid = data.images.filter((img) => img.seq <= owner.seq)
+  const images = record(owner.turn.data.get(IMAGE_DELIVERABLES_KIND))?.images
+  if (!Array.isArray(images)) return null
+  const valid = images.flatMap((candidate: unknown) => {
+    const image = record(candidate)
+    const attachment = imageAttachment(image?.attachment)
+    if (image === undefined || attachment === undefined || typeof image.callId !== 'string' || image.callId.trim() === '' || typeof image.seq !== 'number' || !Number.isFinite(image.seq) || image.seq > owner.seq || typeof image.prompt !== 'string') return []
+    return [{ ...image, attachment } as unknown as GeneratedImageDeliverable]
+  })
   return valid.length === 0 ? null : valid
+}
+
+function contentHasError(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(contentHasError)
+  const entry = record(value)
+  if (entry === undefined) return false
+  if (entry.isError === true) return true
+  return contentHasError(entry.content)
+}
+
+function attachmentFromContent(value: unknown): ImageAttachmentRef | undefined {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const attachment = attachmentFromContent(entry)
+      if (attachment !== undefined) return attachment
+    }
+    return undefined
+  }
+  const entry = record(value)
+  if (entry === undefined) return undefined
+  if (entry.type === 'image') {
+    const attachment = imageAttachment(entry.attachment)
+    if (attachment !== undefined) return attachment
+  }
+  return attachmentFromContent(entry.content)
 }
 
 const DICT = {
@@ -181,11 +238,10 @@ type DictKey = keyof typeof DICT.zh
 
 export interface TurnTailCardProps {
   matched: GeneratedImageDeliverable[]
-  openFile?: (path: string) => void
   locale?: LocaleService | undefined
 }
 
-export function TurnTailImagesCard({ matched, openFile, locale }: TurnTailCardProps) {
+export function TurnTailImagesCard({ matched, locale }: TurnTailCardProps) {
   if (!matched || matched.length === 0) return null
   return (
     <div className="dsh-ig-turntail-wrap" data-deliverables-images="true">
@@ -194,10 +250,14 @@ export function TurnTailImagesCard({ matched, openFile, locale }: TurnTailCardPr
           key={item.callId || item.attachment.attachmentId}
           attachment={item.attachment}
           engine={item.engine}
+          model={item.model}
+          output={item.output}
+          aspectRatio={item.aspectRatio}
+          imageSize={item.imageSize}
+          saveError={item.saveError}
           savedTo={item.savedTo}
           prompt={item.prompt}
           createdAt={item.createdAt}
-          openFile={openFile}
           locale={locale}
         />
       ))}
@@ -208,20 +268,28 @@ export function TurnTailImagesCard({ matched, openFile, locale }: TurnTailCardPr
 export interface SingleViewProps {
   attachment: ImageAttachmentRef
   engine?: unknown
+  model?: unknown
+  output?: unknown
+  aspectRatio?: unknown
+  imageSize?: unknown
+  saveError?: unknown
   savedTo?: string | undefined
   prompt: string
   createdAt?: number | undefined
-  openFile?: ((path: string) => void) | undefined
   locale?: LocaleService | undefined
 }
 
 export function SingleGeneratedImageView({
   attachment,
   engine,
+  model,
+  output,
+  aspectRatio,
+  imageSize,
+  saveError,
   savedTo,
   prompt,
   createdAt,
-  openFile,
   locale,
 }: SingleViewProps) {
   const normalizedMetadata = normalizeGalleryItem({ engine })
@@ -249,6 +317,16 @@ export function SingleGeneratedImageView({
     return text
   }
 
+  const attachmentKey = JSON.stringify({
+    id: attachment.attachmentId,
+    mediaType: attachment.mediaType,
+    bytes: attachment.bytes,
+    width: attachment.width,
+    height: attachment.height,
+    name: attachment.name,
+    originalDimensions: attachment.originalDimensions,
+  })
+
   // Auto-collect into gallery IndexedDB
   useEffect(() => {
     const item = normalizeGalleryItem({
@@ -256,10 +334,16 @@ export function SingleGeneratedImageView({
       attachment,
       prompt,
       engine,
+      ...(typeof model === 'string' ? { model } : {}),
+      ...(typeof output === 'string' ? { output } : {}),
+      ...(typeof aspectRatio === 'string' ? { aspectRatio } : {}),
+      ...(typeof imageSize === 'string' ? { imageSize } : {}),
+      ...(typeof saveError === 'string' ? { saveError } : {}),
+      ...(savedTo === undefined ? {} : { savedTo }),
       createdAt,
     })
     void saveGalleryItem(item)
-  }, [attachment.attachmentId, createdAt, prompt, engine])
+  }, [attachmentKey, createdAt, prompt, engine, model, output, aspectRatio, imageSize, saveError, savedTo])
 
   useEffect(() => {
     if (!previewOpen) return
@@ -275,6 +359,9 @@ export function SingleGeneratedImageView({
   useEffect(() => {
     const controller = new AbortController()
     let objectUrl: string | undefined
+    setUrl(undefined)
+    setBlob(undefined)
+    setError(undefined)
     void fetch(IMAGE_ROUTE, {
       method: 'POST',
       signal: controller.signal,
@@ -296,7 +383,7 @@ export function SingleGeneratedImageView({
       controller.abort()
       if (objectUrl !== undefined) URL.revokeObjectURL(objectUrl)
     }
-  }, [attachment.attachmentId, lang])
+  }, [attachmentKey, lang])
 
   const copy = async (e: MouseEvent) => {
     e.stopPropagation()
@@ -313,7 +400,9 @@ export function SingleGeneratedImageView({
     if (!url) return
     const a = document.createElement('a')
     a.href = url
-    a.download = attachment?.name || `dsh-image-${Date.now()}.png`
+    const extension = extensionForMediaType(attachment.mediaType)
+    const safeName = typeof attachment.name === 'string' && /^[a-z0-9._-]+$/iu.test(attachment.name) ? attachment.name : `dsh-image-${Date.now()}`
+    a.download = /\.(?:png|jpe?g|webp|gif)$/iu.test(safeName) ? safeName : `${safeName}.${extension}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -325,26 +414,16 @@ export function SingleGeneratedImageView({
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  const onOpenFilePath = (e: MouseEvent) => {
-    e.stopPropagation()
-    if (savedTo && openFile) openFile(savedTo)
-  }
-
   return (
     <section className="dsh-ig-result" aria-label={t('generatedTitle')}>
       <div className="dsh-ig-result-title" title={normalizedMetadata.normalizationError}>
         {t('generatedTitle')} · {galleryEngineLabel(normalizedMetadata.engine)}
       </div>
+      {typeof saveError === 'string' ? <div className="dsh-ig-error">{saveError}</div> : null}
       {savedTo !== undefined ? (
         <div className="dsh-ig-savedto">
           {t('savedToPath')}:{' '}
-          {openFile ? (
-            <button type="button" className="dsh-ig-file-btn" onClick={onOpenFilePath} title={savedTo}>
-              {savedTo}
-            </button>
-          ) : (
-            <span>{savedTo}</span>
-          )}
+          <span>{savedTo}</span>
         </div>
       ) : null}
       {error !== undefined ? <div className="dsh-ig-error">{error}</div> : null}
@@ -394,4 +473,16 @@ export function SingleGeneratedImageView({
       ) : null}
     </section>
   )
+}
+
+function imageMetaRecord(value: unknown): Record<string, unknown> | undefined {
+  const candidate = record(value)
+  return candidate?.kind === 'dsh-image-gen' ? candidate : undefined
+}
+
+function extensionForMediaType(mediaType: ImageAttachmentRef['mediaType']): string {
+  if (mediaType === 'image/jpeg') return 'jpg'
+  if (mediaType === 'image/webp') return 'webp'
+  if (mediaType === 'image/gif') return 'gif'
+  return 'png'
 }

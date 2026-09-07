@@ -58,6 +58,7 @@ describe('computeWindow', () => {
 
   it('clamps the window to the row count', () => {
     const win = computeWindow(1_000_000, 600, 10, 120)
+    expect(win.start).toBe(10)
     expect(win.end).toBe(10)
     expect(win.padBottom).toBe(0)
   })

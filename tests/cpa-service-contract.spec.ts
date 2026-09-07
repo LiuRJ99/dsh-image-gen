@@ -1,7 +1,7 @@
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
-import { apply, inject, name, version, gptSizeFromAspectRatio, toolDefinitionForEngine } from '../src/index.js'
+import { apply, CPA_GENERATE_ROUTE, inject, name, version, gptSizeFromAspectRatio, toolDefinitionForEngine } from '../src/index.js'
 
 vi.mock('@deepseek-ai/dsh-tools', () => ({
   defineTool: (tool: unknown) => tool,
@@ -10,6 +10,7 @@ vi.mock('@deepseek-ai/dsh-tools', () => ({
 interface RegisteredTool {
   parameters?: Record<string, unknown>
   description?: string
+  output?: { schema?: Record<string, unknown>; render?: (args: unknown, value: unknown) => unknown }
   execute(args: Record<string, string>, exec: { signal: AbortSignal }): Promise<Record<string, unknown>>
 }
 
@@ -29,7 +30,7 @@ describe('CPA image service contract', () => {
 
   it('exports plugin metadata', () => {
     expect(name).toBe('dsh-image-gen')
-    expect(version).toBe('0.4.1')
+    expect(version).toBe('0.5.0')
   })
 
   it('declares and uses the injected service without resolving credentials', async () => {
@@ -56,7 +57,8 @@ describe('CPA image service contract', () => {
       }),
     }
 
-    expect(inject).toContain(IMAGE_GENERATION_SERVICE)
+    expect(inject).not.toContain(IMAGE_GENERATION_SERVICE)
+    expect(inject).toContain('webServer')
     expect(inject).not.toContain('credentials')
     apply(ctx as never, { engine: 'gemini', saveToWorkspace: false })
 
@@ -69,15 +71,43 @@ describe('CPA image service contract', () => {
       size: '1536x864',
     }, { signal })
 
+    // `size` is an OpenAI-style option and must not leak into the Gemini CPA
+    // image_config request. Gemini receives only its declared controls.
     expect(generate).toHaveBeenCalledWith({
       engine: 'gemini',
       prompt: 'a blue circle',
       aspectRatio: '16:9',
       imageSize: '2K',
-      size: '1536x864',
       signal,
     })
     expect(result).toMatchObject({ attachment, engine: 'gemini' })
+    expect(tool.output?.schema).toMatchObject({ properties: { attachment: { properties: { originalDimensions: expect.any(Object) } } } })
+    expect(tool.output?.render?.({}, result)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'text' }),
+      expect.objectContaining({ type: 'image', attachment }),
+    ]))
+  })
+
+  it('keeps routes observable and emits a warning when CPA is not loaded yet', () => {
+    const tools = { register: vi.fn() }
+    const webServer = { register: vi.fn(() => () => undefined) }
+    const warn = vi.fn()
+    const ctx = {
+      tools,
+      webServer,
+      attachments: {
+        imageLimits: { maxImageBytes: 1024, mediaTypes: ['image/png'] },
+        saveImage: vi.fn(),
+        readImage: vi.fn(),
+      },
+      logger: { warn },
+      effect: vi.fn((effect: () => unknown) => effect()),
+      inject: vi.fn(() => undefined),
+    }
+    apply(ctx as never, { engine: 'gpt', saveToWorkspace: false })
+    expect(tools.register).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('CPA image generation service is unavailable'))
+    expect(webServer.register.mock.calls.map(([definition]) => (definition as { path?: string }).path)).toContain(CPA_GENERATE_ROUTE)
   })
 
   it('creates specialized GPT tool declaration and auto-adapts aspect_ratio to size', async () => {
@@ -110,6 +140,17 @@ describe('CPA image service contract', () => {
       size: '1024x1792',
       signal,
     })
+  })
+
+  it('rejects empty or oversized prompts before calling CPA', async () => {
+    const generate = vi.fn<CpaImageGenerationService['generate']>()
+    const attachments = {
+      imageLimits: { maxImageBytes: 1024, mediaTypes: ['image/png'] },
+      saveImage: vi.fn().mockResolvedValue(attachment),
+    }
+    const gptTool = toolDefinitionForEngine('gpt', { generate }, {} as never, attachments as never, () => ({ saveToWorkspace: false })) as unknown as RegisteredTool
+    await expect(gptTool.execute({ prompt: 'x'.repeat(16_001) }, { signal: new AbortController().signal })).rejects.toThrow('prompt-invalid')
+    expect(generate).not.toHaveBeenCalled()
   })
 
   it('creates specialized Gemini tool declaration', () => {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",
@@ -38,6 +38,7 @@
     "README.zh-CN.md",
     "README.en.md",
     "CHANGELOG.md",
+    "docs/CPA-ONLY-OPTION-A.md",
     "LICENSE"
   ],
   "dsh": {
@@ -85,11 +86,12 @@
     "cordis"
   ],
   "peerDependencies": {
-    "@LiuRJ99/dsh-cpa-plugin": ">=0.3.0 <0.5.0",
+    "@LiuRJ99/dsh-cpa-plugin": ">=0.4.0 <0.5.0",
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-api-remotes": "0.1.2-rc.1",
     "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-connection": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-chat": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-rc.1",
@@ -118,6 +120,7 @@
     "@deepseek-ai/dsh-api-remotes": "0.1.2-rc.1",
     "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-connection": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-chat": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-rc.1",

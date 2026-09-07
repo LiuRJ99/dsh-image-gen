@@ -4,9 +4,13 @@
  * Supports tombstones to ensure deleted items are never resurrected when revisiting conversations.
  */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { attachmentMeta, imageAttachment } from '../shared.js'
 import type { ImageEngine } from '../shared.js'
 
 export type GalleryEngine = ImageEngine | 'unknown'
+
+/** IndexedDB schema version retained by the fork; optional fields are schemaless. */
+export const GALLERY_DB_VERSION = 3
 
 /** Sort modes exposed by the gallery toolbar (persisted to localStorage). */
 export type SortOption = 'time-desc' | 'time-asc' | 'prompt-asc' | 'prompt-desc' | 'size-desc'
@@ -33,6 +37,18 @@ export interface GalleryItem {
   aspectRatio?: string
   imageSize?: string
   output?: string
+  /** Persisted user favorite; optional for DB v3 records written by older builds. */
+  isFavorite?: boolean
+  /** Optional user labels, retained across automatic gallery re-indexing. */
+  tags?: string[]
+  /** Workspace metadata used only for filtering and safe file cleanup. */
+  workspacePath?: string
+  workspaceId?: string
+  sessionId?: string
+  /** Absolute path returned by the safe host workspace save, when present. */
+  savedTo?: string
+  /** Stable workspace-save diagnostic when generation itself succeeded. */
+  saveError?: string
   /** Retained only when a legacy record cannot be mapped to an engine. */
   legacyProvider?: string
   /** Retained only when a record contains an unsupported engine value. */
@@ -120,21 +136,30 @@ export function formatDate(timestamp: number, lang: 'zh' | 'en' = 'zh'): string 
   return lang === 'en' ? `${ymd} ${hms}` : `${ymd} ${hms}`
 }
 
-/** Compare two gallery items by the active sort option. */
+const PROMPT_COLLATOR = new Intl.Collator('zh-CN-u-co-pinyin', { sensitivity: 'base', numeric: true })
+
+/** Compare two gallery items with a deterministic locale and id tie-breaker. */
 export function compareGalleryItems(a: GalleryItem, b: GalleryItem, sortOption: SortOption): number {
+  let result: number
   switch (sortOption) {
     case 'time-asc':
-      return a.createdAt - b.createdAt
+      result = a.createdAt - b.createdAt
+      break
     case 'prompt-asc':
-      return (a.prompt || '').localeCompare(b.prompt || '')
+      result = PROMPT_COLLATOR.compare(a.prompt || '', b.prompt || '')
+      break
     case 'prompt-desc':
-      return (b.prompt || '').localeCompare(a.prompt || '')
+      result = PROMPT_COLLATOR.compare(b.prompt || '', a.prompt || '')
+      break
     case 'size-desc':
-      return (b.attachment?.bytes || 0) - (a.attachment?.bytes || 0)
+      result = (b.attachment?.bytes || 0) - (a.attachment?.bytes || 0)
+      break
     case 'time-desc':
     default:
-      return b.createdAt - a.createdAt
+      result = b.createdAt - a.createdAt
+      break
   }
+  return result !== 0 ? result : PROMPT_COLLATOR.compare(a.id, b.id)
 }
 
 /** Memoizable filter + sort pipeline over the raw gallery list. */
@@ -174,12 +199,34 @@ function roundOne(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
+function sanitizeGalleryRest(value: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  if (typeof value.id === 'string' && value.id.trim() !== '') result.id = value.id
+  const attachment = imageAttachment(value.attachment)
+  if (attachment !== undefined) result.attachment = imageAttachment(attachmentMeta(attachment))
+  if (typeof value.prompt === 'string') result.prompt = value.prompt.slice(0, 32_000)
+  const limits: Record<string, number> = { aspectRatio: 32, imageSize: 32, output: 256, workspacePath: 4096, workspaceId: 256, sessionId: 256, savedTo: 4096, saveError: 256 }
+  for (const key of Object.keys(limits)) {
+    if (typeof value[key] === 'string') result[key] = value[key].slice(0, limits[key] ?? 256)
+  }
+  if (typeof value.isFavorite === 'boolean') result.isFavorite = value.isFavorite
+  if (Array.isArray(value.tags)) {
+    const tags = value.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 64)
+    result.tags = tags
+  }
+  if (typeof value.createdAt === 'number' && Number.isFinite(value.createdAt)) result.createdAt = value.createdAt
+  return result
+}
+
 /**
  * Normalize current and legacy Gallery metadata without inferring unknown
  * providers. Legacy OpenAI/Google records are mapped to the CPA engines;
  * unsupported values remain visible as an explicit unknown record.
  */
 export function normalizeGalleryItem(item: GalleryItemInput): GalleryItem {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return { engine: 'unknown', model: '', normalizationError: 'Invalid gallery metadata' } as GalleryItem
+  }
   const {
     engine: rawEngine,
     provider: rawProvider,
@@ -189,18 +236,19 @@ export function normalizeGalleryItem(item: GalleryItemInput): GalleryItem {
     normalizationError: rawNormalizationError,
     ...rest
   } = item
-  const model = typeof rawModel === 'string' ? rawModel : ''
-  const previousLegacyProvider = typeof rawLegacyProvider === 'string' ? rawLegacyProvider : undefined
-  const previousLegacyEngine = typeof rawLegacyEngine === 'string' ? rawLegacyEngine : undefined
-  const previousError = typeof rawNormalizationError === 'string' ? rawNormalizationError : undefined
+  const normalizedRest = sanitizeGalleryRest(rest)
+  const model = typeof rawModel === 'string' ? rawModel.slice(0, 256) : ''
+  const previousLegacyProvider = typeof rawLegacyProvider === 'string' ? rawLegacyProvider.slice(0, 128) : undefined
+  const previousLegacyEngine = typeof rawLegacyEngine === 'string' ? rawLegacyEngine.slice(0, 128) : undefined
+  const previousError = typeof rawNormalizationError === 'string' ? rawNormalizationError.slice(0, 256) : undefined
 
   if (rawEngine === 'gpt' || rawEngine === 'gemini') {
-    return { ...rest, engine: rawEngine, model } as GalleryItem
+    return { ...normalizedRest, engine: rawEngine, model } as GalleryItem
   }
   if (rawEngine === 'unknown') {
-    const legacyProvider = previousLegacyProvider ?? (typeof rawProvider === 'string' ? rawProvider : undefined)
+    const legacyProvider = previousLegacyProvider ?? (typeof rawProvider === 'string' ? rawProvider.slice(0, 128) : undefined)
     return {
-      ...rest,
+      ...normalizedRest,
       engine: 'unknown',
       model,
       ...(legacyProvider === undefined ? {} : { legacyProvider }),
@@ -209,9 +257,9 @@ export function normalizeGalleryItem(item: GalleryItemInput): GalleryItem {
     } as GalleryItem
   }
   if (rawEngine !== undefined) {
-    const legacyEngine = typeof rawEngine === 'string' ? rawEngine : String(rawEngine)
+    const legacyEngine = typeof rawEngine === 'string' ? rawEngine : typeof rawEngine === 'number' || typeof rawEngine === 'boolean' ? String(rawEngine) : 'invalid'
     return {
-      ...rest,
+      ...normalizedRest,
       engine: 'unknown',
       model,
       legacyEngine,
@@ -219,15 +267,15 @@ export function normalizeGalleryItem(item: GalleryItemInput): GalleryItem {
     } as GalleryItem
   }
   if (rawProvider === 'openai') {
-    return { ...rest, engine: 'gpt', model } as GalleryItem
+    return { ...normalizedRest, engine: 'gpt', model } as GalleryItem
   }
   if (rawProvider === 'google') {
-    return { ...rest, engine: 'gemini', model } as GalleryItem
+    return { ...normalizedRest, engine: 'gemini', model } as GalleryItem
   }
 
-  const legacyProvider = typeof rawProvider === 'string' ? rawProvider : previousLegacyProvider
+  const legacyProvider = typeof rawProvider === 'string' ? rawProvider.slice(0, 128) : previousLegacyProvider
   return {
-    ...rest,
+    ...normalizedRest,
     engine: 'unknown',
     model,
     ...(legacyProvider === undefined ? {} : { legacyProvider }),
@@ -238,7 +286,7 @@ export function normalizeGalleryItem(item: GalleryItemInput): GalleryItem {
 }
 
 const DB_NAME = 'dsh_image_gen_db'
-const DB_VERSION = 3
+const DB_VERSION = GALLERY_DB_VERSION
 const STORE_NAME = 'gallery_history'
 const TOMBSTONE_STORE = 'gallery_tombstones'
 
@@ -247,18 +295,33 @@ let tombstonesCache: Set<string> | null = null
 
 function getDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB is not supported in this environment.'))
-      return
+  if (typeof indexedDB === 'undefined') return Promise.reject(new Error('IndexedDB is not supported in this environment.'))
+
+  let request: IDBOpenDBRequest
+  try {
+    request = indexedDB.open(DB_NAME, DB_VERSION)
+  } catch (error) {
+    return Promise.reject(error)
+  }
+
+  const promise = new Promise<IDBDatabase>((resolve, reject) => {
+    const reset = () => {
+      if (dbPromise === promise) {
+        dbPromise = null
+        tombstonesCache = null
+      }
     }
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
         store.createIndex('createdAt', 'createdAt', { unique: false })
+      } else {
+        const upgradeTransaction = (event.target as IDBOpenDBRequest).transaction
+        if (upgradeTransaction !== null && !upgradeTransaction.objectStore(STORE_NAME).indexNames.contains('createdAt')) {
+          upgradeTransaction.objectStore(STORE_NAME).createIndex('createdAt', 'createdAt', { unique: false })
+        }
       }
       if (!db.objectStoreNames.contains(TOMBSTONE_STORE)) {
         db.createObjectStore(TOMBSTONE_STORE, { keyPath: 'id' })
@@ -266,14 +329,25 @@ function getDB(): Promise<IDBDatabase> {
     }
 
     request.onsuccess = () => {
-      resolve(request.result)
+      const db = request.result
+      db.onversionchange = () => {
+        db.close()
+        reset()
+      }
+      resolve(db)
     }
 
     request.onerror = () => {
-      reject(request.error)
+      reset()
+      reject(request.error ?? new Error('IndexedDB open failed'))
+    }
+    request.onblocked = () => {
+      reset()
+      reject(new Error('IndexedDB open blocked by another tab'))
     }
   })
-  return dbPromise
+  dbPromise = promise
+  return promise
 }
 
 async function loadTombstones(db: IDBDatabase): Promise<Set<string>> {
@@ -328,88 +402,107 @@ export function subscribeGallery(listener: GalleryListener): () => void {
 
 /**
  * Save or update a gallery record by attachmentId.
- * Skipped if the item was previously deleted (tombstoned).
- * Preserves the existing `createdAt` timestamp if already saved and not explicitly provided.
+ * Skipped if the item was previously deleted (tombstoned). Existing user
+ * metadata (favorite, tags and workspace path) survives automatic re-indexing.
  */
 export async function saveGalleryItem(
   item: Omit<GalleryItem, 'createdAt'> & { createdAt?: number | undefined }
 ): Promise<void> {
   try {
     const db = await getDB()
-    const tombstones = await loadTombstones(db)
-    if (tombstones.has(item.id)) {
-      return
-    }
-
-    let existingItem: GalleryItem | undefined
-    try {
-      existingItem = await new Promise<GalleryItem | undefined>((resolve) => {
-        const tx = db.transaction(STORE_NAME, 'readonly')
-        const store = tx.objectStore(STORE_NAME)
-        const req = store.get(item.id)
-        req.onsuccess = () => {
-          const res = req.result as GalleryItemInput | undefined
-          resolve(res ? normalizeGalleryItem(res) : undefined)
-        }
-        req.onerror = () => resolve(undefined)
-      })
-    } catch {
-      existingItem = undefined
-    }
-
-    const resolvedCreatedAt = item.createdAt ?? existingItem?.createdAt ?? (Math.floor(Date.now() / 1000) * 1000)
-    const record = normalizeGalleryItem({
+    const candidate = normalizeGalleryItem({
       ...item,
-      createdAt: resolvedCreatedAt,
+      createdAt: item.createdAt ?? (Math.floor(Date.now() / 1000) * 1000),
     })
-
-    if (
-      existingItem &&
-      existingItem.createdAt === record.createdAt &&
-      existingItem.engine === record.engine &&
-      existingItem.prompt === record.prompt &&
-      existingItem.model === record.model &&
-      existingItem.output === record.output &&
-      existingItem.aspectRatio === record.aspectRatio &&
-      existingItem.imageSize === record.imageSize
-    ) {
-      return
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      const req = store.put(record)
-      req.onsuccess = () => resolve()
-      req.onerror = () => reject(req.error)
-    })
-    notifyListeners()
+    const changed = await upsertGalleryItem(db, candidate)
+    if (changed) notifyListeners()
   } catch (err) {
     console.warn('[dsh-image-gen] Failed to save gallery item to IndexedDB:', err)
   }
 }
 
+async function upsertGalleryItem(db: IDBDatabase, candidate: GalleryItem): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME, TOMBSTONE_STORE], 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    const tombstoneStore = tx.objectStore(TOMBSTONE_STORE)
+    let changed = false
+    let blocked = false
+    const tombstoneRequest = tombstoneStore.get(candidate.id)
+    tombstoneRequest.onsuccess = () => {
+      if (tombstoneRequest.result !== undefined) {
+        blocked = true
+        return
+      }
+      const req = store.get(candidate.id)
+      req.onsuccess = () => {
+        const existingRaw = req.result as GalleryItemInput | undefined
+        const existing = existingRaw === undefined ? undefined : normalizePersistedGalleryItem(existingRaw)
+        const merged = mergeGalleryItem(existing, candidate)
+        if (existing !== undefined && galleryItemsEqual(existing, merged)) return
+        changed = true
+        const put = store.put(merged)
+        put.onerror = () => reject(put.error)
+      }
+      req.onerror = () => reject(req.error)
+    }
+    tombstoneRequest.onerror = () => reject(tombstoneRequest.error)
+    tx.oncomplete = () => resolve(!blocked && changed)
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'))
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+  })
+}
+
+function mergeGalleryItem(existing: GalleryItem | undefined, candidate: GalleryItem): GalleryItem {
+  if (existing === undefined) return candidate
+  const merged: GalleryItem = { ...existing, ...candidate, createdAt: existing.createdAt > 0 ? existing.createdAt : candidate.createdAt }
+  if (candidate.isFavorite === undefined && existing.isFavorite !== undefined) merged.isFavorite = existing.isFavorite
+  if (candidate.tags === undefined && existing.tags !== undefined) merged.tags = existing.tags
+  if (candidate.savedTo === undefined && existing.savedTo !== undefined) merged.savedTo = existing.savedTo
+  if (candidate.saveError === undefined && existing.saveError !== undefined) merged.saveError = existing.saveError
+  if (candidate.workspacePath === undefined && existing.workspacePath !== undefined) merged.workspacePath = existing.workspacePath
+  if (candidate.workspaceId === undefined && existing.workspaceId !== undefined) merged.workspaceId = existing.workspaceId
+  if (candidate.sessionId === undefined && existing.sessionId !== undefined) merged.sessionId = existing.sessionId
+  return merged
+}
+
+function galleryItemsEqual(a: GalleryItem, b: GalleryItem): boolean {
+  return a.id === b.id && attachmentsEqual(a.attachment, b.attachment) && a.prompt === b.prompt && a.engine === b.engine && a.model === b.model && a.createdAt === b.createdAt && a.aspectRatio === b.aspectRatio && a.imageSize === b.imageSize && a.output === b.output && a.isFavorite === b.isFavorite && JSON.stringify(a.tags ?? []) === JSON.stringify(b.tags ?? []) && a.workspacePath === b.workspacePath && a.workspaceId === b.workspaceId && a.sessionId === b.sessionId && a.savedTo === b.savedTo && a.saveError === b.saveError && a.normalizationError === b.normalizationError
+}
+
+function attachmentsEqual(a: ImageAttachmentRef, b: ImageAttachmentRef): boolean {
+  return a.attachmentId === b.attachmentId && a.mediaType === b.mediaType && a.bytes === b.bytes && a.width === b.width && a.height === b.height && a.name === b.name && JSON.stringify(a.originalDimensions ?? null) === JSON.stringify(b.originalDimensions ?? null)
+}
+
+/** Validate a row before exposing it to gallery image components. */
+function normalizePersistedGalleryItem(value: GalleryItemInput): GalleryItem | undefined {
+  const normalized = normalizeGalleryItem(value)
+  const attachment = imageAttachment(normalized.attachment)
+  if (typeof normalized.id !== 'string' || normalized.id.trim() === '' || attachment === undefined || typeof normalized.prompt !== 'string') return undefined
+  return { ...normalized, attachment, createdAt: typeof normalized.createdAt === 'number' && Number.isFinite(normalized.createdAt) ? normalized.createdAt : 0 }
+}
+
 /**
- * Retrieve all gallery records sorted by createdAt descending.
+ * Retrieve all gallery records sorted by createdAt descending. Reading the
+ * object store rather than only the index keeps legacy rows without a timestamp
+ * visible; malformed rows are quarantined from the returned list.
  */
 export async function getGalleryItems(): Promise<GalleryItem[]> {
   try {
     const db = await getDB()
     return await new Promise<GalleryItem[]>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly')
-      const store = tx.objectStore(STORE_NAME)
-      const index = store.index('createdAt')
-      const req = index.openCursor(null, 'prev') // newest first
-      const items: GalleryItem[] = []
-
-      req.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
-        if (cursor) {
-          items.push(normalizeGalleryItem(cursor.value as GalleryItemInput))
-          cursor.continue()
-        } else {
-          resolve(items)
-        }
+      const req = tx.objectStore(STORE_NAME).getAll()
+      req.onsuccess = () => {
+        const items = req.result.flatMap((value) => {
+          try {
+            const item = normalizePersistedGalleryItem(value as GalleryItemInput)
+            return item === undefined ? [] : [item]
+          } catch {
+            return []
+          }
+        }).sort((a, b) => b.createdAt - a.createdAt)
+        resolve(items)
       }
       req.onerror = () => reject(req.error)
     })
@@ -419,47 +512,118 @@ export async function getGalleryItems(): Promise<GalleryItem[]> {
   }
 }
 
-/**
- * Delete a single gallery record by ID and record a tombstone.
- */
-export async function deleteGalleryItem(id: string): Promise<void> {
+/** Toggle the persisted favorite flag and return the new state. */
+export async function toggleFavoriteGalleryItem(id: string): Promise<boolean | undefined> {
   try {
     const db = await getDB()
-    const tombstones = await loadTombstones(db)
-    tombstones.add(id)
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([STORE_NAME, TOMBSTONE_STORE], 'readwrite')
+    return await new Promise<boolean | undefined>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      const tombstoneStore = tx.objectStore(TOMBSTONE_STORE)
-      store.delete(id)
-      tombstoneStore.put({ id, deletedAt: Date.now() })
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
+      let changed = false
+      let nextStatus = false
+      const request = store.get(id)
+      request.onsuccess = () => {
+        const raw = request.result as GalleryItemInput | undefined
+        if (raw === undefined) return
+        const item = normalizePersistedGalleryItem(raw)
+        if (item === undefined) return
+        changed = true
+        nextStatus = item.isFavorite !== true
+        const put = store.put({ ...item, isFavorite: nextStatus })
+        put.onerror = () => reject(put.error)
+      }
+      request.onerror = () => reject(request.error)
+      tx.oncomplete = () => {
+        if (changed) notifyListeners()
+        resolve(changed ? nextStatus : undefined)
+      }
+      tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'))
+      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
     })
-    notifyListeners()
   } catch (err) {
-    console.warn('[dsh-image-gen] Failed to delete gallery item from IndexedDB:', err)
+    console.warn('[dsh-image-gen] Failed to toggle favorite item in IndexedDB:', err)
+    return undefined
   }
 }
 
-/**
- * Clear all gallery records and reset tombstones.
- */
+/** Delete multiple gallery records and write tombstones in one transaction. */
+export async function bulkDeleteGalleryItems(ids: readonly string[]): Promise<void> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim() !== ''))]
+  if (uniqueIds.length === 0) return
+  const db = await getDB()
+  const tombstones = await loadTombstones(db)
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME, TOMBSTONE_STORE], 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    const tombstoneStore = tx.objectStore(TOMBSTONE_STORE)
+    const deletedAt = Date.now()
+    for (const id of uniqueIds) {
+      store.delete(id)
+      tombstoneStore.put({ id, deletedAt })
+    }
+    tx.oncomplete = () => {
+      for (const id of uniqueIds) tombstones.add(id)
+      resolve()
+    }
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'))
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+  })
+  notifyListeners()
+}
+
+/** Delete a single gallery record by ID and record a tombstone. */
+export async function deleteGalleryItem(id: string): Promise<boolean> {
+  try {
+    await bulkDeleteGalleryItems([id])
+    return true
+  } catch (err) {
+    console.warn('[dsh-image-gen] Failed to delete gallery item from IndexedDB:', err)
+    return false
+  }
+}
+
+/** Clear all gallery records and reset tombstones after commit succeeds. */
 export async function clearGallery(): Promise<void> {
   try {
     const db = await getDB()
-    if (tombstonesCache) tombstonesCache.clear()
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([STORE_NAME, TOMBSTONE_STORE], 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      const tombstoneStore = tx.objectStore(TOMBSTONE_STORE)
-      store.clear()
-      tombstoneStore.clear()
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
+      tx.objectStore(STORE_NAME).clear()
+      tx.objectStore(TOMBSTONE_STORE).clear()
+      tx.oncomplete = () => {
+        tombstonesCache?.clear()
+        resolve()
+      }
+      tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'))
+      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
     })
     notifyListeners()
   } catch (err) {
     console.warn('[dsh-image-gen] Failed to clear gallery in IndexedDB:', err)
   }
+}
+
+/** Normalize path separators and case for cross-platform workspace matching. */
+export function normalizeWorkspacePath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, '/').replace(/\/+$/, '')
+  // POSIX paths are case-sensitive; drive/UNC spellings are Windows paths and
+  // are compared case-insensitively for cross-version workspace metadata.
+  return /^[A-Za-z]:\//u.test(normalized) || normalized.startsWith('//') ? normalized.toLowerCase() : normalized
+}
+
+/** Determine whether an item belongs to a workspace using stable metadata or its saved path. */
+export function isItemInWorkspace(
+  item: GalleryItem,
+  workspace?: { workspaceId?: string; path?: string; sessionIds?: readonly string[] } | null,
+): boolean {
+  if (!workspace || (!workspace.workspaceId && !workspace.path && (!workspace.sessionIds || workspace.sessionIds.length === 0))) return true
+  if (item.workspaceId && workspace.workspaceId && item.workspaceId === workspace.workspaceId) return true
+  if (item.sessionId && workspace.sessionIds?.includes(item.sessionId)) return true
+  if (item.workspacePath && workspace.path && normalizeWorkspacePath(item.workspacePath) === normalizeWorkspacePath(workspace.path)) return true
+  if (item.savedTo && workspace.path) {
+    const saved = normalizeWorkspacePath(item.savedTo)
+    const root = normalizeWorkspacePath(workspace.path)
+    if (saved === root || saved.startsWith(`${root}/`)) return true
+  }
+  return false
 }

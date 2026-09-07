@@ -11,9 +11,9 @@ Before calling the tool, turn the user's request into a complete visual prompt. 
 
 The available engine labels are:
 
-- `GPT Image 2`
-- `Gemini Image`
+- `GPT Image 2` — use `size` (`1024x1024`, `1024x1792`, or `1792x1024`) for framing.
+- `Gemini Image` — use `aspect_ratio` and `image_size` for framing and resolution.
 
-The CPA Provider owns model IDs, protocol selection, credentials, and HTTP requests. Do not ask the user for credentials, read credentials, or expose them in a prompt or response.
+The CPA Provider owns model IDs, protocol selection, credentials, and HTTP requests. Do not ask the user for credentials, read credentials, or expose them in a prompt or response. Do not invent native `edit_image`, Studio, comparison, ComfyUI, or Provider/BYOK settings; they are deferred because the current CPA image service exposes generation only.
 
 After a successful `generate_image` call, treat the result as already attached to the conversation and tell the user it is available there. Do not use `read`, `glob`, `find`, shell commands, or other file-reading tools to inspect or verify the generated file.

@@ -49,12 +49,14 @@ flowchart LR
 
 ## Install and configure
 
-Install the Provider first, then the Adapter in the same DSH Web profile:
+The current `@LiuRJ99/dsh-cpa-plugin` is a private sibling Provider in this checkout and must not be assumed to exist on the public registry. In a monorepo/internal profile, install the sibling package or an approved Provider tarball first, then install the Adapter:
 
 ```bash
-dsh plugin --profile web add @LiuRJ99/dsh-cpa-plugin
-dsh plugin --profile web add dsh-image-gen@0.4.1
+dsh plugin --profile web add <path-to-dsh-cpa-plugin-or-approved-provider-tarball>
+dsh plugin --profile web add dsh-image-gen@0.5.0
 ```
+
+If the Provider has been published inside the target profile, use its exact approved package name. The Adapter peer range does not pretend that the private Provider is independently installable; without the Provider, image generation routes are unavailable.
 
 Local release tarballs use the same command shape:
 
@@ -84,6 +86,17 @@ Both engines start from `generate_image`. The Adapter saves successful results a
 - 🖼️ Native DSH Attachment, Conversation, and Gallery persistence.
 - 💾 Optional image files in the current session workspace.
 - 🎨 Provider-owned model routing, protocols, and credentials; the Adapter neither reads nor stores Provider keys.
+
+## Inspiration and Gallery management
+
+- **Inspiration Library**: a compact built-in catalog with fixed case/category/style/scene allowlists supports search, favorites, prompt copying, and one-click CPA generation with either GPT Image 2 or Gemini Image. Images try the fixed mirror first, then jsDelivr/GitHub; the browser submits case IDs, never arbitrary URLs.
+- **Cache boundaries**: browser IndexedDB catalog/image caches are size-bounded. The optional Host disk cache is under `~/.dsh/cache/dsh-image-gen/inspiration`; failures fall back to generated built-in SVG previews and never block image generation. Refresh/clear removes plugin caches, and third-party requests are limited to the fixed HTTPS sources in code.
+- **Gallery management**: Better Sidebar Gallery keeps the fork's DB v3 schema, thumbnail/full-image cache, and virtualized Grid/Table views while adding favorites, batch select/delete, current-workspace filtering, prompt copy, and CPA-only regeneration. List view displays the complete prompt.
+- **Workspace governance**: normal `generate_image` writes only to the current agent session cwd using atomic writes and realpath containment. Dynamically discovered DSH workspaces are used only for strict root authorization; browser batch deletion accepts saved generated-file paths only, and browser regeneration creates an Attachment without expanding write authorization.
+
+## Explicitly deferred
+
+The current CPA service exposes only the `generate` contract, so this Adapter **does not implement or claim** native `edit_image`, a Studio native-provider backend, native multi-model comparison, or `provider=comfyui`. Editing, multi-reference, Studio/ComfyUI, and Provider/BYOK/API-key configuration remain deferred to a future CPA contract and are never read or stored by this package.
 
 ## Local development
 

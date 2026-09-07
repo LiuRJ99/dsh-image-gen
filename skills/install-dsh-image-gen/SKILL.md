@@ -17,23 +17,23 @@ description: Install, configure, diagnose, verify, or remove the CPA-backed dsh-
    dsh plugin --profile <profile> add <package-or-tarball>
    ```
 
-   Install the CPA Provider first:
+   Install the CPA Provider first. The current development Provider is private and monorepo/internal-profile only; use the sibling package or exact approved local tarball available in the target profile (the Adapter never replaces that Provider with native credentials):
 
    ```sh
-   dsh plugin --profile <profile> add @LiuRJ99/dsh-cpa-plugin
+   dsh plugin --profile <profile> add <path-to-dsh-cpa-plugin-or-approved-provider-tarball>
    ```
 
 4. Install the Adapter only after the Provider:
 
    ```sh
-   dsh plugin --profile <profile> add dsh-image-gen@0.4.1
+   dsh plugin --profile <profile> add dsh-image-gen@0.5.0
    ```
 
    The same command accepts local tarballs in the same order. For example:
 
    ```sh
-   dsh plugin --profile <profile> add ./path/to/dsh-cpa-plugin-0.3.0.tgz
-   dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.4.1.tgz
+   dsh plugin --profile <profile> add ./path/to/dsh-cpa-plugin-0.4.0.tgz
+   dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.5.0.tgz
    ```
 
 5. The Adapter's server-side thumbnail route uses `sharp` as a peer supplied by the DSH Host. Do not add a separate `sharp` dependency to the profile; that can load duplicate native `libvips` libraries on macOS.

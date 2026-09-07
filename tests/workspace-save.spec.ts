@@ -35,6 +35,16 @@ describe('workspaceImageName', () => {
     expect(workspaceImageName('abcdef', 'image/png')).toBe('image-abcdef00.png')
     expect(workspaceImageName('abc', 'image/png')).toBe('image-abc00000.png')
   })
+
+  it('uses the full canonical SHA-256 digest to avoid prefix collisions', () => {
+    const id = `sha256:${'0123456789abcdef'.repeat(4)}`
+    expect(workspaceImageName(id, 'image/png')).toBe(`image-${id.slice('sha256:'.length)}.png`)
+  })
+
+  it('rejects path-like or non-hex attachment IDs', () => {
+    expect(() => workspaceImageName('../escape', 'image/png')).toThrow(/hexadecimal/)
+    expect(() => workspaceImageName('sha256:../../escape', 'image/png')).toThrow(/hexadecimal/)
+  })
 })
 
 describe('workspaceImageDir', () => {

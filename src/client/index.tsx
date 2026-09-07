@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import {
   IMAGE_GENERATION_NAMESPACE,
   IMAGE_ROUTE,
+  imageAttachment,
   imageAttachmentFromMeta,
   type ImageEngine,
 } from '../shared.js'
@@ -51,6 +52,7 @@ const DICT = {
     saving: '保存中…',
     save: '保存',
     saved: '已保存',
+    saveFailed: '设置保存失败',
     savedToPath: '已保存到',
     generating: '正在生成图片…',
     loading: '正在加载图片…',
@@ -75,6 +77,7 @@ const DICT = {
     saving: 'Saving…',
     save: 'Save',
     saved: 'Saved',
+    saveFailed: 'Could not save settings',
     savedToPath: 'Saved to',
     generating: 'Generating image…',
     loading: 'Loading image…',
@@ -139,6 +142,9 @@ const STYLE = `
 .dsh-ig-gallery-page{width:100%;height:100%;background:var(--dsw-alias-bg-layer-1,#ffffff);display:flex;flex-direction:column;overflow:hidden;flex:1;box-sizing:border-box}
 .dsh-ig-gallery-page-header{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,#e5e7eb);background:var(--dsw-alias-bg-layer-1,#ffffff);flex-shrink:0}
 .dsh-ig-gallery-page-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dsh-ig-gallery-tab-toggle{display:inline-flex;align-items:center;gap:3px;padding:2px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-3,#f3f4f6)}
+.dsh-ig-gallery-tab-btn{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;cursor:pointer}.dsh-ig-gallery-tab-btn.is-active{background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-brand-primary,#4c78ff);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.dsh-ig-gallery-management-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.dsh-ig-gallery-manage-btn{appearance:none;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:7px;padding:4px 8px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:11px;cursor:pointer}.dsh-ig-gallery-manage-btn:hover,.dsh-ig-gallery-manage-btn.is-active{border-color:var(--dsw-alias-brand-primary,#4c78ff);color:var(--dsw-alias-brand-primary,#4c78ff)}.dsh-ig-gallery-manage-btn:disabled{opacity:.45;cursor:default}.dsh-ig-gallery-manage-danger{color:#ef4444}.dsh-ig-gallery-workspace-toggle{display:inline-flex;align-items:center;gap:4px;color:var(--dsw-alias-label-tertiary,#7b818b);font-size:11px}.dsh-ig-gallery-workspace-toggle input,.dsh-ig-gallery-select-checkbox{accent-color:var(--dsw-alias-brand-primary,#4c78ff)}.dsh-ig-gallery-selected-count{font-size:11px;color:var(--dsw-alias-label-secondary,#4b5563)}.dsh-ig-gallery-select-checkbox{position:absolute;z-index:12;top:7px;left:7px;width:17px;height:17px}.dsh-ig-gallery-list-thumb,.dsh-ig-gallery-table-thumb{position:relative}
 .dsh-ig-gallery-page-title-row{display:flex;align-items:center;gap:8px;min-width:0}
 .dsh-ig-gallery-page-title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,inherit);white-space:nowrap}
 .dsh-ig-gallery-page-count{font-size:11px;font-weight:500;color:var(--dsw-alias-label-secondary,#4b5563);background:var(--dsw-alias-bg-layer-3,#f3f4f6);padding:2px 8px;border-radius:20px;white-space:nowrap}
@@ -165,7 +171,7 @@ const STYLE = `
 .dsh-ig-gallery-page-body{flex:1;overflow-y:auto;padding:12px 14px;box-sizing:border-box}
 .dsh-ig-gallery-virtual{width:100%}
 .dsh-ig-gallery-grid-row{position:absolute;left:0;right:0;display:grid;gap:20px}
-.dsh-ig-gallery-list-virtual-item{position:absolute;left:0;right:0;overflow:hidden}
+.dsh-ig-gallery-list-flow{display:flex;flex-direction:column;gap:12px;min-height:100%;padding:0 2px 12px}.dsh-ig-gallery-list-flow .dsh-ig-gallery-list-item{flex:0 0 auto}
 .dsh-ig-gallery-spacer td{padding:0;border:0}
 .dsh-ig-gallery-card{background:var(--dsw-alias-bg-layer-2,#fff);border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;height:100%}
 .dsh-ig-gallery-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.06);border-color:var(--dsw-alias-border-l1,#cfd4dc)}
@@ -184,7 +190,7 @@ const STYLE = `
 .dsh-ig-gallery-list-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
 .dsh-ig-gallery-list-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .dsh-ig-tag-muted{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-tertiary,#7b818b);border:1px solid var(--dsw-alias-border-l2,#e5e7eb);text-transform:none;font-weight:400}
-.dsh-ig-gallery-list-prompt{margin:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,inherit);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.dsh-ig-gallery-list-prompt{margin:0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,inherit);display:block;white-space:pre-wrap;overflow:visible;word-break:break-word}
 .dsh-ig-gallery-list-meta{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--dsw-alias-label-tertiary,#7b818b);margin-top:auto}
 .dsh-ig-gallery-actions-row{display:flex;align-items:center;gap:4px}
 .dsh-ig-action-btn{appearance:none;border:1px solid var(--dsw-alias-border-l2,#e5e7eb);background:var(--dsw-alias-bg-layer-3,#f9fafb);color:var(--dsw-alias-label-secondary,inherit);border-radius:7px;padding:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s}
@@ -200,7 +206,7 @@ const STYLE = `
 .dsh-ig-gallery-table-row:hover{background:var(--dsw-alias-bg-layer-1,#fafbfc)}
 .dsh-ig-gallery-table-row td{padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,#eef0f3);color:var(--dsw-alias-label-secondary,inherit);vertical-align:middle}
 .dsh-ig-gallery-table-row:last-child td{border-bottom:0}
-.dsh-ig-table-cell-thumb{width:56px}
+.dsh-ig-table-cell-thumb{width:56px;position:relative}
 .dsh-ig-gallery-table-thumb{width:44px;height:44px;border-radius:6px;overflow:hidden;background:#f3f4f6;display:flex;align-items:center;justify-content:center}
 .dsh-ig-gallery-table-thumb img{width:100%;height:100%;object-fit:cover}
 .dsh-ig-table-cell-prompt{max-width:380px}
@@ -312,11 +318,12 @@ export function apply(ctx: Context): void {
       }
     }
     tryRegister()
-    const timer = setInterval(tryRegister, 500)
-    const stopTimer = setTimeout(() => clearInterval(timer), 5000)
+    // Better Sidebar is optional and may become ready after this client plugin;
+    // keep a low-frequency probe alive for the lifetime of this effect rather
+    // than silently losing the Gallery tab after a short startup window.
+    const timer = setInterval(tryRegister, 1000)
     return () => {
       clearInterval(timer)
-      clearTimeout(stopTimer)
       unregister?.()
     }
   }, 'dsh-image-gen: better-sidebar tab registration')
@@ -365,7 +372,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
       await props.scope.set('saveToWorkspace', saveToWorkspace)
       await props.scope.set('workspaceFolder', workspaceFolder.trim())
       setMessage(t('saved'))
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)) } finally { setSaving(false) }
+    } catch { console.warn('[dsh-image-gen] settings save failed'); setMessage(t('saveFailed')) } finally { setSaving(false) }
   }
 
   return (
@@ -425,41 +432,67 @@ export function GeneratedImageCard(props: ImageCardProps) {
     <SingleGeneratedImageView
       attachment={attachment}
       engine={metadata.engine}
+      model={metadata.model}
+      output={metadata.output}
+      aspectRatio={metadata.aspectRatio}
+      imageSize={metadata.imageSize}
+      saveError={metadata.saveError}
       savedTo={savedTo}
       prompt={metadata.prompt}
       createdAt={metadata.createdAt}
-      openFile={props.openFile}
-      locale={props.locale}
+            locale={props.locale}
     />
   )
 }
 
 export function imageRef(block: ToolCallBlock): ImageAttachmentRef | undefined {
-  if (!('kind' in block) || block.kind !== 'tool-result') return undefined
+  if (!('kind' in block) || block.kind !== 'tool-result' || block.isError === true) return undefined
   const fromMeta = imageAttachmentFromMeta(block.meta)
   if (fromMeta !== undefined) return fromMeta
-  const image = block.content.find(item => item.type === 'image')
-  return image?.type === 'image' ? image.attachment : undefined
+
+  // DSH 0.1.2 uses block.content; older rc.2 blocks kept the rendered image
+  // under resultView.content. Read both paths without registering a second
+  // image-result node or changing the turn-tail projection.
+  const legacyView = record((block as unknown as { resultView?: unknown }).resultView)
+  if (legacyView?.card === 'generic' && Array.isArray(legacyView.content)) {
+    const legacyImage = legacyView.content.find((item: unknown) => record(item)?.type === 'image')
+    const legacyAttachment = imageAttachment(record(legacyImage)?.attachment)
+    if (legacyAttachment !== undefined) return legacyAttachment
+  }
+  const content = Array.isArray(block.content) ? block.content : []
+  const image = content.find((item) => record(item)?.type === 'image')
+  return image?.type === 'image' ? imageAttachment(image.attachment) : undefined
 }
 
 interface ImageMetadata {
   prompt: string
   engine?: unknown
-  provider?: unknown
   model?: unknown
   output?: unknown
+  aspectRatio?: unknown
+  imageSize?: unknown
+  saveError?: unknown
   createdAt?: number | undefined
 }
 
 function imageMetadata(block: ToolCallBlock): ImageMetadata {
-  const meta = record('meta' in block ? block.meta : undefined)
-  const prompt = 'call' in block && block.call !== null ? promptFromArgs(block.call.argsRaw) : undefined
+  const legacyView = record((block as unknown as { resultView?: unknown }).resultView)
+  const meta = {
+    ...(imageMetaRecord(legacyView?.meta) ?? {}),
+    ...(imageMetaRecord('meta' in block ? block.meta : undefined) ?? {}),
+  }
+  const call = record('call' in block ? block.call : undefined)
+  const prompt = call !== undefined
+    ? promptFromArgs(typeof call.argsRaw === 'string' ? call.argsRaw : call.args)
+    : undefined
   return {
     prompt: typeof meta?.prompt === 'string' ? meta.prompt : prompt ?? 'Generated Image',
     engine: meta?.engine,
-    provider: meta?.provider,
     model: meta?.model,
     output: meta?.output,
+    aspectRatio: meta?.aspectRatio,
+    imageSize: meta?.imageSize,
+    saveError: meta?.saveError,
     createdAt: typeof meta?.createdAt === 'number' ? meta.createdAt : undefined,
   }
 }
@@ -467,14 +500,16 @@ function imageMetadata(block: ToolCallBlock): ImageMetadata {
 /** The workspace file path a completed image call saved, when the result meta carries one. */
 function imageSavedTo(block: ToolCallBlock): string | undefined {
   if (!('kind' in block) || block.kind !== 'tool-result') return undefined
-  const meta = record(block.meta)
-  return typeof meta?.savedTo === 'string' ? meta.savedTo : undefined
+  const meta = imageMetaRecord(block.meta)
+  const legacyMeta = imageMetaRecord((block as unknown as { resultView?: { meta?: unknown } }).resultView?.meta)
+  const savedTo = meta?.savedTo ?? legacyMeta?.savedTo
+  return typeof savedTo === 'string' ? savedTo : undefined
 }
 
-function promptFromArgs(argsRaw: string): string | undefined {
+function promptFromArgs(args: unknown): string | undefined {
   try {
-    const args = JSON.parse(argsRaw) as unknown
-    const prompt = record(args)?.prompt
+    const parsed = typeof args === 'string' ? JSON.parse(args) as unknown : args
+    const prompt = record(parsed)?.prompt
     return typeof prompt === 'string' ? prompt : undefined
   } catch {
     return undefined
@@ -485,4 +520,9 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
+}
+
+function imageMetaRecord(value: unknown): Record<string, unknown> | undefined {
+  const candidate = record(value)
+  return candidate?.kind === 'dsh-image-gen' ? candidate : undefined
 }

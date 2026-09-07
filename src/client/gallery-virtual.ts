@@ -76,8 +76,8 @@ export function computeWindow(
   const viewport = viewportHeight > 0 ? viewportHeight : 600
   const first = Math.floor(Math.max(0, scrollTop - offsetTop) / safeRowHeight)
   const visibleCount = Math.ceil(viewport / safeRowHeight) + 1
-  const start = Math.max(0, first - OVERSCAN_ROWS)
-  const end = Math.min(rowCount, first + visibleCount + OVERSCAN_ROWS)
+  const start = Math.min(rowCount, Math.max(0, first - OVERSCAN_ROWS))
+  const end = Math.min(rowCount, Math.max(start, first + visibleCount + OVERSCAN_ROWS))
   return {
     start,
     end,
@@ -99,7 +99,7 @@ export function useVirtualWindow(
 
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) return
+    if (!el || rowCount <= 0) return
 
     const measure = () => {
       setScrollTop(el.scrollTop)
@@ -117,7 +117,7 @@ export function useVirtualWindow(
       el.removeEventListener('scroll', measure)
       observer?.disconnect()
     }
-  }, [scrollRef])
+  }, [scrollRef, rowCount])
 
   return computeWindow(scrollTop, viewportHeight, rowCount, rowHeight, offsetTop)
 }

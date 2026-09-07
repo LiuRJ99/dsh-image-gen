@@ -7,6 +7,21 @@
 
 ---
 
+## [0.5.0] - 2026-09-07
+
+### Added
+- Kept the CPA-only GPT Image 2 / Gemini Image tool declarations engine-specific: GPT accepts `size` (with legacy `aspect_ratio` mapping), while Gemini accepts `aspect_ratio` and `image_size` without forwarding OpenAI-only fields.
+- Added a provider-neutral Inspiration Library with a fixed case allowlist, search/filter/favorites/prompt-copy actions, bounded browser/Host caches, same-origin routes, and offline SVG fallback.
+- Extended the Better Sidebar Gallery with favorites, batch selection/deletion, workspace filtering, prompt-preserving CPA regeneration, legacy metadata compatibility, and safe generated-file cleanup.
+- Added dynamic DSH workspace discovery and strict realpath/file-name deletion helpers without expanding browser workspace write authorization.
+
+### Security and scope
+- Workspace writes remain session-agent-cwd-only; browser regeneration is Attachment-only and never accepts a workspace root.
+- Native Provider/BYOK credentials, native `edit_image`, Studio, multi-model comparison, and ComfyUI provider support remain explicitly deferred.
+- Inspiration refresh uses fixed HTTPS sources and bounded caches; malformed/oversized data falls back to the built-in catalog.
+
+---
+
 ## [0.4.1] - 2026-08-27
 
 ### 修复 (Fixed)

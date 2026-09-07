@@ -3,6 +3,8 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
   countByEngine,
   extractAspectRatio,
+  isItemInWorkspace,
+  normalizeWorkspacePath,
   formatBytes,
   formatDate,
   formatResolution,
@@ -77,6 +79,15 @@ describe('processGalleryItems (sort + filter pipeline)', () => {
     expect(result.map((i) => i.id)).toEqual(['w'])
   })
 
+  it('uses deterministic pinyin/id tie-breaks for prompt sorting', () => {
+    const result = processGalleryItems([
+      item({ id: 'z', prompt: '中文' }),
+      item({ id: 'a', prompt: '中文' }),
+      item({ id: 'b', prompt: '苹果' }),
+    ], { search: '', selectedEngine: 'all', selectedRatio: 'all', sortOption: 'prompt-asc' })
+    expect(result.map((entry) => entry.id)).toEqual(['b', 'a', 'z'])
+  })
+
   it('does not mutate the input array', () => {
     const snapshot = [...items]
     processGalleryItems(items, { search: '', selectedEngine: 'all', selectedRatio: 'all', sortOption: 'time-asc' })
@@ -148,6 +159,19 @@ describe('formatDate', () => {
 
   it('falls back to a dash for invalid input', () => {
     expect(formatDate(Number.NaN)).toBe('—')
+  })
+})
+
+describe('workspace matching', () => {
+  it('keeps POSIX path comparisons case-sensitive', () => {
+    expect(normalizeWorkspacePath('/Work/Project/')).toBe('/Work/Project')
+    expect(normalizeWorkspacePath('/Work/Project')).not.toBe(normalizeWorkspacePath('/work/project'))
+    expect(isItemInWorkspace(item({ workspacePath: '/Work/Project' }), { path: '/work/project' })).toBe(false)
+  })
+
+  it('normalizes Windows separators and drive casing', () => {
+    expect(normalizeWorkspacePath('C:\\Work\\Project\\')).toBe('c:/work/project')
+    expect(isItemInWorkspace(item({ savedTo: 'C:\\Work\\Project\\dsh-image-gen\\image-a.png' }), { path: 'c:/work/project' })).toBe(true)
   })
 })
 

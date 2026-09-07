@@ -42,10 +42,14 @@ export function useGalleryImage(ref: ImageAttachmentRef, kind: ImageKind = 'full
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
 
-  const key = ref.attachmentId
+  const key = `${ref.attachmentId}:${kind}:${kind === 'thumb' ? thumbWidth : 0}`
 
   useEffect(() => {
     const controller = new AbortController()
+    setUrl(undefined)
+    setBlob(undefined)
+    setError(undefined)
+    setLoading(true)
     let objectUrl: string | undefined
     let active = true
 
@@ -79,7 +83,7 @@ export function useGalleryImage(ref: ImageAttachmentRef, kind: ImageKind = 'full
     // `key` is the content-addressed attachment id; kind/width are stable per
     // call site. Re-running only on the attachment identity avoids refetching
     // when unrelated props change.
-  }, [key])
+  }, [key, kind, thumbWidth])
 
   return { url, blob, loading, error }
 }

@@ -2,6 +2,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { describe, expect, it } from 'vitest'
 import { imageRef } from '../src/client/index.js'
+import { imageAttachment } from '../src/shared.js'
 
 const SAMPLE_ATTACHMENT: ImageAttachmentRef = {
   attachmentId: 'sha256:c8583c9fde1a3d79cfd6c377de07e609b1031615db47be78d157f10e936af79b',
@@ -11,6 +12,17 @@ const SAMPLE_ATTACHMENT: ImageAttachmentRef = {
   bytes: 2231613,
   name: 'generated-image',
 }
+
+describe('imageAttachment', () => {
+  it('rejects unsafe names while preserving complete safe attachment metadata', () => {
+    expect(imageAttachment({ ...SAMPLE_ATTACHMENT, name: 'folder/image.png' })).toBeUndefined()
+    expect(imageAttachment({ ...SAMPLE_ATTACHMENT, name: `safe-${'x'.repeat(300)}` })).toBeUndefined()
+    expect(imageAttachment({ ...SAMPLE_ATTACHMENT, originalDimensions: { width: 2400, height: 1600 } })).toMatchObject({
+      attachmentId: SAMPLE_ATTACHMENT.attachmentId,
+      originalDimensions: { width: 2400, height: 1600 },
+    })
+  })
+})
 
 describe('imageRef', () => {
   it('extracts attachment from block.meta (DSH 0.1.2-rc.1 presentationMeta)', () => {

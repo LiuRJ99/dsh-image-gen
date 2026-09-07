@@ -26,6 +26,15 @@
 
 - [x] 4.1 运行配置、CPA service contract 和 Gallery focused tests，修复本 change 引入的失败。
 - [x] 4.2 运行诊断性 TypeScript 类型检查、构建和 package dry-run，确认无 direct-provider 文件或本地响应捕获进入产物；严格检查范围和本地依赖缓存限制见验证报告。
-- [x] 4.3 在 Provider change 完成后，通过本地 CPA relay 分别执行 GPT Image 2 与 Gemini Image smoke test；Provider 实际解码器验证通过，Adapter 的 Attachment/Gallery/UI 全链路仍单独保留为后续验证。
-- [x] 4.4 验证普通 CPA 模型选择器隐藏 `gpt-image-2`/`gemini-3.1-flash-image`，同时保留 `gemini-3.1-flash-lite`。
+- [ ] 4.3 在 Provider change 完成后，通过本地 CPA relay 分别执行 GPT Image 2 与 Gemini Image smoke test；本仓库不保存凭据，因此本项仍需在已配置 Provider 的环境验收。
+- [ ] 4.4 验证普通 CPA 模型选择器隐藏 `gpt-image-2`/`gemini-3.1-flash-image`，同时保留 `gemini-3.1-flash-lite`；该选择器属于 Provider/Host 验收范围。
 - [x] 4.5 记录跨仓库验证命令、退出码和未能确认的范围，不把本地 relay 结果外推为生产验证。
+
+## 5. CPA-only Option A 增量
+
+- [x] 5.1 保持 GPT/Gemini engine-specific controls、CPA service routing、Attachment metadata projection、legacy image-reference fallback 和 cancellation validation。
+- [x] 5.2 加入固定 allowlist 的 Inspiration Library、same-origin routes、bounded browser/Host caches 和 offline fallback；不接受任意 URL。当前 release 的 guaranteed catalog/assets 是内置 compact catalog + SVG；pinned remote refresh is opportunistic until the asset snapshot is published at the pinned ref。
+- [x] 5.3 在 fork Better Sidebar Gallery 上增加 favorites、batch selection/deletion、workspace filter、prompt copy 和 CPA-only regeneration，同时保留 DB v3、sharp cache 和 Grid/Table virtualization。
+- [x] 5.4 移植动态 workspace discovery、canonical-root safe deletion、attachment reverse helper 和 full-digest filename migration；浏览器没有任意 workspace 写入授权。
+- [x] 5.5 记录 list dynamic-height virtualization、native edit/Studio/comparison/ComfyUI、multi-reference CPA contract 和 standalone Provider install 作为 deferred/验收项，见 `docs/CPA-ONLY-OPTION-A.md`。
+- [ ] 5.6 在不提交凭据的前提下，于真实已配置 CPA relay/profile 中执行双引擎端到端和 standalone frozen-install 验收。
