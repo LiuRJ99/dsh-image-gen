@@ -16,6 +16,7 @@ interface ClientHarness {
   slotInjections: Array<{ name: string; factory: () => unknown }>
   slotRegistrations: Array<{ options: Record<string, unknown>; component: unknown }>
   injectedCredentials: () => unknown
+  settingsFace: () => { credentials?: unknown; credentialsAvailable?: () => boolean } | undefined
 }
 
 function clientHarness(options: {
@@ -28,9 +29,13 @@ function clientHarness(options: {
   const slotInjections: Array<{ name: string; factory: () => unknown }> = []
   const slotRegistrations: Array<{ options: Record<string, unknown>; component: unknown }> = []
   let credentialsFace: unknown
+  let face: { credentials?: unknown; credentialsAvailable?: () => boolean } | undefined
   const slots = {
-    register: vi.fn((registration: { name?: string; inject?: () => { credentials?: unknown } }, component: unknown) => {
-      if (registration.name === 'settings.plugin.item') credentialsFace = registration.inject?.().credentials
+    register: vi.fn((registration: { name?: string; inject?: () => { credentials?: unknown; credentialsAvailable?: () => boolean } }, component: unknown) => {
+      if (registration.name === 'settings.plugin.item') {
+        face = registration.inject?.()
+        credentialsFace = face?.credentials
+      }
       slotRegistrations.push({ options: registration as Record<string, unknown>, component })
       return vi.fn()
     }),
@@ -55,7 +60,7 @@ function clientHarness(options: {
     bind: vi.fn(() => ({ getSnapshot: vi.fn(), subscribe: vi.fn(), set: vi.fn() })),
   })
   ctx.provide('locale', {})
-  return { ctx, registrations, slotInjections, slotRegistrations, injectedCredentials: () => credentialsFace }
+  return { ctx, registrations, slotInjections, slotRegistrations, injectedCredentials: () => credentialsFace, settingsFace: () => face }
 }
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -108,7 +113,10 @@ describe('DSH client compatibility', () => {
     const injectSettingsCard = harness.registrations.get('settings.plugin.item')
     expect(injectSettingsCard).toBeTypeOf('function')
     expect(() => injectSettingsCard?.()).not.toThrow()
-    expect(harness.injectedCredentials()).toBe(credentials)
+    // The face carries a stable delegating proxy, never the raw remote: the
+    // host caches inject results, so identity must not change per render.
+    expect(harness.injectedCredentials()).not.toBe(credentials)
+    expect(harness.settingsFace()?.credentialsAvailable?.()).toBe(true)
 
     await fiber.dispose()
   })
@@ -182,21 +190,54 @@ describe('DSH client compatibility', () => {
   })
 
   it('waits for latest DSH Remote credentials without leaving the plugin pending', async () => {
-    const credentials = { describe: vi.fn(), set: vi.fn() }
+    const credentials = { describe: vi.fn(async () => ({ ok: false })), set: vi.fn(async () => ({ ok: true })) }
     const harness = clientHarness({ connection: {}, remote: {} })
 
     const fiber = harness.ctx.plugin(plugin)
     await fiber.await()
 
     expect(fiber.state).toBe(2)
-    expect(harness.registrations.has('settings.plugin.item')).toBe(false)
+    // #32 regression guard: the settings card and the composer pill mount even
+    // before any credentials service exists; only the key UI degrades.
+    expect(harness.registrations.has('settings.plugin.item')).toBe(true)
+    expect(harness.registrations.has('conversation.input.right')).toBe(true)
+    expect(() => harness.registrations.get('settings.plugin.item')?.()).not.toThrow()
+    expect(harness.settingsFace()?.credentialsAvailable?.()).toBe(false)
+    const degraded = harness.injectedCredentials() as {
+      describe(refs: string[]): Promise<unknown>
+      set(ref: string, value: string): Promise<unknown>
+    }
+    await expect(degraded.describe(['GEMINI_API_KEY'])).resolves.toEqual({ ok: false })
+    await expect(degraded.set('GEMINI_API_KEY', 'test-key')).resolves.toMatchObject({ ok: false })
 
     harness.ctx.provide('remote.credentials', credentials)
     await vi.waitFor(() => {
-      expect(harness.registrations.get('settings.plugin.item')).toBeTypeOf('function')
+      expect(harness.settingsFace()?.credentialsAvailable?.()).toBe(true)
     })
+    // The same stable proxy now delegates to the late service.
+    expect(harness.injectedCredentials()).toBe(degraded)
+    await expect(degraded.describe(['GEMINI_API_KEY'])).resolves.toEqual({ ok: false })
+    expect(credentials.describe).toHaveBeenCalledWith(['GEMINI_API_KEY'])
+
+    await fiber.dispose()
+  })
+
+  it('mounts the settings card on cores that never expose a credentials service (#32)', async () => {
+    const harness = clientHarness({ connection: {}, remote: {} })
+
+    const fiber = harness.ctx.plugin(plugin)
+    await fiber.await()
+
+    expect(fiber.state).toBe(2)
+    expect(harness.registrations.get('settings.plugin.item')).toBeTypeOf('function')
     expect(() => harness.registrations.get('settings.plugin.item')?.()).not.toThrow()
-    expect(harness.injectedCredentials()).toBe(credentials)
+    expect(harness.registrations.has('conversation.input.right')).toBe(true)
+    // The key UI reports the degraded state instead of hiding the card.
+    expect(harness.settingsFace()?.credentialsAvailable?.()).toBe(false)
+    const degraded = harness.injectedCredentials() as {
+      describe(refs: string[]): Promise<unknown>
+    }
+    await expect(degraded.describe(['GEMINI_API_KEY'])).resolves.toEqual({ ok: false })
 
     await fiber.dispose()
   })

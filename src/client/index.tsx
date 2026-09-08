@@ -91,8 +91,8 @@ interface CredentialMutationResult { ok: boolean; error?: { message?: string } }
 interface CredentialsRemote {
   describe(refs: string[]): Promise<CredentialResult>
   set(ref: string, value: string): Promise<CredentialMutationResult>
-  /** Present only on modern hosts; feature-detected before use. */
-  unset?(ref: string): Promise<CredentialMutationResult>
+  /** Present only on modern hosts; feature-detected before use; undefined while degraded. */
+  unset?: ((ref: string) => Promise<CredentialMutationResult>) | undefined
 }
 type LegacyCredentialRpcResult<T> =
   | { ok: true; value: T }
@@ -110,6 +110,8 @@ interface CredentialEvents { listen(callback: () => void): () => void }
 interface SettingsFace {
   scope: SettingsScope<ImageSettings>
   credentials: CredentialsRemote
+  /** False while the host core exposes no credentials service; the key UI degrades but the card stays mounted. */
+  credentialsAvailable: () => boolean
   locale?: LocaleService | undefined
   credentialEvents?: CredentialEvents | undefined
 }
@@ -143,6 +145,8 @@ const DICT = {
     apiKeyPlaceholder: '留空即可保留已配置的 Key',
     apiKeyHint: '安全保存为 {key}；页面不会读回明文。',
     keyReadOnly: 'Key 由 {source} 提供且只读；请在该来源中修改。',
+    credentialsUnavailable: '凭据服务不可用，无法保存 API Key；建议升级 DSH 到稳定版本。',
+    badgeUnavailable: '凭据服务不可用',
     badgeChecking: '检查中…',
     badgeConfigured: 'Key 已配置',
     badgeMissing: 'Key 未配置',
@@ -241,6 +245,8 @@ const DICT = {
     apiKeyPlaceholder: 'Leave empty to keep configured key',
     apiKeyHint: 'Securely saved as {key}; never read back in plaintext.',
     keyReadOnly: 'Key is supplied read-only by {source}; update it there.',
+    credentialsUnavailable: 'Credentials service unavailable: API keys cannot be saved; please upgrade DSH to a stable release.',
+    badgeUnavailable: 'Credentials unavailable',
     badgeChecking: 'Checking…',
     badgeConfigured: 'Key set',
     badgeMissing: 'Key missing',
@@ -672,42 +678,65 @@ export function apply(ctx: Context): void {
       return () => { credentialListeners.delete(callback) }
     },
   }
-  const injectSettingsItem = (owner: Context, credentials: CredentialsRemote): void => {
+  const injectSettingsItem = (owner: Context): void => {
     const ownerRegister = owner.slots.register.bind(owner.slots) as unknown as (options: object, component: unknown) => () => void
     owner.slots.inject('settings.plugin.item', () => ownerRegister({
       name: 'settings.plugin.item',
       key: IMAGE_GENERATION_NAMESPACE,
-      inject: (): SettingsFace => ({ scope, credentials, locale, credentialEvents }),
+      inject: (): SettingsFace => ({ scope, credentials: credentialsProxy, credentialsAvailable, locale, credentialEvents }),
     }, ImageGenerationSettingsCard))
   }
   // Composer tool-row pill (DSH official slot: 'conversation.input.right', the
   // seat right beside the model select): switch the default image provider
   // without leaving the chat. Writes the same 'provider' field as the card.
-  const injectComposerPill = (owner: Context, credentials: CredentialsRemote): void => {
+  const injectComposerPill = (owner: Context): void => {
     const ownerRegister = owner.slots.register.bind(owner.slots) as unknown as (options: object, component: unknown) => () => void
     ;(owner.slots.inject as (key: string, factory: () => () => void) => void)('conversation.input.right', () => ownerRegister({
       name: 'conversation.input.right',
       id: 'image-provider',
       order: 10,
-      inject: (): ProviderPillFace => ({ scope, credentials, locale, credentialEvents }),
+      inject: (): ProviderPillFace => ({ scope, credentials: credentialsProxy, locale, credentialEvents }),
     }, ImageProviderPill))
   }
-  const remoteCredentials = asCredentialsRemote(ctx.get('remote.credentials'))
-  const legacyCredentials = credentialsFromLegacyConnection(ctx.get('connection'))
-  if (remoteCredentials !== undefined) {
-    injectSettingsItem(ctx, remoteCredentials)
-    injectComposerPill(ctx, remoteCredentials)
-  } else if (legacyCredentials !== undefined) {
-    injectSettingsItem(ctx, legacyCredentials)
-    injectComposerPill(ctx, legacyCredentials)
-  } else {
-    ctx.inject(['remote.credentials'], (remoteCtx) => {
-      const credentials = asCredentialsRemote(remoteCtx.get('remote.credentials'))
-      if (credentials === undefined) throw new Error('dsh-image-gen: remote.credentials has an incompatible interface')
-      injectSettingsItem(remoteCtx, credentials)
-      injectComposerPill(remoteCtx, credentials)
-    })
+  // Credentials resolve through a mutable holder: hosts expose the service
+  // synchronously (probed now) or later (deferred inject below). The card and
+  // the pill mount unconditionally — a missing service degrades only the key
+  // UI instead of hiding the whole card (issue #32).
+  const credentialsRef: { current: CredentialsRemote | undefined } = {
+    current: asCredentialsRemote(ctx.get('remote.credentials')) ?? credentialsFromLegacyConnection(ctx.get('connection')),
   }
+  /** Stable delegating remote so the host-cached inject face never goes stale. */
+  const credentialsProxy: CredentialsRemote = {
+    describe(refs) {
+      const remote = credentialsRef.current
+      return remote === undefined ? Promise.resolve({ ok: false }) : remote.describe(refs)
+    },
+    set(ref, value) {
+      const remote = credentialsRef.current
+      return remote === undefined
+        ? Promise.resolve({ ok: false, error: { message: 'credentials service unavailable' } })
+        : remote.set(ref, value)
+    },
+    get unset() {
+      const remote = credentialsRef.current
+      return remote?.unset?.bind(remote)
+    },
+  }
+  /** False while the host core exposes no credentials service (preview cores). */
+  const credentialsAvailable = (): boolean => credentialsRef.current !== undefined
+  injectSettingsItem(ctx)
+  injectComposerPill(ctx)
+  // Preview cores can expose the credentials service after this plugin loads:
+  // adopt it late and refresh every mounted card through the shared events.
+  ctx.inject(['remote.credentials'], (remoteCtx) => {
+    const credentials = asCredentialsRemote(remoteCtx.get('remote.credentials'))
+    if (credentials === undefined) {
+      console.warn('dsh-image-gen: remote.credentials resolved with an incompatible interface; key settings stay degraded')
+      return
+    }
+    credentialsRef.current = credentials
+    notifyCredentialsUpdated()
+  })
 
   // 2. Tool result view card in chat stream
   ctx.slots.inject('tool.call.toolview', () => register({
@@ -780,7 +809,7 @@ interface ProbeOutcome {
 }
 
 /** Credential badge states a provider row can render. */
-type KeyStatus = 'checking' | 'configured' | 'missing' | 'unknown'
+type KeyStatus = 'checking' | 'configured' | 'missing' | 'unknown' | 'unavailable'
 
 /** Per-provider editable form state; every provider row saves independently. */
 interface ProviderRowState {
@@ -969,8 +998,21 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   }, [snapshot])
 
   const credentials = props.credentials
+  const credentialsAvailable = props.credentialsAvailable
   useEffect(() => {
     let active = true
+    if (!credentialsAvailable()) {
+      // No credentials service on this core: degrade the key badges instead
+      // of unmounting the card (#32); a late service re-runs this effect.
+      setRows(current => {
+        const next = { ...current } as Record<Provider, ProviderRowState>
+        for (const provider of CLOUD_IMAGE_PROVIDERS) {
+          next[provider] = { ...current[provider], keyStatus: 'unavailable', keyInfo: undefined }
+        }
+        return next
+      })
+      return () => { active = false }
+    }
     for (const provider of CLOUD_IMAGE_PROVIDERS) {
       const keyRef = cloudCredentialRef(provider)
       if (keyRef === undefined) continue
@@ -987,7 +1029,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
       })
     }
     return () => { active = false }
-  }, [credentials, keyTick])
+  }, [credentials, credentialsAvailable, keyTick])
 
   const updateRow = (provider: Provider, patch: Partial<ProviderRowState>): void => {
     setRows(current => ({ ...current, [provider]: { ...current[provider], ...patch } }))
@@ -1029,6 +1071,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
         if (row.keyInput.trim().length > 0) {
           const keyRef = cloudCredentialRef(provider)
           if (keyRef === undefined) throw new Error(t('comfyuiNoKey'))
+          if (!credentialsAvailable()) throw new Error(t('credentialsUnavailable'))
           const response = await props.credentials.set(keyRef, row.keyInput.trim())
           if (!response.ok) throw new Error(response.error?.message ?? t('saveKeyFailed'))
           updateRow(provider, { keyInput: '', keyStatus: 'configured' })
@@ -1125,6 +1168,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     if (status === 'checking') return { text: t('badgeChecking'), className: 'dsh-ig-badge dsh-ig-badge-neutral dsh-ig-badge-checking' }
     if (status === 'configured') return { text: t('badgeConfigured'), className: 'dsh-ig-badge dsh-ig-badge-ok' }
     if (status === 'missing') return { text: t('badgeMissing'), className: 'dsh-ig-badge dsh-ig-badge-missing' }
+    if (status === 'unavailable') return { text: t('badgeUnavailable'), className: 'dsh-ig-badge dsh-ig-badge-neutral' }
     return { text: t('badgeUnknown'), className: 'dsh-ig-badge dsh-ig-badge-neutral' }
   }
 
@@ -1213,6 +1257,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     const row = rows[provider]
     const keyRef = cloudCredentialRef(provider) ?? ''
     const keyReadOnly = row.keyInfo?.writable === false
+    const keyUnavailable = !credentialsAvailable()
     return (
       <div className="dsh-ig-provider-body">
         <form onSubmit={(event) => { event.preventDefault(); void saveProviderRow(provider) }}>
@@ -1225,9 +1270,13 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               value={row.keyInput}
               onChange={event => { updateRow(provider, { keyInput: event.target.value }) }}
               placeholder={row.keyStatus === 'configured' ? t('apiKeyPlaceholder') : ''}
-              disabled={!snapshot.writable || keyReadOnly}
+              disabled={!snapshot.writable || keyReadOnly || keyUnavailable}
             />
-            <span className="dsh-ig-hint">{keyReadOnly ? t('keyReadOnly', { source: row.keyInfo?.source ?? '' }) : t('apiKeyHint', { key: keyRef })}</span>
+            <span className="dsh-ig-hint">
+              {keyUnavailable ? t('credentialsUnavailable')
+                : keyReadOnly ? t('keyReadOnly', { source: row.keyInfo?.source ?? '' })
+                : t('apiKeyHint', { key: keyRef })}
+            </span>
           </label>
           <label className="dsh-ig-field">
             <span className="dsh-ig-label">{t('endpoint')}</span>
