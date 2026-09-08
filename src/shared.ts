@@ -11,16 +11,72 @@ export const STUDIO_ROUTE = '/plugins/dsh-image-gen/studio'
 export const INSPIRATION_ROUTE = '/plugins/dsh-image-gen/inspiration'
 /** Browser route used for saving generated images to workspace on demand. */
 export const SAVE_WORKSPACE_ROUTE = '/plugins/dsh-image-gen/save-workspace'
+/** Browser route the settings card probes provider connectivity through. */
+export const TEST_CONNECTION_ROUTE = '/plugins/dsh-image-gen/test'
 /** Namespace persisted through DSH Settings. */
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'
 
 /** Supported providers. */
-export const IMAGE_PROVIDERS = ['google', 'openai', 'seedream', 'dashscope', 'comfyui'] as const
+export const IMAGE_PROVIDERS = ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui'] as const
 export type ImageProvider = typeof IMAGE_PROVIDERS[number]
 
 /** Providers supported by the first browser workbench release. */
-export const CLOUD_IMAGE_PROVIDERS = ['google', 'openai', 'seedream', 'dashscope'] as const
+export const CLOUD_IMAGE_PROVIDERS = ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu'] as const
 export type CloudImageProvider = typeof CLOUD_IMAGE_PROVIDERS[number]
+
+/**
+ * Credential references resolved through the DSH Credentials service (BYOK).
+ * These are POSIX-style reference names, not environment variables: the host
+ * layers the process environment and its managed store behind them, so a name
+ * like OPENAI_API_KEY is shared with any other plugin resolving the same ref.
+ */
+export const GOOGLE_API_KEY_ENV = 'GEMINI_API_KEY'
+/** OpenAI Platform credential reference. */
+export const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY'
+/**
+ * OpenAI-compatible relay credential reference. Deliberately distinct from
+ * OPENAI_API_KEY so an official key and a relay key can coexist without
+ * overwriting each other.
+ */
+export const OPENAI_COMPAT_API_KEY_ENV = 'DSH_IMAGE_GEN_OPENAI_COMPAT_KEY'
+/** Volcengine Ark credential reference. */
+export const SEEDREAM_API_KEY_ENV = 'ARK_API_KEY'
+/** DashScope credential reference. */
+export const DASHSCOPE_API_KEY_ENV = 'DASHSCOPE_API_KEY'
+/** xAI credential reference; matches the official xAI SDK environment name. */
+export const XAI_API_KEY_ENV = 'XAI_API_KEY'
+/** Zhipu credential reference; matches the official Zhipu SDK environment name. */
+export const ZHIPU_API_KEY_ENV = 'ZHIPUAI_API_KEY'
+
+/** The credential reference each cloud provider's API key is stored under. */
+export const CLOUD_CREDENTIAL_REFS: Record<CloudImageProvider, string> = {
+  google: GOOGLE_API_KEY_ENV,
+  openai: OPENAI_API_KEY_ENV,
+  'openai-compat': OPENAI_COMPAT_API_KEY_ENV,
+  seedream: SEEDREAM_API_KEY_ENV,
+  dashscope: DASHSCOPE_API_KEY_ENV,
+  xai: XAI_API_KEY_ENV,
+  zhipu: ZHIPU_API_KEY_ENV,
+}
+
+/** The credential reference storing this provider's API key, when it uses one. */
+export function cloudCredentialRef(provider: ImageProvider): string | undefined {
+  return (CLOUD_IMAGE_PROVIDERS as readonly string[]).includes(provider)
+    ? CLOUD_CREDENTIAL_REFS[provider as CloudImageProvider]
+    : undefined
+}
+
+/** Locale-neutral provider names for user-facing errors and status lines. */
+export const PROVIDER_DISPLAY_NAMES: Record<ImageProvider, string> = {
+  google: 'Google Gemini',
+  openai: 'OpenAI',
+  'openai-compat': 'OpenAI 兼容',
+  seedream: 'Seedream',
+  dashscope: 'DashScope',
+  xai: 'xAI Grok',
+  zhipu: '智谱 GLM',
+  comfyui: 'ComfyUI',
+}
 
 /** One selectable output option exposed by a provider profile. */
 export interface StudioOption {
@@ -110,6 +166,8 @@ export const DEFAULT_GOOGLE_ENDPOINT = 'https://generativelanguage.googleapis.co
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_SEEDREAM_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 export const DEFAULT_DASHSCOPE_ENDPOINT = 'https://dashscope.aliyuncs.com/api/v1'
+export const DEFAULT_XAI_BASE_URL = 'https://api.x.ai/v1'
+export const DEFAULT_ZHIPU_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4'
 export const DEFAULT_COMFYUI_BASE_URL = 'http://127.0.0.1:8188'
 export const DEFAULT_COMFYUI_TIMEOUT_MS = 300_000
 export const DEFAULT_COMFYUI_WORKFLOW_LABEL = 'API workflow'
@@ -120,6 +178,8 @@ export const DEFAULT_GOOGLE_MODEL = 'gemini-3.1-flash-image'
 export const DEFAULT_OPENAI_MODEL = 'gpt-image-2'
 export const DEFAULT_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128'
 export const DEFAULT_DASHSCOPE_MODEL = 'qwen-image-3.0'
+export const DEFAULT_XAI_MODEL = 'grok-imagine-image'
+export const DEFAULT_ZHIPU_MODEL = 'glm-image'
 
 /** One named ComfyUI API-format workflow imported through settings. */
 export interface ComfyUIWorkflowEntry {
@@ -194,15 +254,23 @@ export function mergeComfyUIPrompt(preset: string | undefined, user: string): st
 export const DEFAULT_MODELS: Record<ImageProvider, string> = {
   google: DEFAULT_GOOGLE_MODEL,
   openai: DEFAULT_OPENAI_MODEL,
+  // Relays expose arbitrary model ids; there is no sensible default to offer.
+  'openai-compat': '',
   seedream: DEFAULT_SEEDREAM_MODEL,
   dashscope: DEFAULT_DASHSCOPE_MODEL,
+  xai: DEFAULT_XAI_MODEL,
+  zhipu: DEFAULT_ZHIPU_MODEL,
   comfyui: DEFAULT_COMFYUI_WORKFLOW_LABEL,
 }
 
 export const DEFAULT_BASE_URLS: Record<ImageProvider, string> = {
   google: DEFAULT_GOOGLE_ENDPOINT,
   openai: DEFAULT_OPENAI_BASE_URL,
+  // Relay addresses are user-specific; empty until the compat row is filled in.
+  'openai-compat': '',
   seedream: DEFAULT_SEEDREAM_BASE_URL,
   dashscope: DEFAULT_DASHSCOPE_ENDPOINT,
+  xai: DEFAULT_XAI_BASE_URL,
+  zhipu: DEFAULT_ZHIPU_BASE_URL,
   comfyui: DEFAULT_COMFYUI_BASE_URL,
 }

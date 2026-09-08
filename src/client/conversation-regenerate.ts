@@ -43,7 +43,7 @@ function outputSettings(provider: CloudImageProvider, output?: string | undefine
   if (provider === 'seedream') {
     return { ratio: 'auto', quality: normalized === '1K' || normalized === '4K' ? normalized : '2K' }
   }
-  if (provider === 'openai') {
+  if (provider === 'openai' || provider === 'openai-compat' || provider === 'xai' || provider === 'zhipu') {
     return { ratio: ratioFromSize(normalized, 'x'), quality: 'standard' }
   }
   return { ratio: ratioFromSize(normalized, '*'), quality: 'standard' }

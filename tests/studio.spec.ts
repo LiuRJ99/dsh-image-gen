@@ -651,4 +651,35 @@ describe('generateFromStudio multi-image execution', () => {
       controller.signal,
     )).rejects.toThrow()
   })
+
+  it('rejects with a configuration hint when the credential is missing', async () => {
+    // The missing/empty/whitespace classification itself is covered by the
+    // tool-level suite against the shared resolver; this only wires the studio
+    // entry point to that shared behaviour.
+    const ctx = {
+      credentials: { resolve: vi.fn().mockResolvedValue(undefined) },
+      attachments: {
+        imageLimits: { maxImageBytes: 10 * 1024 * 1024, mediaTypes: ['image/jpeg'] },
+        saveImage: vi.fn(),
+      },
+      logger: { warn: vi.fn() },
+    } as any
+    const fetchMock = vi.fn(() => { throw new Error('fetch must not be called') })
+    globalThis.fetch = fetchMock as any
+
+    await expect(generateFromStudio(
+      ctx,
+      {},
+      {
+        mode: 'generate',
+        provider: 'seedream',
+        model: DEFAULT_SEEDREAM_MODEL,
+        prompt: 'test prompt',
+        ratio: 'auto',
+        quality: '2K',
+      },
+      new AbortController().signal,
+    )).rejects.toThrow('Seedream 尚未配置 API Key，请先到 设置 > 插件 > 图像生成 配置')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

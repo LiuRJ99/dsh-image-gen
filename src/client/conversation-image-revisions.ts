@@ -1,5 +1,5 @@
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { CloudImageProvider } from '../shared.js'
+import { CLOUD_IMAGE_PROVIDERS, type CloudImageProvider } from '../shared.js'
 
 /** One regenerated version displayed in place of an original conversation image. */
 export interface ConversationImageRevision {
@@ -87,7 +87,8 @@ function isRevision(value: unknown): value is ConversationImageRevision {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const candidate = value as Partial<ConversationImageRevision>
   return isAttachment(candidate.attachment)
-    && (candidate.provider === 'google' || candidate.provider === 'openai' || candidate.provider === 'seedream' || candidate.provider === 'dashscope')
+    && typeof candidate.provider === 'string'
+    && (CLOUD_IMAGE_PROVIDERS as readonly string[]).includes(candidate.provider)
     && typeof candidate.prompt === 'string'
     && typeof candidate.model === 'string'
     && typeof candidate.output === 'string'

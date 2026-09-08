@@ -1,6 +1,7 @@
 /** Volcengine Ark Seedream image-editing adapter. */
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { GeneratedCompatibleImage } from './openai-compatible.js'
+import { redactSecrets } from './redact.js'
 
 const ERROR_LIMIT = 4096
 
@@ -28,11 +29,11 @@ export async function editSeedreamImage(input: {
   })
 
   const text = await readBoundedText(response, Math.ceil(input.maxBytes * 1.4) + ERROR_LIMIT)
-  if (!response.ok) throw new Error(`seedream image editing failed (${response.status}): ${text.slice(0, ERROR_LIMIT)}`)
+  if (!response.ok) throw new Error(`seedream image editing failed (${response.status}): ${redactSecrets(text, input.apiKey).slice(0, ERROR_LIMIT)}`)
   let payload: unknown
   try { payload = JSON.parse(text) } catch { throw new Error('seedream image editing returned invalid JSON') }
   const image = firstImage(payload)
-  if (image === undefined) throw new Error(`seedream image editing returned no image: ${text.slice(0, ERROR_LIMIT)}`)
+  if (image === undefined) throw new Error(`seedream image editing returned no image: ${redactSecrets(text, input.apiKey).slice(0, ERROR_LIMIT)}`)
   if (image.b64_json !== undefined) return { data: decodeBase64(image.b64_json), mediaType: imageMediaType(image.mime_type) ?? 'image/png' }
   return downloadImage(image.url, input)
 }

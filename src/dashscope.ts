@@ -1,5 +1,6 @@
 /** DashScope Qwen Image generation and editing adapter. */
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import { redactSecrets } from './redact.js'
 
 export interface DashScopeImageOptions {
   apiKey: string
@@ -110,14 +111,14 @@ async function requestQwenImage(options: DashScopeImageOptions & {
   })
 
   if (!response.ok) {
-    const errorText = await response.text()
+    const errorText = redactSecrets(await response.text(), options.apiKey)
     throw new Error(`DashScope image ${options.operation} failed (${String(response.status)}): ${errorText}`)
   }
 
   const payload = (await response.json()) as DashScopeResponse
   const imageUrl = extractImageUrl(payload)
   if (imageUrl === undefined) {
-    throw new Error(`DashScope image ${options.operation} returned no image URL: ${payload.message ?? JSON.stringify(payload)}`)
+    throw new Error(`DashScope image ${options.operation} returned no image URL: ${redactSecrets(payload.message ?? JSON.stringify(payload), options.apiKey)}`)
   }
   return downloadImageBlob(imageUrl, options)
 }

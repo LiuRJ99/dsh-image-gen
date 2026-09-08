@@ -386,4 +386,131 @@ describe('image tool registration', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(ctx.credentials.resolve).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['missing', undefined],
+    ['empty', { value: '' }],
+    ['whitespace-only', { value: '   ' }],
+  ] as const)('rejects generate_image with a user-facing hint when the credential is %s', async (_label, resolveValue) => {
+    const { ctx, tools } = harnessContext()
+    vi.mocked(ctx.credentials.resolve).mockResolvedValue(resolveValue as never)
+    const fetchMock = vi.fn(() => { throw new Error('fetch must not be called') })
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'google', saveToWorkspace: false })
+
+    await expect(toolByName(tools, 'generate_image').execute(
+      { prompt: 'a portrait' },
+      { signal: new AbortController().signal } as never,
+    )).rejects.toThrow('generate_image requires the Google Gemini API key; configure it in Settings > Plugins > Image generation.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects edit_image with the same provider-named hint when the credential is missing', async () => {
+    const { ctx, tools } = harnessContext()
+    vi.mocked(ctx.attachments.readImage).mockResolvedValue({
+      ref: { mediaType: 'image/png', attachmentId: 'sha256:a' as ImageAttachmentRef['attachmentId'], bytes: 1, width: 2, height: 2 },
+      data: new Uint8Array([1]),
+    } as never)
+    vi.mocked(ctx.credentials.resolve).mockResolvedValue(undefined as never)
+    const fetchMock = vi.fn(() => { throw new Error('fetch must not be called') })
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'openai', saveToWorkspace: false })
+
+    await expect(toolByName(tools, 'edit_image').execute(
+      { prompt: 'restyle it' },
+      execWithUserImages('sha256:source-image'),
+    )).rejects.toThrow('edit_image requires the OpenAI API key; configure it in Settings > Plugins > Image generation.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('still generates after trimming a credential stored with surrounding whitespace', async () => {
+    const { ctx, tools } = harnessContext()
+    vi.mocked(ctx.credentials.resolve).mockResolvedValue({ value: '  sk-live-key  ' } as never)
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      output_image: { data: Buffer.from('fake').toString('base64'), mime_type: 'image/jpeg' },
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'google', saveToWorkspace: false })
+
+    const value = await toolByName(tools, 'generate_image').execute(
+      { prompt: 'a portrait' },
+      { signal: new AbortController().signal } as never,
+    ) as { provider: string }
+    expect(value.provider).toBe('google')
+    const headers = (fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers as Record<string, string>
+    expect(headers['x-goog-api-key']).toBe('sk-live-key')
+  })
+
+  it('honours a per-call provider override without touching the saved config', async () => {
+    const { ctx, tools } = harnessContext()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const body = url.includes('openai')
+        ? { data: [{ b64_json: Buffer.from('fake').toString('base64') }] }
+        : { output_image: { data: Buffer.from('fake').toString('base64'), mime_type: 'image/jpeg' } }
+      return new Response(JSON.stringify(body), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'google', saveToWorkspace: false })
+
+    const value = await toolByName(tools, 'generate_image').execute(
+      { prompt: 'a portrait', provider: 'openai', model: 'gpt-image-1.5-max' },
+      { signal: new AbortController().signal } as never,
+    ) as { provider: string; model: string }
+
+    expect(value).toMatchObject({ provider: 'openai', model: 'gpt-image-1.5-max' })
+    const url = String(fetchMock.mock.calls[0]?.[0])
+    const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body)) as { model: string }
+    expect(url).toBe('https://api.openai.com/v1/images/generations')
+    expect(body.model).toBe('gpt-image-1.5-max')
+    // The default provider in settings stays untouched for later calls.
+    const next = await toolByName(tools, 'generate_image').execute(
+      { prompt: 'a portrait' },
+      { signal: new AbortController().signal } as never,
+    ) as { provider: string }
+    expect(next.provider).toBe('google')
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('https://generativelanguage.googleapis.com')
+  })
+
+  it('rejects an unknown provider override with the supported list before any request', async () => {
+    const { ctx, tools } = harnessContext()
+    const fetchMock = vi.fn(() => { throw new Error('fetch must not be called') })
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'google', saveToWorkspace: false })
+
+    // The declared enum makes the framework reject unknown providers with the full list.
+    await expect(toolByName(tools, 'generate_image').execute(
+      { prompt: 'a portrait', provider: 'midjourney' } as never,
+      { signal: new AbortController().signal } as never,
+    )).rejects.toThrow('"provider" must be one of')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a per-call ComfyUI provider override to the configured workflow', async () => {
+    const { ctx, tools } = harnessContext()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ prompt_id: 'job-1' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        'job-1': {
+          status: { status_str: 'success', completed: true },
+          outputs: { save: { images: [{ filename: 'final.png', subfolder: '', type: 'output' }] } },
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/png' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, {
+      provider: 'google',
+      comfyuiWorkflowJson: JSON.stringify({ 6: { class_type: 'CLIPTextEncode', inputs: { text: '{{prompt}}' } } }),
+      comfyuiWorkflowName: 'portrait.json',
+      saveToWorkspace: false,
+    })
+
+    const value = await toolByName(tools, 'generate_image').execute(
+      { prompt: 'a portrait', provider: 'comfyui' },
+      { signal: new AbortController().signal } as never,
+    ) as { provider: string; model: string }
+
+    expect(value).toMatchObject({ provider: 'comfyui', model: 'portrait.json' })
+    expect(ctx.credentials.resolve).not.toHaveBeenCalled()
+  })
 })

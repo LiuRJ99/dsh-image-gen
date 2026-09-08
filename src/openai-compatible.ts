@@ -1,5 +1,6 @@
 /** OpenAI Images API and compatible response adapter. */
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import { redactSecrets } from './redact.js'
 
 const ERROR_LIMIT = 4096
 
@@ -14,7 +15,7 @@ export interface CompatibleReferenceImage {
 }
 
 export async function generateOpenAICompatibleImage(input: {
-  provider: 'openai' | 'seedream'
+  provider: 'openai' | 'openai-compat' | 'seedream' | 'xai' | 'zhipu'
   apiKey: string
   baseURL: string
   model: string
@@ -67,11 +68,11 @@ async function parseImageResponse(
   input: { maxBytes: number; signal: AbortSignal; apiKey?: string },
 ): Promise<GeneratedCompatibleImage> {
   const text = await readBoundedText(response, Math.ceil(input.maxBytes * 1.4) + ERROR_LIMIT)
-  if (!response.ok) throw new Error(`${provider} image request failed (${response.status}): ${text.slice(0, ERROR_LIMIT)}`)
+  if (!response.ok) throw new Error(`${provider} image request failed (${response.status}): ${redactSecrets(text, input.apiKey).slice(0, ERROR_LIMIT)}`)
   let payload: unknown
   try { payload = JSON.parse(text) } catch { throw new Error(`${provider} image request returned invalid JSON`) }
   const image = firstImage(payload)
-  if (image === undefined) throw new Error(`${provider} image request returned no image: ${text.slice(0, ERROR_LIMIT)}`)
+  if (image === undefined) throw new Error(`${provider} image request returned no image: ${redactSecrets(text, input.apiKey).slice(0, ERROR_LIMIT)}`)
   if (image.b64_json !== undefined) return { data: decodeBase64(image.b64_json, provider), mediaType: imageMediaType(image.mime_type) ?? 'image/png' }
   return downloadImage(image.url, provider, input)
 }

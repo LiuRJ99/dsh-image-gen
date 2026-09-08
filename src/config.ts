@@ -13,7 +13,18 @@ import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SEEDREAM_BASE_URL,
   DEFAULT_SEEDREAM_MODEL,
+  DEFAULT_XAI_BASE_URL,
+  DEFAULT_XAI_MODEL,
+  DEFAULT_ZHIPU_BASE_URL,
+  DEFAULT_ZHIPU_MODEL,
+  DASHSCOPE_API_KEY_ENV,
+  GOOGLE_API_KEY_ENV,
   IMAGE_PROVIDERS,
+  OPENAI_API_KEY_ENV,
+  OPENAI_COMPAT_API_KEY_ENV,
+  SEEDREAM_API_KEY_ENV,
+  XAI_API_KEY_ENV,
+  ZHIPU_API_KEY_ENV,
   activeComfyUIWorkflow,
   resolveComfyUIWorkflows,
   type ComfyUIWorkflowEntry,
@@ -32,7 +43,18 @@ export {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SEEDREAM_BASE_URL,
   DEFAULT_SEEDREAM_MODEL,
+  DEFAULT_XAI_BASE_URL,
+  DEFAULT_XAI_MODEL,
+  DEFAULT_ZHIPU_BASE_URL,
+  DEFAULT_ZHIPU_MODEL,
+  DASHSCOPE_API_KEY_ENV,
+  GOOGLE_API_KEY_ENV,
   IMAGE_PROVIDERS,
+  OPENAI_API_KEY_ENV,
+  OPENAI_COMPAT_API_KEY_ENV,
+  SEEDREAM_API_KEY_ENV,
+  XAI_API_KEY_ENV,
+  ZHIPU_API_KEY_ENV,
   activeComfyUIWorkflow,
   resolveComfyUIWorkflows,
   type ComfyUIWorkflowEntry,
@@ -41,15 +63,6 @@ export {
 
 /** Default workspace subfolder that receives generated image files. */
 export const DEFAULT_WORKSPACE_FOLDER = 'dsh-image-gen'
-
-/** Google API credential reference. */
-export const GOOGLE_API_KEY_ENV = 'GEMINI_API_KEY'
-/** OpenAI Platform or compatible relay credential reference. */
-export const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY'
-/** Volcengine Ark credential reference. */
-export const SEEDREAM_API_KEY_ENV = 'ARK_API_KEY'
-/** DashScope credential reference. */
-export const DASHSCOPE_API_KEY_ENV = 'DASHSCOPE_API_KEY'
 
 /** Google tool-level controls. */
 export const ASPECT_RATIOS = ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'] as const
@@ -64,10 +77,17 @@ export interface Config {
   googleEndpoint?: string
   openaiBaseURL?: string
   openaiModel?: string
+  /** OpenAI-compatible relay settings; independent from the official OpenAI row. */
+  openaiCompatBaseURL?: string
+  openaiCompatModel?: string
   seedreamBaseURL?: string
   seedreamModel?: string
   dashscopeEndpoint?: string
   dashscopeModel?: string
+  xaiBaseURL?: string
+  xaiModel?: string
+  zhipuBaseURL?: string
+  zhipuModel?: string
   comfyuiBaseURL?: string
   /** Named ComfyUI workflows managed by the Web settings page. */
   comfyuiWorkflows?: ComfyUIWorkflowEntry[]
@@ -91,10 +111,16 @@ export const Config: z<Config> = z.object({
   googleEndpoint: z.string().default(DEFAULT_GOOGLE_ENDPOINT),
   openaiBaseURL: z.string().default(DEFAULT_OPENAI_BASE_URL),
   openaiModel: z.string().default(DEFAULT_OPENAI_MODEL),
+  openaiCompatBaseURL: z.string().default(''),
+  openaiCompatModel: z.string().default(''),
   seedreamBaseURL: z.string().default(DEFAULT_SEEDREAM_BASE_URL),
   seedreamModel: z.string().default(DEFAULT_SEEDREAM_MODEL),
   dashscopeEndpoint: z.string().default(DEFAULT_DASHSCOPE_ENDPOINT),
   dashscopeModel: z.string().default(DEFAULT_DASHSCOPE_MODEL),
+  xaiBaseURL: z.string().default(DEFAULT_XAI_BASE_URL),
+  xaiModel: z.string().default(DEFAULT_XAI_MODEL),
+  zhipuBaseURL: z.string().default(DEFAULT_ZHIPU_BASE_URL),
+  zhipuModel: z.string().default(DEFAULT_ZHIPU_MODEL),
   comfyuiBaseURL: z.string().default(DEFAULT_COMFYUI_BASE_URL),
   comfyuiWorkflows: z.array(z.object({ name: z.string(), json: z.string(), presetPrompt: z.string().default('') })).default([]),
   comfyuiActiveWorkflow: z.string().default(''),
@@ -109,13 +135,29 @@ export const Config: z<Config> = z.object({
 export function resolveProvider(config: Config):
   | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
   | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
+  | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'zhipu'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'comfyui'; baseURL: string; workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry; timeoutMs: number } {
   switch (config.provider ?? 'google') {
     case 'openai': return { provider: 'openai', apiKeyEnv: OPENAI_API_KEY_ENV, model: config.openaiModel ?? DEFAULT_OPENAI_MODEL, baseURL: config.openaiBaseURL ?? DEFAULT_OPENAI_BASE_URL, imageSize: '1024x1024' }
+    case 'openai-compat': {
+      const baseURL = config.openaiCompatBaseURL?.trim()
+      if (baseURL === undefined || baseURL.length === 0) {
+        throw new Error('OpenAI 兼容 provider requires a base URL; set it in Settings > Plugins > Image generation.')
+      }
+      const model = config.openaiCompatModel?.trim()
+      if (model === undefined || model.length === 0) {
+        throw new Error('OpenAI 兼容 provider requires a model name; set it in Settings > Plugins > Image generation.')
+      }
+      return { provider: 'openai-compat', apiKeyEnv: OPENAI_COMPAT_API_KEY_ENV, model, baseURL, imageSize: '1024x1024' }
+    }
     case 'seedream': return { provider: 'seedream', apiKeyEnv: SEEDREAM_API_KEY_ENV, model: config.seedreamModel ?? DEFAULT_SEEDREAM_MODEL, baseURL: config.seedreamBaseURL ?? DEFAULT_SEEDREAM_BASE_URL, imageSize: '2K' }
     case 'dashscope': return { provider: 'dashscope', apiKeyEnv: DASHSCOPE_API_KEY_ENV, model: config.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL, endpoint: config.dashscopeEndpoint ?? DEFAULT_DASHSCOPE_ENDPOINT, imageSize: '1024*1024' }
+    case 'xai': return { provider: 'xai', apiKeyEnv: XAI_API_KEY_ENV, model: config.xaiModel ?? DEFAULT_XAI_MODEL, baseURL: config.xaiBaseURL ?? DEFAULT_XAI_BASE_URL, imageSize: '1024x1024' }
+    case 'zhipu': return { provider: 'zhipu', apiKeyEnv: ZHIPU_API_KEY_ENV, model: config.zhipuModel ?? DEFAULT_ZHIPU_MODEL, baseURL: config.zhipuBaseURL ?? DEFAULT_ZHIPU_BASE_URL, imageSize: '1024x1024' }
     case 'comfyui': {
       const workflows = resolveComfyUIWorkflows(config)
       const workflow = activeComfyUIWorkflow(config)
@@ -128,6 +170,57 @@ export function resolveProvider(config: Config):
       }
     }
     case 'google': return { provider: 'google', apiKeyEnv: GOOGLE_API_KEY_ENV, model: config.googleModel ?? DEFAULT_GOOGLE_MODEL, endpoint: config.googleEndpoint ?? DEFAULT_GOOGLE_ENDPOINT, aspectRatio: '1:1', imageSize: '1K' }
+  }
+}
+
+/**
+ * Apply a per-call provider and/or model override on top of the saved config.
+ * `model` is ignored for ComfyUI, whose per-call equivalent is `workflow`.
+ */
+export function withProviderOverrides(config: Config, provider?: ImageProvider, model?: string): Config {
+  const base: Config = provider === undefined ? { ...config } : { ...config, provider }
+  if (model === undefined) return base
+  const trimmed = model.trim()
+  if (trimmed.length === 0) return base
+  switch (base.provider ?? 'google') {
+    case 'google': return { ...base, googleModel: trimmed }
+    case 'openai': return { ...base, openaiModel: trimmed }
+    case 'openai-compat': return { ...base, openaiCompatModel: trimmed }
+    case 'seedream': return { ...base, seedreamModel: trimmed }
+    case 'dashscope': return { ...base, dashscopeModel: trimmed }
+    case 'xai': return { ...base, xaiModel: trimmed }
+    case 'zhipu': return { ...base, zhipuModel: trimmed }
+    case 'comfyui': return base
+  }
+}
+
+/**
+ * One-time migration: when the legacy single OpenAI slot points at a relay
+ * (non-official base URL) and the compat row is empty, move the relay config
+ * to the compat row so both can coexist. Returns the input untouched when
+ * nothing needs moving.
+ */
+export function migrateOpenAICompatConfig(config: Config): Config {
+  const legacyBase = config.openaiBaseURL?.trim() ?? ''
+  if (legacyBase.length === 0 || legacyBase === DEFAULT_OPENAI_BASE_URL) return config
+  if (hostOf(legacyBase) === 'api.openai.com') return config
+  if ((config.openaiCompatBaseURL?.trim() ?? '').length > 0) return config
+  const compatModel = config.openaiCompatModel?.trim() ?? ''
+  return {
+    ...config,
+    openaiCompatBaseURL: legacyBase,
+    ...(compatModel.length > 0 ? {} : { openaiCompatModel: config.openaiModel }),
+    openaiBaseURL: DEFAULT_OPENAI_BASE_URL,
+    ...(config.provider === 'openai' ? { provider: 'openai-compat' as const } : {}),
+  }
+}
+
+/** Host part of a URL, or null when it cannot be parsed. */
+function hostOf(raw: string): string | null {
+  try {
+    return new URL(raw).host
+  } catch {
+    return null
   }
 }
 
