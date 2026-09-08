@@ -71,6 +71,10 @@ interface ImageSettings {
   seedreamModel?: string
   dashscopeEndpoint?: string
   dashscopeModel?: string
+  xaiBaseURL?: string
+  xaiModel?: string
+  zhipuBaseURL?: string
+  zhipuModel?: string
   comfyuiBaseURL?: string
   comfyuiWorkflows?: ComfyUIWorkflowEntry[]
   comfyuiActiveWorkflow?: string
@@ -132,6 +136,8 @@ const DICT = {
     providerOpenAICompat: 'OpenAI 兼容（中转站）',
     providerSeedream: '字节 Seedream',
     providerDashScope: '阿里 DashScope (通义万相 / Qwen)',
+    providerXAI: 'xAI Grok Imagine',
+    providerZhipu: '智谱 GLM-Image',
     providerComfyUI: '本地 ComfyUI',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: '留空即可保留已配置的 Key',
@@ -160,6 +166,8 @@ const DICT = {
     endpointHintOpenAICompat: '中转站/自建服务的 OpenAI 兼容 /v1 地址（必填），例如 https://your-relay.example.com/v1。',
     endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
     endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
+    endpointHintXAI: 'xAI 官方 api.x.ai 的 /v1 地址。',
+    endpointHintZhipu: '智谱开放平台 open.bigmodel.cn 的 /api/paas/v4 地址。',
     endpointHintComfyUI: '正在运行且 DSH Host 可以访问的 ComfyUI 地址，默认使用本机 8188 端口。',
     model: '模型',
     workflow: 'API Workflow 工作流',
@@ -226,6 +234,8 @@ const DICT = {
     providerOpenAICompat: 'OpenAI-compatible (relay)',
     providerSeedream: 'ByteDance Seedream',
     providerDashScope: 'Aliyun DashScope (Wanx / Qwen)',
+    providerXAI: 'xAI Grok Imagine',
+    providerZhipu: 'Zhipu GLM-Image',
     providerComfyUI: 'Local ComfyUI',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: 'Leave empty to keep configured key',
@@ -254,6 +264,8 @@ const DICT = {
     endpointHintOpenAICompat: 'OpenAI-compatible /v1 base URL of your relay or self-hosted service (required), e.g. https://your-relay.example.com/v1.',
     endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
     endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
+    endpointHintXAI: 'Official xAI api.x.ai /v1 base URL.',
+    endpointHintZhipu: 'Zhipu open.bigmodel.cn /api/paas/v4 base URL.',
     endpointHintComfyUI: 'A running ComfyUI server reachable by the DSH Host; the default points to port 8188 on this computer.',
     model: 'Model',
     workflow: 'API Workflows',
@@ -822,6 +834,8 @@ const CLOUD_MODEL_FIELDS = {
   'openai-compat': 'openaiCompatModel',
   seedream: 'seedreamModel',
   dashscope: 'dashscopeModel',
+  xai: 'xaiModel',
+  zhipu: 'zhipuModel',
 } as const satisfies Record<CloudImageProvider, keyof ImageSettings>
 
 /** Settings field each cloud provider persists its endpoint or base URL under. */
@@ -831,7 +845,20 @@ const CLOUD_URL_FIELDS = {
   'openai-compat': 'openaiCompatBaseURL',
   seedream: 'seedreamBaseURL',
   dashscope: 'dashscopeEndpoint',
+  xai: 'xaiBaseURL',
+  zhipu: 'zhipuBaseURL',
 } as const satisfies Record<CloudImageProvider, keyof ImageSettings>
+
+/** Dictionary key of each cloud provider's endpoint hint. */
+const CLOUD_HINT_KEYS = {
+  google: 'endpointHintGoogle',
+  openai: 'endpointHintOpenAI',
+  'openai-compat': 'endpointHintOpenAICompat',
+  seedream: 'endpointHintSeedream',
+  dashscope: 'endpointHintDashScope',
+  xai: 'endpointHintXAI',
+  zhipu: 'endpointHintZhipu',
+} as const satisfies Record<CloudImageProvider, DictKey>
 
 /** Config field a cloud provider persists its model under. */
 function modelFieldOf(provider: CloudImageProvider): string {
@@ -844,8 +871,9 @@ function baseURLFieldOf(provider: CloudImageProvider): string {
 }
 
 /** Providers whose settings row offers the "pull models" button. */
-function modelPullSupported(provider: CloudImageProvider): boolean {
-  return provider === 'google' || provider === 'openai' || provider === 'openai-compat'
+function modelPullSupported(_provider: CloudImageProvider): boolean {
+  // Every cloud provider ships a model pull; ComfyUI rows never reach here.
+  return true
 }
 
 /** Build one row per provider from persisted settings, including ComfyUI extras. */
@@ -911,6 +939,8 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     'openai-compat': t('providerOpenAICompat'),
     seedream: t('providerSeedream'),
     dashscope: t('providerDashScope'),
+    xai: t('providerXAI'),
+    zhipu: t('providerZhipu'),
     comfyui: t('providerComfyUI'),
   }
 
@@ -1207,7 +1237,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
                 <button type="button" className="dsh-ig-btn-reset" title={t('resetTitle')} onClick={() => { updateRow(provider, { baseURL: DEFAULT_BASE_URLS[provider] }) }} disabled={!snapshot.writable}>{t('reset')}</button>
               ) : null}
             </div>
-            <span className="dsh-ig-hint">{provider === 'google' ? t('endpointHintGoogle') : provider === 'openai' ? t('endpointHintOpenAI') : provider === 'openai-compat' ? t('endpointHintOpenAICompat') : provider === 'seedream' ? t('endpointHintSeedream') : t('endpointHintDashScope')}</span>
+            <span className="dsh-ig-hint">{t(CLOUD_HINT_KEYS[provider])}</span>
           </label>
           <label className="dsh-ig-field">
             <span className="dsh-ig-label">{t('model')}</span>

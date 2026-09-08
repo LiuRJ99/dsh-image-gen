@@ -12,6 +12,10 @@ import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SEEDREAM_BASE_URL,
   DEFAULT_SEEDREAM_MODEL,
+  DEFAULT_XAI_BASE_URL,
+  DEFAULT_XAI_MODEL,
+  DEFAULT_ZHIPU_BASE_URL,
+  DEFAULT_ZHIPU_MODEL,
   migrateOpenAICompatConfig,
   resolveProvider,
   selectComfyUIWorkflow,
@@ -72,6 +76,51 @@ describe('openai-compat provider', () => {
       'qwen-image',
     )
     expect(resolveProvider(config)).toMatchObject({ provider: 'openai-compat', model: 'qwen-image' })
+  })
+})
+
+describe('xai and zhipu providers', () => {
+  it('resolves the xai profile with its dedicated credential ref and defaults', () => {
+    expect(resolveProvider({ provider: 'xai' })).toEqual({
+      provider: 'xai',
+      apiKeyEnv: 'XAI_API_KEY',
+      baseURL: DEFAULT_XAI_BASE_URL,
+      model: DEFAULT_XAI_MODEL,
+      imageSize: '1024x1024',
+    })
+  })
+
+  it('resolves the zhipu profile with its dedicated credential ref and defaults', () => {
+    expect(resolveProvider({ provider: 'zhipu' })).toEqual({
+      provider: 'zhipu',
+      apiKeyEnv: 'ZHIPUAI_API_KEY',
+      baseURL: DEFAULT_ZHIPU_BASE_URL,
+      model: DEFAULT_ZHIPU_MODEL,
+      imageSize: '1024x1024',
+    })
+  })
+
+  it('honours configured endpoint and model overrides', () => {
+    const config = withProviderOverrides(
+      { provider: 'xai', xaiBaseURL: 'https://proxy.example.com/v1', xaiModel: 'grok-imagine-image-2.0' },
+      undefined,
+      'grok-imagine-image-2.0-alt',
+    )
+    expect(resolveProvider(config)).toMatchObject({ provider: 'xai', baseURL: 'https://proxy.example.com/v1', model: 'grok-imagine-image-2.0-alt' })
+  })
+
+  it('routes per-call model overrides to the zhipu field', () => {
+    const config = withProviderOverrides({ provider: 'zhipu' }, undefined, 'glm-image-test')
+    expect(resolveProvider(config)).toMatchObject({ provider: 'zhipu', model: 'glm-image-test' })
+  })
+
+  it('validates both providers through the schema with their defaults', () => {
+    const xai = Config({ provider: 'xai' })
+    expect(xai.xaiBaseURL).toBe(DEFAULT_XAI_BASE_URL)
+    expect(xai.xaiModel).toBe(DEFAULT_XAI_MODEL)
+    const zhipu = Config({ provider: 'zhipu' })
+    expect(zhipu.zhipuBaseURL).toBe(DEFAULT_ZHIPU_BASE_URL)
+    expect(zhipu.zhipuModel).toBe(DEFAULT_ZHIPU_MODEL)
   })
 })
 

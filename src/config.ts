@@ -13,12 +13,18 @@ import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SEEDREAM_BASE_URL,
   DEFAULT_SEEDREAM_MODEL,
+  DEFAULT_XAI_BASE_URL,
+  DEFAULT_XAI_MODEL,
+  DEFAULT_ZHIPU_BASE_URL,
+  DEFAULT_ZHIPU_MODEL,
   DASHSCOPE_API_KEY_ENV,
   GOOGLE_API_KEY_ENV,
   IMAGE_PROVIDERS,
   OPENAI_API_KEY_ENV,
   OPENAI_COMPAT_API_KEY_ENV,
   SEEDREAM_API_KEY_ENV,
+  XAI_API_KEY_ENV,
+  ZHIPU_API_KEY_ENV,
   activeComfyUIWorkflow,
   resolveComfyUIWorkflows,
   type ComfyUIWorkflowEntry,
@@ -37,12 +43,18 @@ export {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SEEDREAM_BASE_URL,
   DEFAULT_SEEDREAM_MODEL,
+  DEFAULT_XAI_BASE_URL,
+  DEFAULT_XAI_MODEL,
+  DEFAULT_ZHIPU_BASE_URL,
+  DEFAULT_ZHIPU_MODEL,
   DASHSCOPE_API_KEY_ENV,
   GOOGLE_API_KEY_ENV,
   IMAGE_PROVIDERS,
   OPENAI_API_KEY_ENV,
   OPENAI_COMPAT_API_KEY_ENV,
   SEEDREAM_API_KEY_ENV,
+  XAI_API_KEY_ENV,
+  ZHIPU_API_KEY_ENV,
   activeComfyUIWorkflow,
   resolveComfyUIWorkflows,
   type ComfyUIWorkflowEntry,
@@ -72,6 +84,10 @@ export interface Config {
   seedreamModel?: string
   dashscopeEndpoint?: string
   dashscopeModel?: string
+  xaiBaseURL?: string
+  xaiModel?: string
+  zhipuBaseURL?: string
+  zhipuModel?: string
   comfyuiBaseURL?: string
   /** Named ComfyUI workflows managed by the Web settings page. */
   comfyuiWorkflows?: ComfyUIWorkflowEntry[]
@@ -101,6 +117,10 @@ export const Config: z<Config> = z.object({
   seedreamModel: z.string().default(DEFAULT_SEEDREAM_MODEL),
   dashscopeEndpoint: z.string().default(DEFAULT_DASHSCOPE_ENDPOINT),
   dashscopeModel: z.string().default(DEFAULT_DASHSCOPE_MODEL),
+  xaiBaseURL: z.string().default(DEFAULT_XAI_BASE_URL),
+  xaiModel: z.string().default(DEFAULT_XAI_MODEL),
+  zhipuBaseURL: z.string().default(DEFAULT_ZHIPU_BASE_URL),
+  zhipuModel: z.string().default(DEFAULT_ZHIPU_MODEL),
   comfyuiBaseURL: z.string().default(DEFAULT_COMFYUI_BASE_URL),
   comfyuiWorkflows: z.array(z.object({ name: z.string(), json: z.string(), presetPrompt: z.string().default('') })).default([]),
   comfyuiActiveWorkflow: z.string().default(''),
@@ -118,6 +138,8 @@ export function resolveProvider(config: Config):
   | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
+  | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'zhipu'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'comfyui'; baseURL: string; workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry; timeoutMs: number } {
   switch (config.provider ?? 'google') {
     case 'openai': return { provider: 'openai', apiKeyEnv: OPENAI_API_KEY_ENV, model: config.openaiModel ?? DEFAULT_OPENAI_MODEL, baseURL: config.openaiBaseURL ?? DEFAULT_OPENAI_BASE_URL, imageSize: '1024x1024' }
@@ -134,6 +156,8 @@ export function resolveProvider(config: Config):
     }
     case 'seedream': return { provider: 'seedream', apiKeyEnv: SEEDREAM_API_KEY_ENV, model: config.seedreamModel ?? DEFAULT_SEEDREAM_MODEL, baseURL: config.seedreamBaseURL ?? DEFAULT_SEEDREAM_BASE_URL, imageSize: '2K' }
     case 'dashscope': return { provider: 'dashscope', apiKeyEnv: DASHSCOPE_API_KEY_ENV, model: config.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL, endpoint: config.dashscopeEndpoint ?? DEFAULT_DASHSCOPE_ENDPOINT, imageSize: '1024*1024' }
+    case 'xai': return { provider: 'xai', apiKeyEnv: XAI_API_KEY_ENV, model: config.xaiModel ?? DEFAULT_XAI_MODEL, baseURL: config.xaiBaseURL ?? DEFAULT_XAI_BASE_URL, imageSize: '1024x1024' }
+    case 'zhipu': return { provider: 'zhipu', apiKeyEnv: ZHIPU_API_KEY_ENV, model: config.zhipuModel ?? DEFAULT_ZHIPU_MODEL, baseURL: config.zhipuBaseURL ?? DEFAULT_ZHIPU_BASE_URL, imageSize: '1024x1024' }
     case 'comfyui': {
       const workflows = resolveComfyUIWorkflows(config)
       const workflow = activeComfyUIWorkflow(config)
@@ -164,6 +188,8 @@ export function withProviderOverrides(config: Config, provider?: ImageProvider, 
     case 'openai-compat': return { ...base, openaiCompatModel: trimmed }
     case 'seedream': return { ...base, seedreamModel: trimmed }
     case 'dashscope': return { ...base, dashscopeModel: trimmed }
+    case 'xai': return { ...base, xaiModel: trimmed }
+    case 'zhipu': return { ...base, zhipuModel: trimmed }
     case 'comfyui': return base
   }
 }

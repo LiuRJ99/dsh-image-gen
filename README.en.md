@@ -34,7 +34,7 @@
 
 **A complete AI image creation workflow for DeepSeek Harness.**
 
-`dsh-image-gen` goes far beyond basic in-chat image generation. It brings **continuous natural-language editing**, **Studio batch creation**, **side-by-side multi-model comparison**, a **500+ prompt inspiration library**, and **local ComfyUI** workflows into DSH. It supports **Google Gemini, OpenAI Images / Compatible, ByteDance Seedream, Aliyun DashScope**, and private local workflows. It uses a BYOK model and can isolate generated assets by workspace.
+`dsh-image-gen` goes far beyond basic in-chat image generation. It brings **continuous natural-language editing**, **Studio batch creation**, **side-by-side multi-model comparison**, a **500+ prompt inspiration library**, and **local ComfyUI** workflows into DSH. It supports **Google Gemini, OpenAI Images / Compatible, ByteDance Seedream, Aliyun DashScope, xAI Grok Imagine, Zhipu GLM-Image**, and private local workflows. It uses a BYOK model and can isolate generated assets by workspace.
 
 ```bash
 pnpm dsh plugin --profile web add dsh-image-gen@latest
@@ -95,7 +95,7 @@ After restarting DSH, open:
 
 **Settings → Plugins → Plugin Configuration → Image Generation**
 
-Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
+Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. Once the key is stored, click **Test connection** to verify it, or **Fetch models** to pull every image-capable model the provider offers—no manual lookups needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
 
 ### 3. Start creating
 
@@ -233,9 +233,12 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | **OpenAI Compatible (relay)** | ✅ | ✅ Multiple | ✅ | ✅ |
 | **ByteDance Seedream / Volcengine Ark** | ✅ | ✅ Multiple | ✅ | ✅ |
 | **Aliyun DashScope / Qwen Image** | ✅ | ✅ Multiple | ✅ | ✅ |
+| **xAI Grok Imagine** | ✅ | ⚠️ Limited | ✅ | ✅ |
+| **Zhipu GLM-Image** | ✅ | — | ✅ | ✅ |
 | **Local ComfyUI** | ✅ | ✅ Single | — | — |
 
 > Studio and multi-model comparison currently support cloud Providers only. Multi-model comparison uses the model configured for each Provider in Settings.
+> Zhipu GLM-Image does not support image-to-image upstream. xAI image editing goes through the OpenAI-compatible protocol (multipart); some gateways may need further adaptation.
 
 <details>
 <summary><strong>Current default models and endpoints (all configurable)</strong></summary>
@@ -247,6 +250,8 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | OpenAI Compatible | Custom | Custom Base URL |
 | ByteDance Seedream | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3` |
 | Aliyun DashScope | `qwen-image-3.0` | `https://dashscope.aliyuncs.com/api/v1` |
+| xAI Grok Imagine | `grok-imagine-image` | `https://api.x.ai/v1` |
+| Zhipu GLM-Image | `glm-image` | `https://open.bigmodel.cn/api/paas/v4` |
 | Local ComfyUI | Imported API Workflow | `http://127.0.0.1:8188` |
 
 </details>
@@ -287,7 +292,7 @@ When “Save to workspace” is enabled, chat results are saved to the `dsh-imag
 <details>
 <summary><strong>Why is ComfyUI not available in Studio?</strong></summary>
 
-Studio and multi-model comparison currently support four cloud Provider families only. ComfyUI supports text-to-image, single-image editing, and multiple named workflows through Agent chat.
+Studio and multi-model comparison currently support cloud Providers only; ComfyUI is not yet integrated. ComfyUI supports text-to-image, single-image editing, and multiple named workflows through Agent chat.
 
 </details>
 

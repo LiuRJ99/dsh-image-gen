@@ -15,7 +15,7 @@ export interface CompatibleReferenceImage {
 }
 
 export async function generateOpenAICompatibleImage(input: {
-  provider: 'openai' | 'openai-compat' | 'seedream'
+  provider: 'openai' | 'openai-compat' | 'seedream' | 'xai' | 'zhipu'
   apiKey: string
   baseURL: string
   model: string

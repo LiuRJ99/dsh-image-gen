@@ -88,7 +88,7 @@ export async function generateFromStudio(
         ? await editGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
         : await generateGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = `${aspectRatio}, ${imageSize}`
-    } else if (active.provider === 'openai' || active.provider === 'openai-compat') {
+    } else if (active.provider === 'openai' || active.provider === 'openai-compat' || active.provider === 'xai' || active.provider === 'zhipu') {
       const size = openAISize(input.ratio)
       generated = input.mode === 'edit'
         ? await editOpenAICompatibleImage({ apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
@@ -224,7 +224,7 @@ export function studioProfile(config: Config, provider: CloudImageProvider, conf
   if (provider === 'google') {
     return profile(provider, model, configured, ASPECT_RATIOS.map(option), IMAGE_SIZES.map(value => ({ value, label: value })), '1:1', '1K')
   }
-  if (provider === 'openai' || provider === 'openai-compat') {
+  if (provider === 'openai' || provider === 'openai-compat' || provider === 'xai' || provider === 'zhipu') {
     return profile(provider, model, configured, ['1:1', '3:2', '2:3'].map(option), [{ value: 'standard', label: '标准（推荐）' }], '1:1', 'standard')
   }
   if (provider === 'seedream') {

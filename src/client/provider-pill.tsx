@@ -26,6 +26,8 @@ export interface PillSettings {
   openaiCompatModel?: string
   seedreamModel?: string
   dashscopeModel?: string
+  xaiModel?: string
+  zhipuModel?: string
   comfyuiWorkflows?: readonly ComfyUIWorkflowEntry[]
   comfyuiActiveWorkflow?: string
   comfyuiWorkflowJson?: string
@@ -82,6 +84,8 @@ const PILL_PROVIDER_LABELS: Record<ImageProvider, string> = {
   'openai-compat': 'OpenAI 兼容',
   seedream: 'Seedream',
   dashscope: 'DashScope',
+  xai: 'Grok',
+  zhipu: '智谱 GLM',
   comfyui: 'ComfyUI',
 }
 
@@ -100,7 +104,8 @@ export function pillModelOf(provider: ImageProvider, value: PillSettings | undef
   }
   const stored = provider === 'google' ? value?.googleModel : provider === 'openai' ? value?.openaiModel
     : provider === 'openai-compat' ? value?.openaiCompatModel
-    : provider === 'seedream' ? value?.seedreamModel : value?.dashscopeModel
+    : provider === 'seedream' ? value?.seedreamModel : provider === 'dashscope' ? value?.dashscopeModel
+    : provider === 'xai' ? value?.xaiModel : value?.zhipuModel
   return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_MODELS[provider]
 }
 
@@ -111,7 +116,7 @@ export function ImageProviderPill(props: ProviderPillFace) {
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<ImageProvider | undefined>(undefined)
   const [error, setError] = useState('')
-  const [dots, setDots] = useState<Record<CloudImageProvider, KeyDot>>({ google: 'unknown', openai: 'unknown', 'openai-compat': 'unknown', seedream: 'unknown', dashscope: 'unknown' })
+  const [dots, setDots] = useState<Record<CloudImageProvider, KeyDot>>({ google: 'unknown', openai: 'unknown', 'openai-compat': 'unknown', seedream: 'unknown', dashscope: 'unknown', xai: 'unknown', zhipu: 'unknown' })
   const [keyTick, setKeyTick] = useState(0)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const [menuStyle, setMenuStyle] = useState<{ left: number; bottom: number } | null>(null)
@@ -139,7 +144,7 @@ export function ImageProviderPill(props: ProviderPillFace) {
       setDots(next)
     }).catch(() => {
       if (!active) return
-      setDots({ google: 'unknown', openai: 'unknown', 'openai-compat': 'unknown', seedream: 'unknown', dashscope: 'unknown' })
+      setDots({ google: 'unknown', openai: 'unknown', 'openai-compat': 'unknown', seedream: 'unknown', dashscope: 'unknown', xai: 'unknown', zhipu: 'unknown' })
     })
     return () => { active = false }
   }, [props.credentials, keyTick])

@@ -65,6 +65,8 @@ const DICT = {
     filterOpenAICompat: 'OpenAI 兼容',
     filterSeedream: '字节 Seedream',
     filterDashScope: '阿里 DashScope',
+    filterXAI: 'xAI Grok',
+    filterZhipu: '智谱 GLM',
     filterComfyUI: '本地 ComfyUI',
     filterAllModels: '全部模型',
     filterAllRatios: '全部比例',
@@ -161,6 +163,8 @@ const DICT = {
     filterOpenAICompat: 'OpenAI-compatible',
     filterSeedream: 'ByteDance Seedream',
     filterDashScope: 'Aliyun DashScope',
+    filterXAI: 'xAI Grok',
+    filterZhipu: 'Zhipu GLM',
     filterComfyUI: 'Local ComfyUI',
     filterAllModels: 'All Models',
     filterAllRatios: 'All Ratios',
@@ -1042,6 +1046,8 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
               <option value="openai-compat">{t('filterOpenAICompat')}</option>
               <option value="seedream">{t('filterSeedream')}</option>
               <option value="dashscope">{t('filterDashScope')}</option>
+              <option value="xai">{t('filterXAI')}</option>
+              <option value="zhipu">{t('filterZhipu')}</option>
               <option value="comfyui">{t('filterComfyUI')}</option>
             </select>
 
