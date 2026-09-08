@@ -32,7 +32,7 @@ description: Install, configure, diagnose, verify, or remove the CPA-backed dsh-
    The same command accepts local tarballs in the same order. For example:
 
    ```sh
-   dsh plugin --profile <profile> add ./path/to/dsh-cpa-plugin-0.4.0.tgz
+   dsh plugin --profile <profile> add ./path/to/dsh-cpa-plugin-0.4.1.tgz
    dsh plugin --profile <profile> add ./path/to/dsh-image-gen-0.5.0.tgz
    ```
 
@@ -44,7 +44,7 @@ description: Install, configure, diagnose, verify, or remove the CPA-backed dsh-
 1. Verify `dsh --profile <profile> --dump-config` contains both the Provider layer and the `dsh-image-gen` `image-gen` row. The Provider must appear before the Adapter in the installed profile.
 2. Start the profile. If port 3080 is already in use, identify the existing DSH process before stopping anything.
 3. In **Settings → Plugins → Image generation**, configure only the `engine` (`GPT Image 2` or `Gemini Image`) and workspace controls (**Save to workspace** and its workspace folder). Do not look for or add a provider, endpoint, raw model, or credential field in this Adapter's settings.
-4. Provider diagnostics may show the model route selected for the engine, such as `gpt-image-2` or `gemini-3.1-flash-image`. Those model IDs and the protocol are maintained inside the CPA Provider; do not copy them into Adapter settings.
+4. Provider diagnostics may show the model route selected for the engine, such as `gpt-image-2` or `gemini-3.1-flash-image`. Those model IDs and the protocol are maintained inside the CPA Provider; do not copy them into Adapter settings. Reference-image editing additionally requires a CPA Provider build that exposes the optional `edit` service capability; older Providers remain generation-only.
 
 Never request, print, read back, or commit credentials, response captures, or generated images.
 
@@ -54,5 +54,6 @@ The following are procedures, not test results. Report a smoke test as passed on
 
 - **GPT Image 2:** select `GPT Image 2`, ask the Agent for a simple square icon, and confirm that it calls `generate_image` and attaches the image to the conversation. The Provider request path is CPA `/v1/images/generations`.
 - **Gemini Image:** select `Gemini Image`, use the same kind of explicit image request, and confirm that it calls `generate_image` and attaches the image to the conversation. The Provider request path is CPA `/v1/chat/completions`, with the image read from `choices[0].message.images[].image_url.url`.
+- **Reference-image edit:** upload or attach one or more images in the latest human message, ask for an explicit edit such as replacing an outfit, and confirm that the Agent calls `edit_image` (not `bash`) and receives a new image Attachment. GPT uses `/v1/images/edits`; Gemini uses multimodal `/v1/chat/completions`. Report Gemini as passed only after an authenticated relay request actually succeeds.
 
 For removal, run `dsh plugin --profile <profile> remove dsh-image-gen`. Remove the Provider separately only when it is no longer needed by any other Adapter. Do not delete credentials or other Provider state.

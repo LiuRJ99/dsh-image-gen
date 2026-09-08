@@ -299,6 +299,11 @@ export function apply(ctx: Context): void {
     key: 'generate_image',
     inject: (): ImageCardFace => ({ locale }),
   }, GeneratedImageCard))
+  ctx.slots.inject('tool.call.toolview', () => register({
+    name: 'tool.call.toolview',
+    key: 'edit_image',
+    inject: (): ImageCardFace => ({ locale }),
+  }, GeneratedImageCard))
 
   // 3. Direct turn-tail deliverable card (rendered outside of the collapsed Turn Process)
   ctx.inject(['uiConversation'], (convCtx) => {

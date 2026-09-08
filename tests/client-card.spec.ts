@@ -59,10 +59,10 @@ describe('imageRef', () => {
       seq: 11,
       time: 1788603729000,
       callId: 'call-2',
-      call: { name: 'generate_image', argsRaw: '{"prompt":"a cute cat"}' },
+      call: { name: 'edit_image', argsRaw: '{"prompt":"replace the outfit"}' },
       callTime: 1788603700000,
       content: [
-        { type: 'text', text: 'Generated image' },
+        { type: 'text', text: 'Edited image' },
         { type: 'image', attachment: SAMPLE_ATTACHMENT },
       ],
       isError: false,

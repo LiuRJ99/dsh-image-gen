@@ -1,6 +1,6 @@
 # CPA-only Option A integration notes
 
-This fork remains an adapter around `@LiuRJ99/dsh-cpa-plugin`'s `IMAGE_GENERATION_SERVICE`. The only generation engines exposed by `dsh-image-gen` are `gpt` (GPT Image 2) and `gemini` (Gemini Image). The adapter does not resolve, persist, or transmit Google/OpenAI/Seedream/DashScope credentials, provider IDs, endpoints, or native `credentialRef` values.
+This fork remains an adapter around `@LiuRJ99/dsh-cpa-plugin`'s `IMAGE_GENERATION_SERVICE`. The two exposed engines are `gpt` (GPT Image 2) and `gemini` (Gemini Image), and the service now keeps `generate` backward-compatible while optionally exposing `edit` for reference-image workflows. The adapter does not resolve, persist, or transmit Google/OpenAI/Seedream/DashScope credentials, provider IDs, endpoints, or native `credentialRef` values.
 
 ## Adopted provider-neutral capabilities
 
@@ -10,9 +10,11 @@ This fork remains an adapter around `@LiuRJ99/dsh-cpa-plugin`'s `IMAGE_GENERATIO
 - **Gallery:** Better Sidebar Gallery keeps DB version 3, engine/unknown normalization, sharp thumbnail/full-image routing, and virtualization for Grid/Table. Favorites, tags, workspace metadata, and save diagnostics are optional schemaless fields, so no DB v4 migration is required and old records remain readable. It adds favorites, batch selection/deletion, workspace filtering, prompt copy, and CPA-only regeneration. List view intentionally uses normal flow so the complete prompt can expand; a dynamic-height list virtualizer is deferred for very large galleries. Browser regeneration creates an Attachment through the same-origin CPA service route but deliberately does not write to a workspace because the browser has no trusted agent cwd.
 - **Workspace:** normal tool calls write only to the agent session cwd. Dynamic workspace discovery reads DSH's workspace projection for allowlisting; deletion accepts only regular, non-symlink generated-image filenames under canonical explicit roots. New full SHA-256 attachment IDs use full-digest filenames to avoid prefix collisions. Gallery path cleanup accepts canonical full-digest files only; legacy eight-character files are intentionally left as orphan-compatible files by the browser path route. The attachment-aware reverse helper can remove a legacy file only after verifying the full digest. It never authorizes arbitrary browser workspace roots or writes to `process.cwd()`.
 
-## Deferred / deliberately excluded
+## Optional reference-image editing
 
-The current CPA contract exposes `generate` only. Native `edit_image`, multi-reference/edit workflows, Studio native-provider backend, native multi-model comparison, `provider=comfyui`, `image-result-node`, direct provider HTTP clients, and provider/BYOK settings are not implemented or claimed. Extending the CPA contract for those capabilities requires a separate design and compatibility matrix; this change does not modify `dsh-cpa-plugin`.
+The CPA contract keeps `generate` backward-compatible and may expose `edit` with provider-neutral `{ data, mediaType }` references. The Host-side Adapter resolves inline DSH Attachments in upload order, supports explicit attachment IDs and workspace-contained paths, and registers `edit_image` only when `service.edit` is available. GPT uses `/images/edits`; Gemini uses multimodal `/chat/completions` data URLs. Older Providers remain generation-only through feature detection.
+
+A Studio native-provider backend, native multi-model comparison, `provider=comfyui`, `image-result-node`, direct provider credential clients, and provider/BYOK settings remain deliberately excluded.
 
 ## Verification boundary
 

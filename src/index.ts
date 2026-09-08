@@ -15,6 +15,7 @@ import { normalizeGeminiAspectRatio, normalizeGeminiImageSize, normalizeGptSize,
 import { serveCpaGenerate } from './cpa-generate-route.js'
 import { serveInspirationRoute } from './inspiration-route.js'
 import { IMAGE_ROUTE, imageAttachmentFromMeta, serveDelete, serveImage, serveWorkspaces } from './image-route.js'
+import { resolveReferenceImages, type ReferenceImageAgent } from './reference-image.js'
 import { CPA_GENERATE_ROUTE, DELETE_ROUTE, IMAGE_GENERATION_NAMESPACE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, attachmentMeta } from './shared.js'
 import { deleteImageFromWorkspace, getDshWorkspaceRoots, getDshWorkspacesFull, saveImageToWorkspace } from './workspace-save.js'
 
@@ -35,6 +36,7 @@ interface GeneratedValue {
   attachment: ImageAttachmentRef
   engine: ImageEngine
   output: string
+  operation?: 'generate' | 'edit'
   /** The normalized engine-specific aspect ratio, when Gemini received one. */
   aspectRatio?: string
   /** The normalized engine-specific image-size tier, when Gemini received one. */
@@ -55,7 +57,7 @@ const SUPPORTED_IMAGE_MEDIA_TYPES = new Set<ImageAttachmentRef['mediaType']>([
 ])
 const MAX_PROMPT_LENGTH = 16_000
 
-function toolOutputSpec() {
+function toolOutputSpec(operation: 'generate' | 'edit' = 'generate') {
   return {
     schema: {
       type: 'object' as const,
@@ -83,6 +85,7 @@ function toolOutputSpec() {
           },
         },
         engine: { type: 'string' as const, required: true as const },
+        operation: { type: 'string' as const },
         output: { type: 'string' as const, required: true as const },
         aspectRatio: { type: 'string' as const },
         imageSize: { type: 'string' as const },
@@ -101,7 +104,7 @@ function toolOutputSpec() {
       return [
         {
           type: 'text' as const,
-          text: `Generated one image with the ${value.engine} engine (${value.output}). It is already attached to the conversation.${saved} Respond to the user without reading or searching for the image.`,
+          text: `${(value.operation ?? operation) === 'edit' ? 'Edited one image' : 'Generated one image'} with the ${value.engine} engine (${value.output}). It is already attached to the conversation.${saved} Respond to the user without reading or searching for the image.`,
         },
         {
           type: 'image' as const,
@@ -113,6 +116,7 @@ function toolOutputSpec() {
       kind: 'dsh-image-gen',
       attachment: attachmentMeta(value.attachment),
       engine: value.engine,
+      ...(typeof value.operation === 'string' ? { operation: value.operation } : { operation }),
       output: value.output,
       ...(typeof value.aspectRatio === 'string' ? { aspectRatio: value.aspectRatio } : {}),
       ...(typeof value.imageSize === 'string' ? { imageSize: value.imageSize } : {}),
@@ -222,6 +226,118 @@ function createGeminiTool(
   })
 }
 
+function createEditTool(
+  engine: ImageEngine,
+  imageService: CpaImageGenerationService,
+  ctx: Context,
+  attachments: AttachmentStore,
+  currentConfig: () => Config,
+  knownWorkspaceRoots: Set<string>,
+) {
+  const sizeParameters = engine === 'gpt'
+    ? {
+        size: {
+          type: 'string' as const,
+          enum: ['1024x1024', '1024x1792', '1792x1024'],
+          description: 'Optional output framing size.',
+        },
+      }
+    : {
+        aspect_ratio: {
+          type: 'string' as const,
+          enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
+          description: 'Optional output aspect ratio.',
+        },
+        image_size: {
+          type: 'string' as const,
+          enum: ['1K', '2K', '4K'],
+          description: 'Optional output resolution tier.',
+        },
+      }
+  return defineTool({
+    name: 'edit_image',
+    description:
+      'Edit, combine, or restyle existing images with the configured image engine. Images attached inline to the latest human message are already durable DSH attachments: call edit_image directly with a precise prompt and they will be used in upload order. For specific older conversation images, use source_attachment_id or source_attachment_ids. For files explicitly named in the session workspace, use source_path or source_paths. Never use bash, read, glob, or file copying to locate inline attachments, and only claim success after this tool returns an image result.',
+    parameters: {
+      prompt: { type: 'string' as const, required: true as const, description: 'Describe the edit while preserving everything else that should remain unchanged.' },
+      source_attachment_id: { type: 'string' as const, description: 'Optional attachment id of one specific image in the current conversation.' },
+      source_attachment_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional ordered attachment ids for multiple conversation images.' },
+      source_path: { type: 'string' as const, description: 'Optional workspace-relative or absolute path to one named image.' },
+      source_paths: { type: 'array' as const, items: { type: 'string' as const }, description: 'Optional ordered workspace paths for multiple named images.' },
+      ...sizeParameters,
+    },
+    output: toolOutputSpec('edit'),
+    async execute(args, exec): Promise<GeneratedValue> {
+      if (typeof imageService.edit !== 'function') throw new Error('image-editing-unavailable')
+      const prompt = checkedPrompt(args.prompt)
+      const raw = args as {
+        source_attachment_id?: unknown
+        source_attachment_ids?: unknown
+        source_path?: unknown
+        source_paths?: unknown
+        size?: unknown
+        aspect_ratio?: unknown
+        image_size?: unknown
+      }
+      const sourceAttachmentId = typeof raw.source_attachment_id === 'string' ? raw.source_attachment_id : undefined
+      const sourceAttachmentIds = Array.isArray(raw.source_attachment_ids)
+        ? raw.source_attachment_ids.filter((value): value is string => typeof value === 'string')
+        : undefined
+      const sourcePath = typeof raw.source_path === 'string' ? raw.source_path : undefined
+      const sourcePaths = Array.isArray(raw.source_paths)
+        ? raw.source_paths.filter((value): value is string => typeof value === 'string')
+        : undefined
+      const agent = (exec as unknown as { agent?: ReferenceImageAgent }).agent
+      const referenceImages = await resolveReferenceImages({
+        ...(agent === undefined ? {} : { agent }),
+        attachments,
+        ...(sourceAttachmentId === undefined ? {} : { sourceAttachmentId }),
+        ...(sourceAttachmentIds === undefined ? {} : { sourceAttachmentIds }),
+        ...(sourcePath === undefined ? {} : { sourcePath }),
+        ...(sourcePaths === undefined ? {} : { sourcePaths }),
+        maxBytes: attachments.imageLimits.maxImageBytes,
+        signal: exec.signal,
+      })
+      const active = currentConfig()
+      exec.signal.throwIfAborted()
+      if (engine === 'gpt') {
+        const rawRatio = typeof raw.aspect_ratio === 'string' ? raw.aspect_ratio : undefined
+        const size = normalizeGptSize(raw.size) ?? gptSizeFromAspectRatio(rawRatio) ?? '1024x1024'
+        const generated = await imageService.edit({
+          engine,
+          prompt,
+          referenceImages,
+          size,
+          signal: exec.signal,
+        })
+        return saveGenerated(ctx, attachments, generated, engine, outputLabel({ engine, size }), active, exec, { operation: 'edit' }, knownWorkspaceRoots)
+      }
+      const aspectRatio = normalizeGeminiAspectRatio(raw.aspect_ratio)
+      const imageSize = normalizeGeminiImageSize(raw.image_size)
+      const generated = await imageService.edit({
+        engine,
+        prompt,
+        referenceImages,
+        ...(aspectRatio === undefined ? {} : { aspectRatio }),
+        ...(imageSize === undefined ? {} : { imageSize }),
+        signal: exec.signal,
+      })
+      return saveGenerated(
+        ctx,
+        attachments,
+        generated,
+        engine,
+        outputLabel({ engine, aspectRatio, imageSize }),
+        active,
+        exec,
+        { operation: 'edit', aspectRatio, imageSize },
+        knownWorkspaceRoots,
+      )
+    },
+    presentResult: (_args, result) => imagePresentation(result),
+  })
+}
+
 function checkedPrompt(value: string): string {
   const prompt = value.trim()
   if (prompt.length === 0 || prompt.length > MAX_PROMPT_LENGTH) throw new Error('prompt-invalid')
@@ -243,12 +359,24 @@ export function toolDefinitionForEngine(
     : createGptTool(imageService, ctx, attachments, currentConfig, knownWorkspaceRoots)
 }
 
+export function editToolDefinitionForEngine(
+  engine: ImageEngine,
+  imageService: CpaImageGenerationService,
+  ctx: Context,
+  attachments: AttachmentStore,
+  currentConfig: () => Config,
+  knownWorkspaceRoots = new Set<string>(),
+) {
+  if (engine !== 'gpt' && engine !== 'gemini') throw new Error(`Unsupported CPA image engine: ${String(engine)}`)
+  return createEditTool(engine, imageService, ctx, attachments, currentConfig, knownWorkspaceRoots)
+}
+
 /** Register settings, the image route, and the model-callable tool. */
 export function apply(ctx: Context, config: Config = {}): void {
   let current: () => Config = () => config
   let activeEngine: ImageEngine = config.engine ?? 'gpt'
   let cachedService: CpaImageGenerationService | undefined
-  let toolDisposer: (() => void) | undefined
+  let toolDisposers: Array<() => void> = []
   const knownWorkspaceRoots = new Set<string>()
   const attachments = (ctx as Context & { attachments: AttachmentStore }).attachments
 
@@ -299,18 +427,25 @@ export function apply(ctx: Context, config: Config = {}): void {
   }), 'dsh-image-gen: inspiration route')
 
   let warnedServiceUnavailable = false
+  function disposeTools() {
+    for (const disposer of toolDisposers.splice(0)) disposer()
+  }
   function syncTool(engine: ImageEngine) {
+    disposeTools()
     if (cachedService === undefined) {
       if (!warnedServiceUnavailable) {
         warnedServiceUnavailable = true
-        ctx.logger.warn('dsh-image-gen: CPA image generation service is unavailable; generate_image is not registered')
+        ctx.logger.warn('dsh-image-gen: CPA image generation service is unavailable; image tools are not registered')
       }
       return
     }
-    toolDisposer?.()
     activeEngine = engine
     const toolDef = toolDefinitionForEngine(engine, cachedService, ctx, attachments, () => current(), knownWorkspaceRoots)
-    toolDisposer = ctx.tools.register(toolDef)
+    toolDisposers.push(ctx.tools.register(toolDef))
+    if (typeof cachedService.edit === 'function') {
+      const editToolDef = editToolDefinitionForEngine(engine, cachedService, ctx, attachments, () => current(), knownWorkspaceRoots)
+      toolDisposers.push(ctx.tools.register(editToolDef))
+    }
   }
 
   installImageSettings(ctx, config, {
@@ -340,15 +475,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     ctx.effect(() => () => {
       if (cachedService !== service) return
       cachedService = undefined
-      toolDisposer?.()
-      toolDisposer = undefined
+      disposeTools()
       syncTool(activeEngine)
     }, 'dsh-image-gen: CPA service lifecycle cleanup')
   })
 
   ctx.effect(() => () => {
-    toolDisposer?.()
-    toolDisposer = undefined
+    disposeTools()
     knownWorkspaceRoots.clear()
   }, 'dsh-image-gen: active tool cleanup')
 }
@@ -360,6 +493,7 @@ export function apply(ctx: Context, config: Config = {}): void {
  * attachment: it is reported through `saveError` instead.
  */
 interface GeneratedMetadata {
+  operation?: 'generate' | 'edit'
   aspectRatio?: string | undefined
   imageSize?: string | undefined
 }
@@ -401,6 +535,7 @@ async function saveGenerated(
     attachment,
     engine,
     output,
+    ...(metadata.operation === undefined ? {} : { operation: metadata.operation }),
     ...(metadata.aspectRatio === undefined ? {} : { aspectRatio: metadata.aspectRatio }),
     ...(metadata.imageSize === undefined ? {} : { imageSize: metadata.imageSize }),
     createdAt: Math.floor(Date.now() / 1000) * 1000,

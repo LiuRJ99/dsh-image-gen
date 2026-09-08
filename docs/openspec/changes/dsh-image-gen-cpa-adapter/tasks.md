@@ -38,3 +38,12 @@
 - [x] 5.4 移植动态 workspace discovery、canonical-root safe deletion、attachment reverse helper 和 full-digest filename migration；浏览器没有任意 workspace 写入授权。
 - [x] 5.5 记录 list dynamic-height virtualization、native edit/Studio/comparison/ComfyUI、multi-reference CPA contract 和 standalone Provider install 作为 deferred/验收项，见 `docs/CPA-ONLY-OPTION-A.md`。
 - [ ] 5.6 在不提交凭据的前提下，于真实已配置 CPA relay/profile 中执行双引擎端到端和 standalone frozen-install 验收。
+
+## 6. CPA 参考图编辑后续增量
+
+- [x] 6.1 在 `dsh-cpa-plugin` 增加向后兼容的 `CpaImageEditRequest`、`CpaReferenceImage` 和可选 `service.edit()`。
+- [x] 6.2 GPT 使用 CLIProxyAPI `/images/edits` multipart，支持单图 `image` 与多图 `image[]`。
+- [x] 6.3 Gemini 使用 `/chat/completions` 的 data URL content parts、`modalities` 和 `image_config`。
+- [x] 6.4 在 `dsh-image-gen` 迁移 Host-side Attachment resolver、`edit_image`、客户端 card/turn-tail 和安全 workspace path 校验。
+- [x] 6.5 增加 CPA 协议、参考图解析、工具 contract、客户端渲染和 feature-detection 回归测试。
+- [ ] 6.6 在带认证的真实 CPA relay 上验证 Gemini 参考图编辑；确认部署版本至少包含 GPT edits 和 Gemini 3.1 image route 提交。

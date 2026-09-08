@@ -1,7 +1,7 @@
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
-import { apply, CPA_GENERATE_ROUTE, inject, name, version, gptSizeFromAspectRatio, toolDefinitionForEngine } from '../src/index.js'
+import { apply, CPA_GENERATE_ROUTE, editToolDefinitionForEngine, inject, name, version, gptSizeFromAspectRatio, toolDefinitionForEngine } from '../src/index.js'
 
 vi.mock('@deepseek-ai/dsh-tools', () => ({
   defineTool: (tool: unknown) => tool,
@@ -11,7 +11,7 @@ interface RegisteredTool {
   parameters?: Record<string, unknown>
   description?: string
   output?: { schema?: Record<string, unknown>; render?: (args: unknown, value: unknown) => unknown }
-  execute(args: Record<string, string>, exec: { signal: AbortSignal }): Promise<Record<string, unknown>>
+  execute(args: Record<string, unknown>, exec: { signal: AbortSignal; agent?: unknown }): Promise<Record<string, unknown>>
 }
 
 const attachment: ImageAttachmentRef = {
@@ -39,7 +39,11 @@ describe('CPA image service contract', () => {
       data: new Uint8Array([1, 2, 3]),
       mediaType: 'image/png',
     })
-    const imageService: CpaImageGenerationService = { generate }
+    const edit = vi.fn<NonNullable<CpaImageGenerationService['edit']>>().mockResolvedValue({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: 'image/png',
+    })
+    const imageService: CpaImageGenerationService = { generate, edit }
     const tools = { register: vi.fn() }
     const ctx = {
       tools,
@@ -64,6 +68,8 @@ describe('CPA image service contract', () => {
 
     const tool = tools.register.mock.calls[0]?.[0] as RegisteredTool | undefined
     expect(tool).toBeDefined()
+    expect(tools.register).toHaveBeenCalledTimes(2)
+    expect(tools.register.mock.calls[1]?.[0]).toMatchObject({ name: 'edit_image' })
     const result = await tool!.execute({
       prompt: 'a blue circle',
       aspect_ratio: '16:9',
@@ -166,6 +172,52 @@ describe('CPA image service contract', () => {
     expect(geminiTool.parameters).toHaveProperty('aspect_ratio')
     expect(geminiTool.parameters).toHaveProperty('image_size')
     expect(geminiTool.parameters).not.toHaveProperty('size')
+  })
+
+  it('registers edit_image only when CPA edit is available and resolves inline references', async () => {
+    const signal = new AbortController().signal
+    const edit = vi.fn<CpaImageGenerationService['edit']>().mockResolvedValue({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: 'image/png',
+    })
+    const source = { ...attachment, attachmentId: 'sha256:' + 'a'.repeat(64), bytes: 3 }
+    const attachments = {
+      imageLimits: { maxImageBytes: 1024, mediaTypes: ['image/png'] },
+      saveImage: vi.fn().mockResolvedValue(attachment),
+      readImage: vi.fn().mockResolvedValue({ ref: source, data: new Uint8Array([9, 8, 7]) }),
+    }
+    const imageService: CpaImageGenerationService = { generate: vi.fn(), edit }
+    const editTool = editToolDefinitionForEngine('gpt', imageService, {} as never, attachments as never, () => ({ saveToWorkspace: false })) as unknown as RegisteredTool
+
+    expect(editTool.parameters).toHaveProperty('source_attachment_ids')
+    expect(editTool.parameters).toHaveProperty('source_paths')
+    await editTool.execute({ prompt: 'replace the outfit' }, {
+      signal,
+      agent: {
+        session: {
+          deriveMessages: () => [{ source: { kind: 'user' }, content: [{ type: 'image', attachment: source }] }],
+        },
+      },
+    })
+
+    expect(edit).toHaveBeenCalledWith({
+      engine: 'gpt',
+      prompt: 'replace the outfit',
+      referenceImages: [{ data: new Uint8Array([9, 8, 7]), mediaType: 'image/png' }],
+      size: '1024x1024',
+      signal,
+    })
+  })
+
+  it('keeps edit_image unavailable when an older CPA service has no edit method', async () => {
+    const imageService: CpaImageGenerationService = { generate: vi.fn() }
+    const attachments = {
+      imageLimits: { maxImageBytes: 1024, mediaTypes: ['image/png'] },
+      saveImage: vi.fn().mockResolvedValue(attachment),
+    }
+    const editTool = editToolDefinitionForEngine('gpt', imageService, {} as never, attachments as never, () => ({ saveToWorkspace: false })) as unknown as RegisteredTool
+    expect(editTool.description).toContain('edit_image')
+    await expect(editTool.execute({ prompt: 'edit' }, { signal: new AbortController().signal })).rejects.toThrow('image-editing-unavailable')
   })
 
   it('maps aspect ratios to standard GPT size strings', () => {

@@ -62,3 +62,13 @@
 4. 添加原生插件元数据、ImageGen skill 和 CPA 安装文档。
 5. 运行 package/build/type 检查，再针对已完成的 Provider change 执行 GPT 与 Gemini 冒烟测试。
 6. 发布前的回滚采用分支级 revert；附件 ID 和二进制存储未变化，不需要附件迁移回滚。
+
+## 后续增量：CPA 参考图编辑
+
+原始 change 的“非目标”只约束 generation-only MVP；后续实现不恢复 direct-provider transport，而是：
+
+- 在 CPA service 保留 `generate` 并增加可选 `edit`，下游通过 feature detection 兼容旧 Provider；
+- Host 侧复用 upstream 的 `resolveReferenceImages` 思路，通过 AttachmentStore 读取最新用户消息图片、显式 Attachment ID 或受 containment 保护的 workspace path；
+- GPT 走 CLIProxyAPI `/images/edits` multipart，Gemini 走 `/chat/completions` 多模态 content array；
+- `dsh-image-gen` 只注册 `edit_image`，且只有成功的 edit tool result 才能被客户端渲染为编辑结果；
+- Gemini relay 的真实 edit smoke test 是发布前置条件，不能由 generic translator 单测替代。

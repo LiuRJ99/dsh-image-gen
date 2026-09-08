@@ -78,12 +78,12 @@ The ordinary model selector hides image-only models `gpt-image-1.5`, `gpt-image-
 | **GPT Image 2** | `/v1/images/generations` | `data[].b64_json` |
 | **Gemini Image** | `/v1/chat/completions` | `choices[0].message.images[].image_url.url` |
 
-Both engines start from `generate_image`. The Adapter saves successful results as DSH Attachments and presents them in the conversation; workspace saving is optional.
+Both engines support `generate_image` for new images and, when the CPA Provider exposes the optional edit capability, `edit_image` for editing or combining existing references. The Adapter saves successful results as DSH Attachments and presents them in the conversation; workspace saving is optional.
 
 ## Key capabilities
 
-- 💬 Explicit in-chat image generation through `generate_image`.
-- 🖼️ Native DSH Attachment, Conversation, and Gallery persistence.
+- 💬 Explicit in-chat generation through `generate_image`, plus reference-image editing and compositing through `edit_image`.
+- 🖼️ Native DSH Attachment, Conversation, and Gallery persistence for generated and edited results.
 - 💾 Optional image files in the current session workspace.
 - 🎨 Provider-owned model routing, protocols, and credentials; the Adapter neither reads nor stores Provider keys.
 
@@ -94,9 +94,11 @@ Both engines start from `generate_image`. The Adapter saves successful results a
 - **Gallery management**: Better Sidebar Gallery keeps the fork's DB v3 schema, thumbnail/full-image cache, and virtualized Grid/Table views while adding favorites, batch select/delete, current-workspace filtering, prompt copy, and CPA-only regeneration. List view displays the complete prompt.
 - **Workspace governance**: normal `generate_image` writes only to the current agent session cwd using atomic writes and realpath containment. Dynamically discovered DSH workspaces are used only for strict root authorization; browser batch deletion accepts saved generated-file paths only, and browser regeneration creates an Attachment without expanding write authorization.
 
-## Explicitly deferred
+## Reference-image editing
 
-The current CPA service exposes only the `generate` contract, so this Adapter **does not implement or claim** native `edit_image`, a Studio native-provider backend, native multi-model comparison, or `provider=comfyui`. Editing, multi-reference, Studio/ComfyUI, and Provider/BYOK/API-key configuration remain deferred to a future CPA contract and are never read or stored by this package.
+The CPA service keeps `generate` backward-compatible and may expose an optional `edit` capability. When available, `edit_image` resolves DSH Attachments on the Host, uses images from the latest human message in upload order, and also supports explicit `source_attachment_ids` or workspace-contained `source_paths`. GPT uses `/v1/images/edits`; Gemini uses `image_url` data URLs in `/v1/chat/completions`.
+
+With an older CPA Provider that has no `edit` method, the Adapter registers only `generate_image`; it never invents `edit_image`, copies attachments through shell commands, or claims an unverified result. A Studio native-provider backend, native model comparison, `provider=comfyui`, and Provider/BYOK/API-key configuration remain outside this package.
 
 ## Local development
 

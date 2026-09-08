@@ -78,12 +78,12 @@ dsh plugin --profile web add <image-plugin-package-or-tarball>
 | **GPT Image 2** | `/v1/images/generations` | `data[].b64_json` |
 | **Gemini Image** | `/v1/chat/completions` | `choices[0].message.images[].image_url.url` |
 
-两种 engine 都由 `generate_image` 触发；成功结果由 Adapter 保存为 Attachment，并显示在当前对话中，工作区保存是可选的。
+两种 engine 都支持由 `generate_image` 触发新图生成；当 CPA Provider 提供可选 `edit` 能力时，也支持由 `edit_image` 触发参考图编辑。成功结果由 Adapter 保存为 Attachment，并显示在当前对话中，工作区保存是可选的。
 
 ## 主要能力
 
-- 💬 对话中显式调用 `generate_image` 生成图片。
-- 🖼️ 图片进入 DSH Attachment、Conversation 和原生 Gallery。
+- 💬 对话中显式调用 `generate_image` 生成新图，或调用 `edit_image` 编辑、合成和重绘已有图片。
+- 🖼️ 新图和编辑结果都进入 DSH Attachment、Conversation 和原生 Gallery。
 - 💾 可将成功生成的图片保存到当前会话工作区。
 - 🎨 通过 CPA Provider 统一承载模型路由、协议和凭据，Adapter 不读取或保存 Provider key。
 
@@ -94,9 +94,11 @@ dsh plugin --profile web add <image-plugin-package-or-tarball>
 - **Gallery 管理**：Better Sidebar Gallery 保留 fork 的 DB v3、缩略图/原图缓存与虚拟化 Grid/Table，并增加 favorites、批量选择/删除、当前 workspace filter、Prompt 复制和 CPA-only 重新生成。列表视图会显示完整 Prompt。
 - **工作区治理**：普通 `generate_image` 只写当前 agent session 的 cwd，并使用原子写入和 realpath containment。动态发现的 DSH workspace 只用于严格的根目录校验；浏览器批量删除只接受已保存的生成文件路径，重新生成的浏览器请求只创建 Attachment，不扩大写盘授权。
 
-## 明确的 deferred 能力
+## 参考图编辑
 
-当前 CPA service 只有 `generate` 合同，因此本 Adapter **不实现也不宣称支持** native `edit_image`、Studio 原生 Provider backend、多模型原生对比或 `provider=comfyui`。编辑、多参考、Studio/ComfyUI 与 Provider/BYOK/API key 配置均保留为后续 CPA contract 设计，不会在本插件中读取或保存。
+CPA service 保留 `generate` 向后兼容，并可提供可选 `edit` 能力。`edit_image` 在 Host 侧读取最新用户消息中的 DSH Attachments，按上传顺序发送，也支持显式 `source_attachment_ids` 和受 workspace containment 保护的 `source_paths`。GPT 使用 `/v1/images/edits`，Gemini 使用带 data URL 图片的 `/v1/chat/completions`。
+
+旧版 CPA Provider 如果没有 `edit`，插件只注册 `generate_image`，不会伪造编辑工具或通过 shell 复制附件。Studio 原生 Provider backend、多模型原生对比、`provider=comfyui` 和 Provider/BYOK/API key 配置仍不属于本插件。
 
 ## 本地开发
 

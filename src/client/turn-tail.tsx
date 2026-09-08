@@ -20,6 +20,7 @@ export interface GeneratedImageDeliverable {
   attachment: ImageAttachmentRef
   prompt: string
   engine: unknown
+  operation?: unknown
   model?: unknown
   output?: unknown
   aspectRatio?: unknown
@@ -66,7 +67,7 @@ export const imageDeliverablesDefinition = {
     const event = match.event
     if (event.type === 'tool/call') {
       const data = event.data as { callId?: string; name?: string; arguments?: string } | undefined
-      if (data?.name === 'generate_image' && data.callId) {
+      if ((data?.name === 'generate_image' || data?.name === 'edit_image') && data.callId) {
         let prompt: string | undefined
         try {
           const parsed = JSON.parse(data.arguments || '{}') as { prompt?: unknown }
@@ -106,6 +107,7 @@ export const imageDeliverablesDefinition = {
       const callInfo = context.state.calls.get(callId)
       const prompt = typeof meta.prompt === 'string' ? meta.prompt : (callInfo?.prompt || 'Generated Image')
       const engine = meta.engine
+      const operation = meta.operation
       const model = meta.model
       const output = meta.output
       const aspectRatio = meta.aspectRatio
@@ -131,6 +133,7 @@ export const imageDeliverablesDefinition = {
         attachment,
         prompt,
         engine,
+        ...(operation === undefined ? {} : { operation }),
         ...(model === undefined ? {} : { model }),
         ...(output === undefined ? {} : { output }),
         ...(aspectRatio === undefined ? {} : { aspectRatio }),
@@ -212,6 +215,7 @@ function attachmentFromContent(value: unknown): ImageAttachmentRef | undefined {
 const DICT = {
   zh: {
     generatedTitle: '已生成图片',
+    editedTitle: '已编辑图片',
     copyImg: '复制图片',
     download: '下载图片',
     openNewTab: '新标签页打开',
@@ -223,6 +227,7 @@ const DICT = {
   },
   en: {
     generatedTitle: 'Generated image',
+    editedTitle: 'Edited image',
     copyImg: 'Copy Image',
     download: 'Download Image',
     openNewTab: 'Open in new tab',
@@ -250,6 +255,7 @@ export function TurnTailImagesCard({ matched, locale }: TurnTailCardProps) {
           key={item.callId || item.attachment.attachmentId}
           attachment={item.attachment}
           engine={item.engine}
+          operation={item.operation}
           model={item.model}
           output={item.output}
           aspectRatio={item.aspectRatio}
@@ -268,6 +274,7 @@ export function TurnTailImagesCard({ matched, locale }: TurnTailCardProps) {
 export interface SingleViewProps {
   attachment: ImageAttachmentRef
   engine?: unknown
+  operation?: unknown
   model?: unknown
   output?: unknown
   aspectRatio?: unknown
@@ -282,6 +289,7 @@ export interface SingleViewProps {
 export function SingleGeneratedImageView({
   attachment,
   engine,
+  operation,
   model,
   output,
   aspectRatio,
@@ -415,9 +423,9 @@ export function SingleGeneratedImageView({
   }
 
   return (
-    <section className="dsh-ig-result" aria-label={t('generatedTitle')}>
+    <section className="dsh-ig-result" aria-label={t(operation === 'edit' ? 'editedTitle' : 'generatedTitle')}>
       <div className="dsh-ig-result-title" title={normalizedMetadata.normalizationError}>
-        {t('generatedTitle')} · {galleryEngineLabel(normalizedMetadata.engine)}
+        {t(operation === 'edit' ? 'editedTitle' : 'generatedTitle')} · {galleryEngineLabel(normalizedMetadata.engine)}
       </div>
       {typeof saveError === 'string' ? <div className="dsh-ig-error">{saveError}</div> : null}
       {savedTo !== undefined ? (

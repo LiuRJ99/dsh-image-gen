@@ -111,6 +111,54 @@ describe('imageDeliverablesDefinition', () => {
     })
   })
 
+  it('tracks edit_image prompts and inherits them when result metadata omits prompt', () => {
+    const state = imageDeliverablesDefinition.start(null, { event: { data: { turn: 1 } } })
+    const afterCall = imageDeliverablesDefinition.update(
+      { state },
+      {
+        event: {
+          type: 'tool/call',
+          data: {
+            turn: 1,
+            callId: 'call-edit',
+            name: 'edit_image',
+            arguments: JSON.stringify({ prompt: 'replace the outfit' }),
+          },
+        },
+      },
+    )
+    expect(afterCall.calls.get('call-edit')).toEqual({ prompt: 'replace the outfit' })
+
+    const afterResult = imageDeliverablesDefinition.update(
+      { state: afterCall },
+      {
+        event: {
+          type: 'tool/result',
+          seq: 44,
+          surfaceOp: 'append',
+          data: {
+            turn: 1,
+            message: {
+              source: { callId: 'call-edit' },
+              content: [{ type: 'tool-result', isError: false }],
+            },
+            meta: {
+              kind: 'dsh-image-gen',
+              attachment: SAMPLE_ATTACHMENT,
+              engine: 'gpt',
+            },
+          },
+        },
+      },
+    )
+
+    expect(afterResult.images[0]).toMatchObject({
+      callId: 'call-edit',
+      prompt: 'replace the outfit',
+      attachment: SAMPLE_ATTACHMENT,
+    })
+  })
+
   it('ignores error tool results', () => {
     const initialState: ImageDeliverablesState = {
       turn: 1,
