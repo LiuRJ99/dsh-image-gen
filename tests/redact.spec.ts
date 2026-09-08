@@ -15,8 +15,10 @@ describe('redactSecrets', () => {
   })
 
   it('redacts Google-style keys', () => {
-    const text = 'request failed for key AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ1234567'
-    expect(redactSecrets(text)).not.toContain('AIzaSy')
+    // Assembled from fragments so secret scanners do not flag the fixture itself.
+    const fakeGoogleKey = ['AIza', 'Sy', 'SampleKey1234', 'UsedOnlyInTests'].join('')
+    const text = `request failed for key ${fakeGoogleKey}`
+    expect(redactSecrets(text)).not.toContain('AIza')
   })
 
   it('redacts Bearer authorization values echoed in error bodies', () => {
