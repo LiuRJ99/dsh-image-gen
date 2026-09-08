@@ -7,6 +7,7 @@
 <p><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
 # 🎨 dsh-image-gen
+[![DSH Insights health](https://dsh-insights.com/badge/shanliuling/dsh-image-gen.svg)](https://dsh-insights.com/p/shanliuling/dsh-image-gen/)
 
 ### DeepSeek Harness 的原生 AI 图像创作套件
 
