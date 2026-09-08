@@ -1,6 +1,7 @@
 /** OpenAI Images API and compatible response adapter. */
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { redactSecrets } from './redact.js'
+import { detectImageMediaType } from './reference-image.js'
 
 const ERROR_LIMIT = 4096
 
@@ -113,9 +114,10 @@ async function downloadImage(
     ...(input.apiKey === undefined ? {} : { headers: { authorization: `Bearer ${input.apiKey}` } }),
   })
   if (!response.ok) throw new Error(`${provider} image download failed (${response.status})`)
-  const mediaType = imageMediaType(response.headers.get('content-type'))
+  const data = await readBoundedBytes(response, input.maxBytes)
+  const mediaType = detectImageMediaType(data) ?? imageMediaType(response.headers.get('content-type'))
   if (mediaType === undefined) throw new Error(`${provider} image download returned unsupported content type`)
-  return { data: await readBoundedBytes(response, input.maxBytes), mediaType }
+  return { data, mediaType }
 }
 
 function parseDataUrl(value: string): { mediaType: string; base64: string } | undefined {
