@@ -63,7 +63,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc && tsdown",
-    "prepublishOnly": "pnpm run build",
+    "prepare": "pnpm run build",
     "test": "vitest run",
     "pack:check": "pnpm pack --dry-run"
   },
