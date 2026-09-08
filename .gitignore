@@ -1,5 +1,12 @@
 node_modules/
-lib/
+# Runtime entry artifacts are committed for Git/repository installs.
+lib/*
+!lib/index.js
+!lib/client.js
+!lib/client.js.map
+!lib/types/
+lib/types/*
+!lib/types/**/*.d.ts
 *.tgz
 .DS_Store
 *.log
