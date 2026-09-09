@@ -71,6 +71,8 @@ const VIEW_DICT = {
     undo: '撤销',
     redo: '重做',
     fit: '适应视图',
+    deleteSelected: '删除选中',
+    deleteSelectedNone: '请先选中要删除的节点',
     clear: '清空画布',
     clearConfirm: '确定清空画布上的全部节点？',
     saved: '已保存',
@@ -91,6 +93,8 @@ const VIEW_DICT = {
     undo: 'Undo',
     redo: 'Redo',
     fit: 'Fit view',
+    deleteSelected: 'Delete selected',
+    deleteSelectedNone: 'Select nodes to delete first',
     clear: 'Clear canvas',
     clearConfirm: 'Clear every node on the canvas?',
     saved: 'Saved',
@@ -188,6 +192,21 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
       node.id === nodeId ? { ...node, data: { ...node.data, ...patch } } : node))
   }, [setNodes])
 
+  const deleteNode = useCallback((nodeId: string) => {
+    pushHistory()
+    setNodes(current => current.filter(node => node.id !== nodeId))
+    setEdges(current => current.filter(edge => edge.source !== nodeId && edge.target !== nodeId))
+  }, [pushHistory, setNodes, setEdges])
+
+  const deleteSelected = useCallback(() => {
+    const selected = nodesRef.current.filter(node => node.selected)
+    if (selected.length === 0) return
+    const ids = new Set(selected.map(node => node.id))
+    pushHistory()
+    setNodes(current => current.filter(node => !ids.has(node.id)))
+    setEdges(current => current.filter(edge => !ids.has(edge.source) && !ids.has(edge.target)))
+  }, [pushHistory, setNodes, setEdges])
+
   const requestGenerate = useCallback(async (configNodeId: string) => {
     const config = nodesRef.current.find(node => node.id === configNodeId)
     if (config === undefined || nodeKindOf(config) !== 'config') return
@@ -257,9 +276,10 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
   const bridge = useMemo<CanvasBridge>(() => ({
     updateNodeData,
     requestGenerate: (nodeId: string) => { void requestGenerate(nodeId) },
+    deleteNode,
     profiles,
     lang,
-  }), [updateNodeData, requestGenerate, profiles, lang])
+  }), [updateNodeData, requestGenerate, deleteNode, profiles, lang])
 
   // Provider profiles from the studio config endpoint.
   useEffect(() => {
@@ -432,6 +452,10 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
             <button type="button" className="dcv-btn" onClick={undo} disabled={pastRef.current.length === 0}>{dict.undo}</button>
             <button type="button" className="dcv-btn" onClick={redo} disabled={futureRef.current.length === 0}>{dict.redo}</button>
             <button type="button" className="dcv-btn" onClick={() => instance.fitView({ padding: 0.2, duration: 300 })}>{dict.fit}</button>
+            <button type="button" className="dcv-btn" onClick={() => {
+              if (nodesRef.current.some(node => node.selected)) deleteSelected()
+              else showToast(dict.deleteSelectedNone)
+            }}>{dict.deleteSelected}</button>
             <button type="button" className="dcv-btn" onClick={clearCanvas}>{dict.clear}</button>
           </div>
           <span className="dcv-save-state">{saveState === 'saving' ? dict.saving : saveState === 'saved' ? dict.saved : ''}</span>

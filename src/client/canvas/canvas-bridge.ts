@@ -8,6 +8,7 @@ import type { StudioProviderProfile } from '../../shared.js'
 export interface CanvasBridge {
   updateNodeData: (nodeId: string, patch: Record<string, unknown>) => void
   requestGenerate: (nodeId: string) => void
+  deleteNode: (nodeId: string) => void
   profiles: readonly StudioProviderProfile[]
   lang: 'zh' | 'en'
 }

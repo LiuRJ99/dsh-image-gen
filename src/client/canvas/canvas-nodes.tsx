@@ -28,6 +28,7 @@ const CANVAS_NODE_DICT = {
     generating: '生成中…',
     notConfigured: '该 Provider 未配置 Key',
     noPrompt: '请先输入提示词',
+    deleteNode: '删除节点',
   },
   en: {
     imageDownload: 'Download original',
@@ -43,6 +44,7 @@ const CANVAS_NODE_DICT = {
     generating: 'Generating…',
     notConfigured: 'Provider key not configured',
     noPrompt: 'Enter a prompt first',
+    deleteNode: 'Delete node',
   },
 } as const
 
@@ -94,6 +96,7 @@ export const CanvasImageNode: FC<NodeProps<ImageNodeType>> = ({ data, id }) => {
   return (
     <div className={`dcv-node dcv-node-image${attachment === undefined && encoded === undefined ? ' dcv-node-image-empty' : ''}`}>
       <Handle type="source" position={Position.Right} className="dcv-handle" />
+      <button type="button" className="dcv-node-delete" title={dict.deleteNode} onClick={() => bridge?.deleteNode(id)}>×</button>
       {data.pending === true
         ? <div className="dcv-image dcv-image-pending" title={data.prompt ?? ''}><span className="dcv-spinner" /></div>
         : data.error !== undefined
@@ -128,6 +131,7 @@ export const CanvasTextNode: FC<NodeProps<TextNodeType>> = ({ data, id }) => {
   return (
     <div className="dcv-node dcv-node-text">
       <Handle type="source" position={Position.Right} className="dcv-handle" />
+      <button type="button" className="dcv-node-delete" title={dict.deleteNode} onClick={() => bridge?.deleteNode(id)}>×</button>
       <textarea
         className="dcv-textarea"
         placeholder={dict.textPlaceholder}
@@ -150,6 +154,7 @@ export const CanvasConfigNode: FC<NodeProps<ConfigNodeType>> = ({ data, id }) =>
   return (
     <div className="dcv-node dcv-node-config">
       <Handle type="target" position={Position.Left} className="dcv-handle" />
+      <button type="button" className="dcv-node-delete" title={dict.deleteNode} onClick={() => bridge?.deleteNode(id)}>×</button>
       <div className="dcv-config-grid">
         <label className="dcv-config-cell">
           <span>{dict.configProvider}</span>
