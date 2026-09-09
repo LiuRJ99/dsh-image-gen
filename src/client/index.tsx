@@ -39,7 +39,6 @@ import {
 import { validateComfyUIWorkflowJson } from '../comfyui-workflow.js'
 import { saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type LocaleService } from './gallery-view.js'
-import { CanvasViewTab } from './canvas/canvas-view.js'
 import { CANVAS_STYLE } from './canvas/canvas-style.js'
 import { enqueuePendingCanvasImport } from './canvas/canvas-store.js'
 import { fetchAttachmentBlob } from './image-cache.js'
@@ -768,18 +767,6 @@ export function apply(ctx: Context): void {
     },
     inject: () => ({ locale }),
   }, GalleryViewTab))
-
-  // 4. Canvas workspace tab: the conversation's edit chain as an explorable node graph
-  ;(ctx.slots.inject as any)('conversation.view', () => register({
-    name: 'conversation.view',
-    id: 'canvas',
-    order: 30,
-    label: () => {
-      const active = locale?.getSnapshot?.()?.active
-      return active?.startsWith('en') ? 'Canvas' : '画布'
-    },
-    inject: () => ({ locale }),
-  }, CanvasViewTab))
 }
 
 function asModernUiConversation(value: unknown): ModernUiConversation | undefined {

@@ -33,6 +33,10 @@ export async function serveStudio(req: IncomingMessage, res: ServerResponse, dep
   }
 
   const controller = new AbortController()
+  // Upstream watchdog: a stalled provider must fail loudly instead of pinning
+  // the browser spinner until undici's default 300s headers timeout fires.
+  const upstreamTimeout = AbortSignal.timeout(150_000)
+  const signal = AbortSignal.any([controller.signal, upstreamTimeout])
   const onConnectionClose = () => {
     if (!res.writableEnded) {
       controller.abort(new Error('The browser closed the image generation request.'))
@@ -52,7 +56,7 @@ export async function serveStudio(req: IncomingMessage, res: ServerResponse, dep
     } catch (error) {
       return jsonError(res, 400, errorMessage(error, 'invalid-request'))
     }
-    const output = await deps.generate(input, controller.signal)
+    const output = await deps.generate(input, signal)
     if (!res.headersSent && !res.writableEnded && !res.destroyed) {
       json(res, 200, output)
     }
@@ -60,6 +64,9 @@ export async function serveStudio(req: IncomingMessage, res: ServerResponse, dep
     if (res.headersSent || res.writableEnded || res.destroyed) {
       // Client disconnected prematurely; do not write to closed/destroyed socket
       return
+    }
+    if (upstreamTimeout.aborted) {
+      return jsonError(res, 504, '上游生成超时（150 秒未返回），请检查网络或代理后重试')
     }
     jsonError(res, controller.signal.aborted ? 499 : 502, errorMessage(error, 'generation-failed'))
   } finally {

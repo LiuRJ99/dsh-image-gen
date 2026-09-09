@@ -11,6 +11,7 @@ import {
   newTextNode,
   outputPosition,
   resolveConfigInputs,
+  canvasEdge,
   type CanvasNode,
   type ImportRecord,
 } from '../src/client/canvas/canvas-model.js'
@@ -50,12 +51,28 @@ describe('canvas connection legality', () => {
     expect(isLegalConnection(image, config)).toBe(true)
   })
 
-  it('rejects everything else', () => {
+  it('allows config outputs into image targets (generation edges) and image→image edit chains', () => {
+    expect(isLegalConnection(config, image)).toBe(true)
+    expect(isLegalConnection(image, newImageNode({ attachment: attachment('a2'), x: 0, y: 0 }))).toBe(true)
+  })
+
+  it('rejects same-kind, text→image, and malformed connections', () => {
     expect(isLegalConnection(config, config)).toBe(false)
     expect(isLegalConnection(text, text)).toBe(false)
-    expect(isLegalConnection(config, image)).toBe(false)
+    expect(isLegalConnection(text, image)).toBe(false)
+    expect(isLegalConnection(image, text)).toBe(false)
     expect(isLegalConnection(undefined, config)).toBe(false)
     expect(isLegalConnection(text, undefined)).toBe(false)
+  })
+})
+
+describe('canvas edge factory', () => {
+  it('bakes the arrowhead into every programmatic edge', () => {
+    const plain = canvasEdge('img-a', 'img-b')
+    expect(plain).toMatchObject({ id: 'e-img-a-img-b', source: 'img-a', target: 'img-b', markerEnd: { type: 'arrowclosed' } })
+    const output = canvasEdge('cfg-1', 'img-a', 'dcv-edge-output')
+    expect(output.className).toBe('dcv-edge-output')
+    expect(canvasEdge('a', 'b').className).toBeUndefined()
   })
 })
 

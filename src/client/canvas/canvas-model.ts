@@ -2,7 +2,7 @@
  * Canvas domain model: pure node/edge helpers shared by the canvas view,
  * the import bridge and unit tests. No React, no IO.
  */
-import type { Edge, Node } from '@xyflow/react'
+import { MarkerType, type Edge, type Node } from '@xyflow/react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { StudioGenerateRequest, StudioProviderProfile } from '../../shared.js'
 
@@ -105,11 +105,15 @@ export function newImageNode(input: {
   }
 }
 
-/** Whether an edge is legal in the canvas graph: prompt/reference sources feed config nodes. */
+/** Whether an edge is legal in the canvas graph: inputs feed configs, configs emit results, and images chain edits. */
 export function isLegalConnection(source: CanvasNode | undefined, target: CanvasNode | undefined): boolean {
   const sourceKind = nodeKindOf(source)
   const targetKind = nodeKindOf(target)
-  return (sourceKind === 'text' || sourceKind === 'image') && targetKind === 'config'
+  if (sourceKind === undefined || targetKind === undefined) return false
+  if ((sourceKind === 'text' || sourceKind === 'image') && targetKind === 'config') return true
+  if (sourceKind === 'config' && targetKind === 'image') return true
+  if (sourceKind === 'image' && targetKind === 'image') return true
+  return false
 }
 
 /** Everything a config node needs to know about its incoming edges. */
@@ -185,6 +189,22 @@ export interface ImportRecord {
   sourceAttachmentIds?: readonly string[]
 }
 
+/**
+ * Canonical canvas edge factory: the closed arrowhead is baked in here so
+ * generation edges, import edit-chain edges, and user-drawn edges all read
+ * direction the same way (React Flow's defaultEdgeOptions never applies to
+ * edges inserted directly through the edges state).
+ */
+export function canvasEdge(source: string, target: string, className?: string): Edge {
+  return {
+    id: `e-${source}-${target}`,
+    source,
+    target,
+    ...(className !== undefined ? { className } : {}),
+    markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+  }
+}
+
 /** Rebuild image nodes and edit-chain edges from import records (ordered oldest first). */
 export function buildImportGraph(records: readonly ImportRecord[]): { nodes: CanvasNode[]; edges: Edge[] } {
   const sorted = [...records].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
@@ -211,7 +231,7 @@ export function buildImportGraph(records: readonly ImportRecord[]): { nodes: Can
     const key = `${source}->${target}`
     if (edgeKeys.has(key)) continue
     edgeKeys.add(key)
-    edges.push({ id: `e-${key}`, source, target })
+    edges.push(canvasEdge(source, target))
   }
   // Layered layout: depth by distance from chain roots, then stack each layer.
   const depth = new Map<string, number>()
@@ -263,10 +283,18 @@ export function mergeIntoCanvas(
   return { nodes, edges }
 }
 
+/** Drop volatile runtime flags (generating/pending/selected) — before persisting AND after restoring, so a remount never shows a phantom in-flight generation. */
+export function stripVolatile(node: CanvasNode): CanvasNode {
+  const data = { ...node.data } as Record<string, unknown>
+  delete data.generating
+  delete data.pending
+  return { ...node, selected: false, data: data as CanvasNode['data'] }
+}
+
 /** Serialize the graph for persistence (strips volatile flags). */
 export function toDocument(nodes: readonly CanvasNode[], edges: readonly Edge[], viewport?: { x: number; y: number; zoom: number }): CanvasDocument {
   return {
-    nodes: nodes.map(node => ({ ...node, selected: false })),
+    nodes: nodes.map(stripVolatile),
     edges: edges.map(edge => ({ ...edge, selected: false })),
     ...(viewport !== undefined ? { viewport } : {}),
     updatedAt: Date.now(),

@@ -36,6 +36,8 @@ const client: UserConfig = {
   // NODE_ENV at runtime, so bake it in at build time instead.
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
+    // Baked at build time; the canvas logs it so stale host caches are provable.
+    __CANVAS_BUILD_TS__: JSON.stringify(new Date().toISOString()),
   },
   alias: {
     'lucide-react': 'lucide-react/dist/esm/lucide-react.mjs',

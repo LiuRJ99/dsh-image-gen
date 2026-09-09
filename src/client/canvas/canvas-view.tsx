@@ -6,6 +6,7 @@
 import {
   Background,
   BackgroundVariant,
+  MarkerType,
   MiniMap,
   Panel,
   ReactFlow,
@@ -34,6 +35,7 @@ import { CanvasBridgeContext, type CanvasBridge } from './canvas-bridge.js'
 import {
   buildGenerationRequest,
   buildImportGraph,
+  canvasEdge,
   imageNodeIdOf,
   isLegalConnection,
   mergeIntoCanvas,
@@ -43,6 +45,7 @@ import {
   nodeKindOf,
   outputPosition,
   resolveConfigInputs,
+  stripVolatile,
   toDocument,
   type CanvasNode,
   type ConfigNode,
@@ -61,6 +64,9 @@ export interface CanvasViewTabProps {
   sessionId?: string
   useSessions?: (selector: (state: any) => any) => any
 }
+
+declare const __CANVAS_BUILD_TS__: string | undefined
+const CANVAS_BUILD_TS = typeof __CANVAS_BUILD_TS__ === 'string' ? __CANVAS_BUILD_TS__ : 'source'
 
 const VIEW_DICT = {
   zh: {
@@ -145,6 +151,8 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const pastRef = useRef<HistorySnapshot[]>([])
   const futureRef = useRef<HistorySnapshot[]>([])
+  // In-flight generation abort controllers; cleaned up on unmount so a remount never resumes a phantom request.
+  const generateControllersRef = useRef(new Set<AbortController>())
 
   // Mirrored state for stable callbacks.
   const nodesRef = useRef(nodes)
@@ -166,6 +174,11 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
     toastTimerRef.current = setTimeout(() => setToast(undefined), 2600)
   }, [])
 
+  // Build marker: one console line proves which bundle the host actually loaded.
+  useEffect(() => {
+    console.info(`[dsh-image-gen] canvas bundle ${CANVAS_BUILD_TS}`)
+  }, [])
+
   const pushHistory = useCallback(() => {
     pastRef.current = [...pastRef.current.slice(-(MAX_HISTORY - 1)), { nodes: nodesRef.current, edges: edgesRef.current }]
     futureRef.current = []
@@ -175,7 +188,7 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
     const previous = pastRef.current.pop()
     if (previous === undefined) return
     futureRef.current = [...futureRef.current, { nodes: nodesRef.current, edges: edgesRef.current }]
-    setNodes(previous.nodes)
+    setNodes(previous.nodes.map(stripVolatile))
     setEdges(previous.edges)
   }, [setNodes, setEdges])
 
@@ -183,7 +196,7 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
     const next = futureRef.current.pop()
     if (next === undefined) return
     pastRef.current = [...pastRef.current, { nodes: nodesRef.current, edges: edgesRef.current }]
-    setNodes(next.nodes)
+    setNodes(next.nodes.map(stripVolatile))
     setEdges(next.edges)
   }, [setNodes, setEdges])
 
@@ -210,7 +223,7 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
   const requestGenerate = useCallback(async (configNodeId: string) => {
     const config = nodesRef.current.find(node => node.id === configNodeId)
     if (config === undefined || nodeKindOf(config) !== 'config') return
-    const profile = profilesRef.current.find(candidate => candidate.provider === config.data.provider)
+    const profile = profilesRef.current.find(candidate => candidate.provider === (config.data as { provider: string }).provider)
     if (profile?.configured === false) {
       updateNodeData(configNodeId, { error: langRef.current === 'en' ? 'Provider key not configured' : '该 Provider 未配置 Key' })
       return
@@ -221,11 +234,33 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
       updateNodeData(configNodeId, { error: langRef.current === 'en' ? 'Enter a prompt first' : '请先输入提示词' })
       return
     }
+    // Snapshot before the placeholder and results land, so one undo reverts the whole run.
+    pushHistory()
+    // Visual in-flight placeholder: spinner tile where the results will appear.
+    const placeholderId = `pending-${configNodeId}`
+    const existingOutputCount = edgesRef.current.filter(edge => edge.source === configNodeId).length
+    const placeholderOrigin = outputPosition(config, existingOutputCount, 0)
+    const removePlaceholder = () => {
+      setNodes(current => current.filter(node => node.id !== placeholderId))
+      setEdges(current => current.filter(edge => edge.target !== placeholderId))
+    }
+    // Hard timeout: upstream stalls (or the request outlives a remount) must not leave the node "generating" forever.
+    const controller = new AbortController()
+    generateControllersRef.current.add(controller)
+    const timeoutId = setTimeout(() => controller.abort(), 180_000)
     updateNodeData(configNodeId, { generating: true, error: undefined })
+    setNodes(current => current.some(node => node.id === placeholderId)
+      ? current
+      : [...current, newImageNode({ pending: true, prompt: request.prompt, x: placeholderOrigin.x, y: placeholderOrigin.y }, placeholderId)])
+    // Tether the placeholder to its config node so the in-flight relation is visible (marching-dash edge).
+    setEdges(current => current.some(edge => edge.target === placeholderId)
+      ? current
+      : [...current, canvasEdge(configNodeId, placeholderId, 'dcv-edge-output dcv-edge-pending')])
     try {
       const response = await fetch(STUDIO_ROUTE, {
         method: 'POST',
         credentials: 'same-origin',
+        signal: controller.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(request),
       })
@@ -235,22 +270,24 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
           ? payload.error
           : dictRef.current.generateFailed)
       }
+      removePlaceholder()
       const outputs = payload.items !== undefined && payload.items.length > 0 ? payload.items : [payload]
-      const existingOutputCount = edgesRef.current.filter(edge => edge.source === configNodeId).length
       const sourceIds = inputs.referenceAttachments.map(attachment => attachment.attachmentId)
       for (const [index, output] of outputs.entries()) {
         const imageNodeId = imageNodeIdOf(output.attachment.attachmentId)
         if (!nodesRef.current.some(node => node.id === imageNodeId)) {
-          setNodes(current => [...current, newImageNode({
-            attachment: output.attachment,
-            prompt: payload.prompt,
-            x: outputPosition(config, existingOutputCount, index).x,
-            y: outputPosition(config, existingOutputCount, index).y,
-          }, imageNodeId)])
+          setNodes(current => current.some(node => node.id === imageNodeId)
+            ? current
+            : [...current, newImageNode({
+              attachment: output.attachment,
+              prompt: payload.prompt,
+              x: outputPosition(config, existingOutputCount, index).x,
+              y: outputPosition(config, existingOutputCount, index).y,
+            }, imageNodeId)])
         }
         setEdges(current => current.some(edge => edge.source === configNodeId && edge.target === imageNodeId)
           ? current
-          : [...current, { id: `e-${configNodeId}-${imageNodeId}`, source: configNodeId, target: imageNodeId }])
+          : [...current, canvasEdge(configNodeId, imageNodeId, 'dcv-edge-output')])
         // Auto-collect into the gallery (with chain provenance) so future session imports rebuild this chain.
         void saveGalleryItem({
           id: output.attachment.attachmentId,
@@ -264,14 +301,21 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
           ...(sessionIdRef.current !== undefined ? { sessionId: sessionIdRef.current } : {}),
         })
       }
+      if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+        updateNodeData(configNodeId, { error: payload.errors[0]?.message ?? dictRef.current.generateFailed })
+      }
     } catch (error) {
-      updateNodeData(configNodeId, {
-        error: error instanceof Error ? error.message : dictRef.current.generateFailed,
-      })
+      removePlaceholder()
+      const message = controller.signal.aborted
+        ? (langRef.current === 'en' ? 'Generation timed out or was cancelled' : '生成超时或已取消，请重试')
+        : error instanceof Error ? error.message : dictRef.current.generateFailed
+      updateNodeData(configNodeId, { error: message })
     } finally {
+      clearTimeout(timeoutId)
+      generateControllersRef.current.delete(controller)
       updateNodeData(configNodeId, { generating: false })
     }
-  }, [setNodes, setEdges, updateNodeData])
+  }, [pushHistory, setNodes, setEdges, updateNodeData])
 
   const bridge = useMemo<CanvasBridge>(() => ({
     updateNodeData,
@@ -309,6 +353,12 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
     })
     return () => { cancelled = true }
   }, [setNodes, setEdges, instance])
+
+  // Abort in-flight generations when the workspace unmounts (tab switch / overlay close).
+  useEffect(() => () => {
+    for (const controller of generateControllersRef.current) controller.abort()
+    generateControllersRef.current.clear()
+  }, [])
 
   // Persist changes (debounced); skip the initial mount before load completes.
   useEffect(() => {
@@ -406,7 +456,10 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
     const target = nodesRef.current.find(node => node.id === connection.target)
     if (!isLegalConnection(source, target)) return
     pushHistory()
-    setEdges(current => addEdge(connection, current))
+    setEdges(current => addEdge({
+      ...connection,
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+    }, current))
   }, [pushHistory, setEdges])
 
   const onUpload = (file: File) => {
@@ -465,6 +518,13 @@ function CanvasWorkspace({ locale, sessionId, useSessions }: CanvasViewTabProps)
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            defaultEdgeOptions={{
+              markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+            }}
+            isValidConnection={connection => isLegalConnection(
+              nodesRef.current.find(node => node.id === connection.source),
+              nodesRef.current.find(node => node.id === connection.target),
+            )}
             onNodesChange={(changes) => {
               if (changes.some(change => change.type === 'remove')) pushHistory()
               onNodesChange(changes)

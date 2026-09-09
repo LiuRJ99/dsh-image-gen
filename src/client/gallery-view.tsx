@@ -22,6 +22,7 @@ import {
   Check,
   AlertTriangle,
   Sparkles,
+  Workflow,
 } from 'lucide-react'
 import {
   getGalleryItems,
@@ -35,6 +36,7 @@ import {
 } from './gallery-store.js'
 import { StudioView } from './studio-view.js'
 import { InspirationView } from './inspiration-view.js'
+import { CanvasViewTab } from './canvas/canvas-view.js'
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob } from './browser-image-utils.js'
 import { conversationRegenerateRequest } from './conversation-regenerate.js'
@@ -45,7 +47,7 @@ export interface LocaleService {
   subscribe(fn: () => void): () => void
 }
 
-export type TabKey = 'gallery' | 'studio' | 'inspiration' | 'favorites'
+export type TabKey = 'gallery' | 'studio' | 'canvas' | 'inspiration' | 'favorites'
 export type SortKey = 'newest' | 'oldest'
 
 const DICT = {
@@ -53,6 +55,7 @@ const DICT = {
     // 顶部 Tab
     tabGallery: '图库',
     tabStudio: '工作台',
+    tabCanvas: '画布',
     tabInspiration: '灵感',
     tabFavorites: '收藏',
     tabCompare: '对比',
@@ -151,6 +154,7 @@ const DICT = {
     // Top Tabs
     tabGallery: 'Gallery',
     tabStudio: 'Studio',
+    tabCanvas: 'Canvas',
     tabInspiration: 'Inspiration',
     tabFavorites: 'Favorites',
     tabCompare: 'Compare',
@@ -1013,6 +1017,15 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
 
         <button
           type="button"
+          className={`dsh-ig-studio-tab-btn ${activeTab === 'canvas' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('canvas')}
+        >
+          <Workflow size={15} />
+          <span>{t('tabCanvas')}</span>
+        </button>
+
+        <button
+          type="button"
           className={`dsh-ig-studio-tab-btn ${activeTab === 'inspiration' ? 'is-active' : ''}`}
           onClick={() => setActiveTab('inspiration')}
         >
@@ -1126,7 +1139,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
       )}
 
       {/* 3. Main View Body */}
-      <div className={`dsh-ig-gallery-page-body ${activeTab === 'studio' ? 'is-workbench' : ''}`}>
+      <div className={`dsh-ig-gallery-page-body ${activeTab === 'studio' || activeTab === 'canvas' ? 'is-workbench' : ''}`}>
         {activeTab === 'gallery' || activeTab === 'favorites' ? (
           items.length === 0 ? (
             <div className="dsh-ig-gallery-empty">
@@ -1168,6 +1181,12 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
           )
         ) : activeTab === 'inspiration' ? (
           <InspirationView locale={locale} onUsePrompt={useInspirationPrompt} />
+        ) : activeTab === 'canvas' ? (
+          <CanvasViewTab
+            {...(locale !== undefined ? { locale } : {})}
+            {...(sessionId !== undefined ? { sessionId } : {})}
+            {...(useSessions !== undefined ? { useSessions } : {})}
+          />
         ) : (
           <StudioView locale={locale} workspace={activeWorkspace} initialPrompt={studioDraft} onInitialPromptApplied={clearStudioDraft} onOpenInspiration={() => setActiveTab('inspiration')} />
         )}

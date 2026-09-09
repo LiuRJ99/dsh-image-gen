@@ -95,6 +95,7 @@ export const CanvasImageNode: FC<NodeProps<ImageNodeType>> = ({ data, id }) => {
 
   return (
     <div className={`dcv-node dcv-node-image${attachment === undefined && encoded === undefined ? ' dcv-node-image-empty' : ''}`}>
+      <Handle type="target" position={Position.Left} className="dcv-handle" />
       <Handle type="source" position={Position.Right} className="dcv-handle" />
       <button type="button" className="dcv-node-delete" title={dict.deleteNode} onClick={() => bridge?.deleteNode(id)}>×</button>
       {data.pending === true
@@ -154,6 +155,7 @@ export const CanvasConfigNode: FC<NodeProps<ConfigNodeType>> = ({ data, id }) =>
   return (
     <div className="dcv-node dcv-node-config">
       <Handle type="target" position={Position.Left} className="dcv-handle" />
+      <Handle type="source" position={Position.Right} className="dcv-handle" />
       <button type="button" className="dcv-node-delete" title={dict.deleteNode} onClick={() => bridge?.deleteNode(id)}>×</button>
       <div className="dcv-config-grid">
         <label className="dcv-config-cell">

@@ -64,6 +64,11 @@ const CANVAS_CUSTOM_CSS = `
 .react-flow__attribution{display:none}
 .react-flow__edge-path{stroke:var(--dsw-alias-label-dimmed,#9ca3af);stroke-width:1.6}
 .react-flow__edge.selected .react-flow__edge-path{stroke:var(--dsw-alias-brand-primary,#4c78ff);stroke-width:2.4}
+/* Generation output edges (config → image) use the brand color to stand out from input edges. */
+.dcv-edge-output .react-flow__edge-path{stroke:var(--dsw-alias-brand-primary,#4c78ff)}
+/* In-flight generation edge: marching dashes while the placeholder spins. */
+.dcv-edge-pending .react-flow__edge-path{stroke-dasharray:6 4;animation:dcv-dash .5s linear infinite}
+@keyframes dcv-dash{to{stroke-dashoffset:-10}}
 .react-flow__handle.connecting{background:var(--dsw-alias-brand-primary,#4c78ff)}
 `
 
