@@ -422,6 +422,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           engine,
+          ...(typeof source?.model === 'string' && source.model.trim() !== '' ? { model: source.model.trim() } : {}),
           prompt,
           ...(engine === 'gpt'
             ? (sourceSize === undefined ? {} : { size: sourceSize })
@@ -440,7 +441,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
         attachment,
         prompt,
         engine,
-        model: '',
+        model: typeof payload?.model === 'string' ? payload.model : (source?.model ?? ''),
         ...(typeof payload?.output === 'string' ? { output: payload.output } : {}),
         ...(typeof payload?.aspectRatio === 'string' ? { aspectRatio: payload.aspectRatio } : {}),
         ...(typeof payload?.imageSize === 'string' ? { imageSize: payload.imageSize } : {}),

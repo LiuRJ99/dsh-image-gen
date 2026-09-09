@@ -1,7 +1,7 @@
 /** Same-origin CPA-only generation route used by provider-independent Gallery actions. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { CpaGeneratedImage, CpaImageGenerationRequest, CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+import type { CpaGeneratedImage, CpaImageGenerationRequest, CpaImageGenerationService } from './cpa-contract.js'
 import { gptSizeFromAspectRatio, normalizeGeminiAspectRatio, normalizeGeminiImageSize, normalizeGptSize, outputLabel } from './engine-options.js'
 import { assertWorkspaceAllowed } from './workspace-save.js'
 import { CPA_GENERATE_ROUTE, attachmentMeta } from './shared.js'
@@ -10,12 +10,14 @@ const MAX_BODY_BYTES = 32 * 1024
 const MAX_PROMPT_LENGTH = 16_000
 const CPA_GENERATE_TIMEOUT_MS = 120_000
 const SUPPORTED_MEDIA_TYPES = new Set<ImageAttachmentRef['mediaType']>(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-const GENERATE_INPUT_KEYS = new Set(['engine', 'prompt', 'size', 'aspect_ratio', 'image_size'])
+const GENERATE_INPUT_KEYS = new Set(['engine', 'model', 'prompt', 'size', 'aspect_ratio', 'image_size'])
 
 export { CPA_GENERATE_ROUTE } from './shared.js'
 
 export interface CpaGenerateRouteDeps {
   getService(): CpaImageGenerationService | undefined
+  /** Resolve the configured model when a browser regeneration only names an engine. */
+  getDefaultModel?(engine: GenerateInput['engine']): string | undefined
   saveImage(input: { data: Uint8Array; mediaType: ImageAttachmentRef['mediaType']; name?: string }): Promise<ImageAttachmentRef>
   /** Read the normalized attachment bytes for a workspace copy. */
   readImage?(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<{ ref: ImageAttachmentRef; data: Uint8Array }>
@@ -29,6 +31,7 @@ export interface CpaGenerateRouteDeps {
 
 interface GenerateInput {
   engine: 'gpt' | 'gemini'
+  model?: string
   prompt: string
   size?: string
   aspectRatio?: string
@@ -52,6 +55,9 @@ export async function serveCpaGenerate(req: IncomingMessage, res: ServerResponse
   const service = deps.getService()
   if (service === undefined || service === null || typeof service !== 'object' || typeof service.generate !== 'function') return jsonError(res, 503, 'image-service-unavailable')
 
+  const requestedModel = input.model ?? deps.getDefaultModel?.(input.engine)
+  const modelAware = typeof service.listModels === 'function'
+  const serviceModel = modelAware ? requestedModel : undefined
   const controller = new AbortController()
   let clientAborted = false
   let timedOut = false
@@ -61,6 +67,7 @@ export async function serveCpaGenerate(req: IncomingMessage, res: ServerResponse
   try {
     const generated = await service.generate({
       engine: input.engine,
+      ...(serviceModel === undefined ? {} : { model: serviceModel }),
       prompt: input.prompt,
       ...(input.engine === 'gpt'
         ? { size: input.size ?? '1024x1024' }
@@ -76,6 +83,7 @@ export async function serveCpaGenerate(req: IncomingMessage, res: ServerResponse
     controller.signal.throwIfAborted()
     let savedTo: string | undefined
     let saveError: string | undefined
+    const resolvedModel = typeof generated.model === 'string' ? generated.model : serviceModel
     const workspace = deps.getWorkspaceOptions?.()
     if (workspace?.enabled && deps.saveToWorkspace !== undefined && deps.readImage !== undefined) {
       const requestedRoot = workspace.activeRoot
@@ -103,6 +111,7 @@ export async function serveCpaGenerate(req: IncomingMessage, res: ServerResponse
     return json(res, 200, {
       attachment: attachmentMeta(attachment),
       engine: input.engine,
+      ...(resolvedModel === undefined ? {} : { model: resolvedModel }),
       output: outputLabel({ engine: input.engine, size: input.size, aspectRatio: input.aspectRatio, imageSize: input.imageSize }),
       ...(input.aspectRatio === undefined ? {} : { aspectRatio: input.aspectRatio }),
       ...(input.imageSize === undefined ? {} : { imageSize: input.imageSize }),
@@ -128,16 +137,19 @@ function parseInput(value: unknown): GenerateInput | undefined {
   if (Object.keys(root).some((key) => !GENERATE_INPUT_KEYS.has(key))) return undefined
   if (typeof root.prompt !== 'string') return undefined
   const prompt = root.prompt.trim()
+  const model = root.model === undefined ? undefined : typeof root.model === 'string' ? root.model.trim() : undefined
   if (prompt.length === 0 || prompt.length > MAX_PROMPT_LENGTH || root.workspaceRoot !== undefined) return undefined
+  if (root.model !== undefined && (model === undefined || model.length === 0 || model.length > 256)) return undefined
 
   if (root.engine === 'gpt') {
     const size = normalizeGptSize(root.size) ?? gptSizeFromAspectRatio(typeof root.aspect_ratio === 'string' ? root.aspect_ratio : undefined) ?? '1024x1024'
-    return { engine: 'gpt', prompt, size }
+    return { engine: 'gpt', ...(model === undefined ? {} : { model }), prompt, size }
   }
   const aspectRatio = normalizeGeminiAspectRatio(root.aspect_ratio)
   const imageSize = normalizeGeminiImageSize(root.image_size)
   return {
     engine: 'gemini',
+    ...(model === undefined ? {} : { model }),
     prompt,
     ...(aspectRatio === undefined ? {} : { aspectRatio }),
     ...(imageSize === undefined ? {} : { imageSize }),

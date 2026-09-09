@@ -1,6 +1,6 @@
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '../src/cpa-contract.js'
 import { apply, CPA_GENERATE_ROUTE, editToolDefinitionForEngine, inject, name, version, gptSizeFromAspectRatio, toolDefinitionForEngine } from '../src/index.js'
 
 vi.mock('@deepseek-ai/dsh-tools', () => ({
@@ -157,6 +157,36 @@ describe('CPA image service contract', () => {
     const gptTool = toolDefinitionForEngine('gpt', { generate }, {} as never, attachments as never, () => ({ saveToWorkspace: false })) as unknown as RegisteredTool
     await expect(gptTool.execute({ prompt: 'x'.repeat(16_001) }, { signal: new AbortController().signal })).rejects.toThrow('prompt-invalid')
     expect(generate).not.toHaveBeenCalled()
+  })
+
+  it('forwards the configured CPA model and retains the resolved model metadata', async () => {
+    const signal = new AbortController().signal
+    const generate = vi.fn<CpaImageGenerationService['generate']>().mockResolvedValue({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: 'image/png',
+      model: 'gpt-image-2.5',
+    })
+    const attachments = {
+      imageLimits: { maxImageBytes: 1024, mediaTypes: ['image/png'] },
+      saveImage: vi.fn().mockResolvedValue(attachment),
+    }
+    const tool = toolDefinitionForEngine(
+      'gpt',
+      { generate },
+      {} as never,
+      attachments as never,
+      () => ({ engine: 'gpt', model: 'gpt-image-2.5', saveToWorkspace: false }),
+    ) as unknown as RegisteredTool
+
+    const result = await tool.execute({ prompt: 'future model' }, { signal })
+    expect(generate).toHaveBeenCalledWith({
+      engine: 'gpt',
+      model: 'gpt-image-2.5',
+      prompt: 'future model',
+      size: '1024x1024',
+      signal,
+    })
+    expect(result).toMatchObject({ engine: 'gpt', model: 'gpt-image-2.5' })
   })
 
   it('creates specialized Gemini tool declaration', () => {

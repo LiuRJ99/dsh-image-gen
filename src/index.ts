@@ -5,25 +5,22 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import * as dshSettings from '@deepseek-ai/dsh-settings'
 import { defineTool, type ToolResult } from '@deepseek-ai/dsh-tools'
-import {
-  IMAGE_GENERATION_SERVICE,
-  type CpaImageGenerationService,
-  type ImageEngine,
-} from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService, type CpaImageModel, type ImageEngine } from './cpa-contract.js'
 import { Config } from './config.js'
 import { normalizeGeminiAspectRatio, normalizeGeminiImageSize, normalizeGptSize, outputLabel, gptSizeFromAspectRatio } from './engine-options.js'
 import { serveCpaGenerate } from './cpa-generate-route.js'
+import { serveImageModels } from './image-model-route.js'
 import { serveInspirationRoute } from './inspiration-route.js'
 import { IMAGE_ROUTE, imageAttachmentFromMeta, serveDelete, serveImage, serveWorkspaces } from './image-route.js'
 import { resolveReferenceImages, type ReferenceImageAgent } from './reference-image.js'
-import { CPA_GENERATE_ROUTE, DELETE_ROUTE, IMAGE_GENERATION_NAMESPACE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, attachmentMeta } from './shared.js'
+import { CPA_GENERATE_ROUTE, DELETE_ROUTE, IMAGE_GENERATION_NAMESPACE, IMAGE_MODELS_ROUTE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, attachmentMeta } from './shared.js'
 import { deleteImageFromWorkspace, getDshWorkspaceRoots, getDshWorkspacesFull, saveImageToWorkspace } from './workspace-save.js'
 
 export { gptSizeFromAspectRatio } from './engine-options.js'
 
 export { Config } from './config.js'
 export { CPA_GENERATE_ROUTE } from './cpa-generate-route.js'
-export { DELETE_ROUTE, IMAGE_ROUTE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, imageAttachmentFromMeta } from './shared.js'
+export { DELETE_ROUTE, IMAGE_MODELS_ROUTE, IMAGE_ROUTE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, imageAttachmentFromMeta } from './shared.js'
 
 /** Cordis plugin name. */
 export const name = 'dsh-image-gen'
@@ -35,6 +32,7 @@ export const inject = ['tools', 'attachments', 'webServer']
 interface GeneratedValue {
   attachment: ImageAttachmentRef
   engine: ImageEngine
+  model?: string
   output: string
   operation?: 'generate' | 'edit'
   /** The normalized engine-specific aspect ratio, when Gemini received one. */
@@ -85,6 +83,7 @@ function toolOutputSpec(operation: 'generate' | 'edit' = 'generate') {
           },
         },
         engine: { type: 'string' as const, required: true as const },
+        model: { type: 'string' as const },
         operation: { type: 'string' as const },
         output: { type: 'string' as const, required: true as const },
         aspectRatio: { type: 'string' as const },
@@ -101,10 +100,11 @@ function toolOutputSpec(operation: 'generate' | 'edit' = 'generate') {
           : typeof value.saveError === 'string'
             ? ` Saving it to the workspace failed: ${value.saveError}.`
             : ' It has no local file path.'
+      const model = typeof value.model === 'string' && value.model.trim() !== '' ? ` (${value.model})` : ''
       return [
         {
           type: 'text' as const,
-          text: `${(value.operation ?? operation) === 'edit' ? 'Edited one image' : 'Generated one image'} with the ${value.engine} engine (${value.output}). It is already attached to the conversation.${saved} Respond to the user without reading or searching for the image.`,
+          text: `${(value.operation ?? operation) === 'edit' ? 'Edited one image' : 'Generated one image'} with the ${value.engine} engine${model} (${value.output}). It is already attached to the conversation.${saved} Respond to the user without reading or searching for the image.`,
         },
         {
           type: 'image' as const,
@@ -116,6 +116,7 @@ function toolOutputSpec(operation: 'generate' | 'edit' = 'generate') {
       kind: 'dsh-image-gen',
       attachment: attachmentMeta(value.attachment),
       engine: value.engine,
+       ...(typeof value.model === 'string' ? { model: value.model } : {}),
       ...(typeof value.operation === 'string' ? { operation: value.operation } : { operation }),
       output: value.output,
       ...(typeof value.aspectRatio === 'string' ? { aspectRatio: value.aspectRatio } : {}),
@@ -152,6 +153,7 @@ function createGptTool(
     async execute(args, exec): Promise<GeneratedValue> {
       const prompt = checkedPrompt(args.prompt)
       const active = currentConfig()
+      const model = configuredModelOf(active, 'gpt')
       // Older callers sometimes still send aspect_ratio. It is an adapter-only
       // compatibility input: map it to GPT size, never forward it to CPA.
       const rawRatio = (args as { aspect_ratio?: unknown }).aspect_ratio
@@ -159,6 +161,7 @@ function createGptTool(
       exec.signal.throwIfAborted()
       const generated = await imageService.generate({
         engine: 'gpt',
+        ...(model === undefined ? {} : { model }),
         prompt,
         size: reqSize,
         signal: exec.signal,
@@ -197,6 +200,7 @@ function createGeminiTool(
     async execute(args, exec): Promise<GeneratedValue> {
       const prompt = checkedPrompt(args.prompt)
       const active = currentConfig()
+      const model = configuredModelOf(active, 'gemini')
       // Only Gemini's declared image_config fields enter the CPA request.
       // A legacy generic `size` value is deliberately ignored rather than
       // leaking an OpenAI-only option into the Gemini route.
@@ -205,6 +209,7 @@ function createGeminiTool(
       exec.signal.throwIfAborted()
       const generated = await imageService.generate({
         engine: 'gemini',
+        ...(model === undefined ? {} : { model }),
         prompt,
         ...(aspectRatio === undefined ? {} : { aspectRatio }),
         ...(imageSize === undefined ? {} : { imageSize }),
@@ -299,12 +304,14 @@ function createEditTool(
         signal: exec.signal,
       })
       const active = currentConfig()
+      const model = configuredModelOf(active, engine)
       exec.signal.throwIfAborted()
       if (engine === 'gpt') {
         const rawRatio = typeof raw.aspect_ratio === 'string' ? raw.aspect_ratio : undefined
         const size = normalizeGptSize(raw.size) ?? gptSizeFromAspectRatio(rawRatio) ?? '1024x1024'
         const generated = await imageService.edit({
           engine,
+          ...(model === undefined ? {} : { model }),
           prompt,
           referenceImages,
           size,
@@ -316,6 +323,7 @@ function createEditTool(
       const imageSize = normalizeGeminiImageSize(raw.image_size)
       const generated = await imageService.edit({
         engine,
+        ...(model === undefined ? {} : { model }),
         prompt,
         referenceImages,
         ...(aspectRatio === undefined ? {} : { aspectRatio }),
@@ -336,6 +344,12 @@ function createEditTool(
     },
     presentResult: (_args, result) => imagePresentation(result),
   })
+}
+
+function configuredModelOf(config: Config, engine: ImageEngine): string | undefined {
+  if (config.engine !== undefined && config.engine !== engine) return undefined
+  const model = typeof config.model === 'string' ? config.model.trim() : ''
+  return model === '' || model.length > 256 ? undefined : model
 }
 
 function checkedPrompt(value: string): string {
@@ -389,6 +403,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     kind: 'exact', path: CPA_GENERATE_ROUTE,
     handler: (req, res) => serveCpaGenerate(req, res, {
       getService: () => cachedService,
+      getDefaultModel: engine => configuredModelOf(current(), engine),
       saveImage: input => attachments.saveImage(input),
       readImage: (ref, signal) => attachments.readImage(ref, signal),
       // A browser request has no trusted agent/session cwd. Keep regeneration
@@ -403,6 +418,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       mediaTypes: attachments.imageLimits.mediaTypes,
     }),
   }), 'dsh-image-gen: CPA generation route')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact', path: IMAGE_MODELS_ROUTE,
+    handler: (req, res) => serveImageModels(req, res, {
+      getService: () => cachedService,
+    }),
+  }), 'dsh-image-gen: image model catalog route')
 
   const allowedWorkspaceRoots = async (): Promise<Set<string>> => {
     const discovered = await getDshWorkspaceRoots().catch(() => [])
@@ -502,9 +524,9 @@ interface GeneratedMetadata {
 export function assertGeneratedImage(
   value: unknown,
   limits: { maxImageBytes: number; mediaTypes: readonly string[] },
-): asserts value is { data: Uint8Array; mediaType: ImageAttachmentRef['mediaType'] } {
+): asserts value is { data: Uint8Array; mediaType: ImageAttachmentRef['mediaType']; model?: string } {
   if (typeof value !== 'object' || value === null) throw new Error('CPA image service returned an invalid image result')
-  const result = value as { data?: unknown; mediaType?: unknown }
+  const result = value as { data?: unknown; mediaType?: unknown; model?: unknown }
   if (!(result.data instanceof Uint8Array) || result.data.byteLength === 0) {
     throw new Error('CPA image service returned empty image data')
   }
@@ -513,6 +535,9 @@ export function assertGeneratedImage(
   }
   if (typeof result.mediaType !== 'string' || !SUPPORTED_IMAGE_MEDIA_TYPES.has(result.mediaType as ImageAttachmentRef['mediaType']) || !limits.mediaTypes.includes(result.mediaType)) {
     throw new Error(`This DSH deployment does not accept ${String(result.mediaType)} generated images`)
+  }
+  if (result.model !== undefined && (typeof result.model !== 'string' || result.model.trim() === '' || result.model.length > 256)) {
+    throw new Error('CPA image service returned an invalid model id')
   }
 }
 
@@ -534,6 +559,7 @@ async function saveGenerated(
   const value: GeneratedValue = {
     attachment,
     engine,
+    ...(typeof generated.model === 'string' ? { model: generated.model } : {}),
     output,
     ...(metadata.operation === undefined ? {} : { operation: metadata.operation }),
     ...(metadata.aspectRatio === undefined ? {} : { aspectRatio: metadata.aspectRatio }),

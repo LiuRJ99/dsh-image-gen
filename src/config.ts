@@ -15,7 +15,10 @@ export type ImageSize = typeof IMAGE_SIZES[number]
 
 /** Bundle configuration from the profile patch and the Web settings page. */
 export interface Config {
+  /** Protocol family retained for legacy configurations and tool defaults. */
   engine?: ImageEngine
+  /** CPA-owned concrete image model selected by the user. */
+  model?: string
   /** Also write every generated image as a file under the session workspace. */
   saveToWorkspace?: boolean
   /** Workspace subfolder for generated images; empty means the workspace root. */
@@ -25,6 +28,7 @@ export interface Config {
 /** Cordis configuration schema. */
 const ConfigSchema = z.object({
   engine: z.union(IMAGE_ENGINES).default('gpt'),
+  model: z.string(),
   saveToWorkspace: z.boolean().default(true),
   workspaceFolder: z.string().default(DEFAULT_WORKSPACE_FOLDER),
 })

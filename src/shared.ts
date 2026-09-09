@@ -1,13 +1,15 @@
 /** Values shared by the Host and browser Bundle faces. */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { ImageEngine } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+import type { CpaImageModel, ImageEngine } from './cpa-contract.js'
 
-export type { ImageEngine } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+export type { CpaImageModel, ImageEngine } from './cpa-contract.js'
 
 /** Browser route used by the generated-image card. */
 export const IMAGE_ROUTE = '/plugins/dsh-image-gen/image'
 /** Same-origin route used by Gallery regeneration and Inspiration actions. */
 export const CPA_GENERATE_ROUTE = '/plugins/dsh-image-gen/generate'
+/** Same-origin route exposing the CPA-owned image model catalog. */
+export const IMAGE_MODELS_ROUTE = '/plugins/dsh-image-gen/models'
 /** Same-origin read-only route exposing discovered workspace metadata. */
 export const WORKSPACES_ROUTE = '/plugins/dsh-image-gen/workspaces'
 /** Same-origin route used by Gallery batch cleanup for generated files only. */

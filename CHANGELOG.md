@@ -10,12 +10,17 @@
 ## [Unreleased]
 
 ### Added
+- Added dynamic CPA image-model selection: the settings card consumes the CPA Host's redacted image catalog, persists a concrete `model`, and Gallery/browser regeneration plus tool metadata preserve the selected model without browser-side credentials or CPA calls.
 - Added optional CPA `edit` support for `edit_image`, including ordered inline Attachment references, explicit attachment IDs, workspace-contained paths, GPT `/images/edits`, and Gemini multimodal `/chat/completions` requests.
 - Added backward-compatible feature detection so older CPA Providers remain generation-only instead of exposing an unusable edit tool.
 
 ### Security and verification
 - Reference images are resolved on the Host through AttachmentStore with size, MIME, SHA-256 selector, and workspace realpath checks; shell copying is not used.
 - Added CPA protocol, Host resolver, tool contract, client card, and turn-tail tests. Gemini relay editing still requires an authenticated end-to-end smoke test before production rollout.
+
+### Packaging
+- Removed the implicit source-checkout `prepare` build so `link` and package installation no longer hide whether runtime artifacts were built.
+- Added an explicit package-artifact check/build path that verifies `main`/`exports`/`dsh.bundle.patch`, excludes source-only local sibling metadata from the tarball manifest, and keeps the CPA sibling requirement limited to the staging build.
 
 ---
 

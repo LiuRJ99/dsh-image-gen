@@ -13,9 +13,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import {
   IMAGE_GENERATION_NAMESPACE,
+  IMAGE_MODELS_ROUTE,
   IMAGE_ROUTE,
   imageAttachment,
   imageAttachmentFromMeta,
+  type CpaImageModel,
   type ImageEngine,
 } from '../shared.js'
 import { galleryEngineLabel, normalizeGalleryItem, saveGalleryItem } from './gallery-store.js'
@@ -30,6 +32,7 @@ import {
 
 interface ImageSettings {
   engine?: ImageEngine
+  model?: string
   saveToWorkspace?: boolean
   workspaceFolder?: string
 }
@@ -43,8 +46,11 @@ const DICT = {
     title: '图像生成',
     description: '选择图片生成引擎并配置工作区保存。',
     engine: '生成引擎',
-    engineGPT: 'GPT Image 2',
+    engineGPT: 'GPT Image',
     engineGemini: 'Gemini Image',
+    model: '图片模型',
+    modelLoading: '正在加载图片模型…',
+    modelUnavailable: '图片模型列表暂不可用，将使用引擎默认模型。',
     saveToWorkspace: '保存到工作区',
     saveToWorkspaceHint: '每次生成后，把图片文件保存到当前会话工作区。',
     folder: '工作区文件夹',
@@ -68,8 +74,11 @@ const DICT = {
     title: 'Image Generation',
     description: 'Select an image engine and configure workspace saving.',
     engine: 'Image engine',
-    engineGPT: 'GPT Image 2',
+    engineGPT: 'GPT Image',
     engineGemini: 'Gemini Image',
+    model: 'Image model',
+    modelLoading: 'Loading image models…',
+    modelUnavailable: 'Image model list unavailable; the engine default will be used.',
     saveToWorkspace: 'Save to workspace',
     saveToWorkspaceHint: 'Write each generated image as a file into the session workspace.',
     folder: 'Workspace folder',
@@ -347,6 +356,10 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   const [snapshot, setSnapshot] = useState(() => props.scope.getSnapshot())
   const [lang, setLang] = useState(() => (props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'))
   const [engine, setEngine] = useState<ImageEngine>('gpt')
+  const [model, setModel] = useState('')
+  const [models, setModels] = useState<CpaImageModel[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsFailed, setModelsFailed] = useState(false)
   const [saveToWorkspace, setSaveToWorkspace] = useState(true)
   const [workspaceFolder, setWorkspaceFolder] = useState('dsh-image-gen')
   const [saving, setSaving] = useState(false)
@@ -358,6 +371,31 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
       setLang(props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh')
     })
   }, [props.locale])
+
+  useEffect(() => {
+    if (!open || typeof fetch !== 'function') return
+    let cancelled = false
+    setModelsLoading(true)
+    setModelsFailed(false)
+    void fetch(IMAGE_MODELS_ROUTE, { headers: { accept: 'application/json' } })
+      .then(async response => {
+        if (!response.ok) throw new Error(`image-models-${response.status}`)
+        return parseImageModels(await response.json())
+      })
+      .then(value => {
+        if (!cancelled) setModels(value)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModels([])
+          setModelsFailed(true)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [open])
 
   const t = (keyName: DictKey, params?: Record<string, string>): string => {
     const dict = lang === 'en' ? DICT.en : DICT.zh
@@ -373,14 +411,23 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   useEffect(() => {
     const value = snapshot.value
     setEngine(value?.engine ?? 'gpt')
+    setModel(typeof value?.model === 'string' ? value.model.trim() : '')
     setSaveToWorkspace(value?.saveToWorkspace ?? true)
     setWorkspaceFolder(value?.workspaceFolder ?? 'dsh-image-gen')
   }, [snapshot])
+
+  const modelOptions = models.filter(candidate => candidate.engine === engine && candidate.supportsGenerate)
+  useEffect(() => {
+    if (modelsLoading || modelOptions.length === 0) return
+    if (modelOptions.some(candidate => candidate.id === model)) return
+    setModel(modelOptions[0]!.id)
+  }, [model, modelOptions, modelsLoading])
 
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault(); setSaving(true); setMessage('')
     try {
       await props.scope.set('engine', engine)
+      await props.scope.set('model', model.trim())
       await props.scope.set('saveToWorkspace', saveToWorkspace)
       await props.scope.set('workspaceFolder', workspaceFolder.trim())
       setMessage(t('saved'))
@@ -402,11 +449,30 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
         <form className="dsh-ig-body" onSubmit={(event) => { void save(event) }}>
           <label className="dsh-ig-field">
             <span className="dsh-ig-label">{t('engine')}</span>
-            <select className="dsh-ig-input" value={engine} onChange={event => { setEngine(event.target.value as ImageEngine) }}>
+            <select className="dsh-ig-input" value={engine} onChange={event => {
+              const nextEngine = event.target.value as ImageEngine
+              setEngine(nextEngine)
+              setModel(models.find(candidate => candidate.engine === nextEngine && candidate.supportsGenerate)?.id ?? '')
+            }}>
               <option value="gpt">{t('engineGPT')}</option>
               <option value="gemini">{t('engineGemini')}</option>
             </select>
           </label>
+          {modelsLoading || modelOptions.length > 0 ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('model')}</span>
+              {modelsLoading ? <span className="dsh-ig-hint">{t('modelLoading')}</span> : (
+                <select className="dsh-ig-input" value={model} onChange={event => { setModel(event.target.value) }}>
+                  {modelOptions.map(candidate => (
+                    <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.id}</option>
+                  ))}
+                </select>
+              )}
+              {modelsFailed ? <span className="dsh-ig-hint">{t('modelUnavailable')}</span> : null}
+            </label>
+          ) : modelsFailed ? (
+            <p className="dsh-ig-hint">{t('modelUnavailable')}</p>
+          ) : null}
           <div className="dsh-ig-field">
             <label className="dsh-ig-check-row">
               <input type="checkbox" checked={saveToWorkspace} onChange={event => { setSaveToWorkspace(event.target.checked) }} />
@@ -526,6 +592,31 @@ function promptFromArgs(args: unknown): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function parseImageModels(value: unknown): CpaImageModel[] {
+  const root = record(value)
+  if (!Array.isArray(root?.models)) return []
+  const seen = new Set<string>()
+  return root.models.flatMap(candidateValue => {
+    const candidate = record(candidateValue)
+    if (candidate === undefined) return []
+    const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+    const name = typeof candidate?.name === 'string' ? candidate.name.trim() : id
+    const engine = candidate?.engine
+    if (id === '' || name === '' || id.length > 256 || name.length > 256 || seen.size >= 256 || (engine !== 'gpt' && engine !== 'gemini') || candidate?.supportsGenerate === false || seen.has(id)) return []
+    seen.add(id)
+    const rawAliases: readonly unknown[] = Array.isArray(candidate.aliases) ? candidate.aliases : []
+    const aliases = rawAliases.filter((alias): alias is string => typeof alias === 'string' && alias.trim() !== '').map(alias => alias.trim())
+    return [{
+      id,
+      name,
+      ...(aliases.length === 0 ? {} : { aliases }),
+      engine,
+      supportsGenerate: true,
+      ...(candidate.supportsEdit === undefined ? {} : { supportsEdit: candidate.supportsEdit === true }),
+    }]
+  })
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

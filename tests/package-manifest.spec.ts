@@ -32,7 +32,7 @@ describe('runtime native dependency contract', () => {
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
     expect(manifest.dsh?.client?.inject).toContain('@deepseek-ai/dsh-client-locale')
     expect(manifest.files).toContain('docs/CPA-ONLY-OPTION-A.md')
-    expect(manifest.scripts).toMatchObject({ typecheck: expect.any(String), test: expect.any(String), build: expect.any(String), 'pack:check': expect.any(String) })
+    expect(manifest.scripts).toMatchObject({ typecheck: expect.any(String), test: expect.any(String), build: expect.any(String), 'pack:check': expect.any(String), 'pack:artifact': expect.any(String) })
     expect(codexManifest).toMatchObject({ name: 'dsh-image-gen', version: '0.5.0' })
   })
 })

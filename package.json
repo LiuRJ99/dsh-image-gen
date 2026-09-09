@@ -63,9 +63,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc && tsdown",
-    "prepare": "pnpm run build",
     "test": "vitest run",
-    "pack:check": "pnpm pack --dry-run"
+    "pack:check": "node scripts/pack-artifact.mjs --check",
+    "pack:artifact": "node scripts/pack-artifact.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

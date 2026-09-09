@@ -11,8 +11,8 @@ Before calling the tool, turn the user's request into a complete visual prompt. 
 
 The available engine labels are:
 
-- `GPT Image 2` — use `size` (`1024x1024`, `1024x1792`, or `1792x1024`) for framing.
-- `Gemini Image` — use `aspect_ratio` and `image_size` for framing and resolution.
+- `GPT Image` — the settings card may expose one or more CPA GPT image models; use `size` (`1024x1024`, `1024x1792`, or `1792x1024`) for framing.
+- `Gemini Image` — the settings card may expose one or more CPA Gemini image models; use `aspect_ratio` and `image_size` for framing and resolution.
 
 The CPA Provider owns model IDs, protocol selection, credentials, and HTTP requests. Do not ask the user for credentials, read credentials, or expose them in a prompt or response. `edit_image` uses the inline images from the latest human message in upload order unless explicit attachment IDs or workspace paths are supplied. Never use `bash`, `read`, `glob`, `find`, or file copying to locate inline attachments. If `edit_image` is not registered because an older CPA Provider lacks the optional `edit` capability, explain that reference-image editing is unavailable instead of falling back to shell commands or claiming success.
 

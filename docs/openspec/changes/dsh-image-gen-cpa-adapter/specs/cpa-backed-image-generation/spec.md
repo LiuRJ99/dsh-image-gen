@@ -23,19 +23,19 @@ The plugin SHALL keep the existing `generate_image` tool name and attachment pre
 - **WHEN** the plugin starts without the required CPA image service
 - **THEN** it does not register a misleading direct-provider fallback and reports that the CPA image service dependency is unavailable
 
-### Requirement: ImageGen SHALL expose engine selection without exposing raw model configuration
+### Requirement: ImageGen SHALL expose CPA model selection without exposing provider configuration
 
-The plugin configuration SHALL expose only the engine choices `gpt` and `gemini`, defaulting to `gpt`, plus existing workspace-save controls. The configuration and settings UI MUST NOT require or render provider API keys, provider endpoints, or raw model IDs.
+The plugin configuration SHALL expose the engine choices `gpt` and `gemini`, defaulting to `gpt`, an optional concrete model selected from the CPA Host catalog, plus existing workspace-save controls. The configuration and settings UI MUST NOT require or render provider API keys or provider endpoints. Model IDs may be displayed as choices, but are never sent directly from the browser to CPA; the Host Provider validates them.
 
 #### Scenario: Default configuration selects GPT Image
 
 - **WHEN** the plugin is configured without an engine
 - **THEN** the effective engine is `gpt` and workspace saving remains enabled with the existing default folder
 
-#### Scenario: Gemini engine is selectable
+#### Scenario: Gemini model is selectable
 
-- **WHEN** the user selects `gemini`
-- **THEN** the plugin stores the engine choice and does not ask for a Gemini key, endpoint, or model ID
+- **WHEN** the user selects `gemini` and chooses one of the models returned by the CPA image-model catalog
+- **THEN** the plugin stores the engine/model choice and does not ask for a Gemini key or endpoint; the Host Provider validates and routes that model
 
 #### Scenario: Legacy provider configuration is encountered
 

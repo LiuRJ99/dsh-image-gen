@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The CPA provider is private and is a local link in this monorepo. CI
-      # checks out the pinned contract sibling so frozen installs are honest.
+      # checks out the pinned lowest-supported 0.4.x contract sibling so frozen
+      # installs are honest and Adapter compatibility is checked against an
+      # older Provider, not only against the current feature checkout.
       # Fork PRs need the repository/org CPA_PROVIDER_READ_TOKEN policy to read
       # this private sibling; otherwise run the adapter checks in the internal CI.
       - uses: actions/checkout@v4
@@ -36,3 +38,7 @@ jobs:
       - run: pnpm test
       - run: pnpm run build
       - run: pnpm run pack:check
+      - name: Build a clean package artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/dsh-image-gen-artifacts"
+          pnpm run pack:artifact -- --pack-destination "$RUNNER_TEMP/dsh-image-gen-artifacts"

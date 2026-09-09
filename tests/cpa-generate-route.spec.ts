@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
-import type { CpaImageGenerationService } from '@LiuRJ99/dsh-cpa-plugin/image-generation'
+import type { CpaImageGenerationService } from '../src/cpa-contract.js'
 import { serveCpaGenerate } from '../src/cpa-generate-route.js'
 
 const attachment = {
@@ -41,9 +41,21 @@ function response() {
   return result as unknown as ServerResponse & typeof result
 }
 
-function deps(generate: CpaImageGenerationService['generate']): Parameters<typeof serveCpaGenerate>[2] {
+function deps(
+  generate: CpaImageGenerationService['generate'],
+  getDefaultModel?: string,
+): Parameters<typeof serveCpaGenerate>[2] {
   return {
-    getService: () => ({ generate }),
+    getService: () => ({
+      generate,
+      listModels: async () => [{
+        id: getDefaultModel ?? 'gpt-image-2.5',
+        name: getDefaultModel ?? 'gpt-image-2.5',
+        engine: getDefaultModel?.startsWith('gemini-') ? 'gemini' as const : 'gpt' as const,
+        supportsGenerate: true,
+      }],
+    }),
+    ...(getDefaultModel === undefined ? {} : { getDefaultModel: () => getDefaultModel }),
     saveImage: vi.fn(async () => attachment),
     maxImageBytes: 1024,
     mediaTypes: ['image/png'],
@@ -72,12 +84,39 @@ describe('CPA generation route', () => {
     expect(generate.mock.calls[0]?.[0]).not.toHaveProperty('size')
   })
 
-  it('rejects raw model/provider fields instead of silently accepting a native route shape', async () => {
-    const generate = vi.fn<CpaImageGenerationService['generate']>()
+  it('accepts a CPA model id and forwards it to the Host image service', async () => {
+    const generate = vi.fn<CpaImageGenerationService['generate']>().mockResolvedValue({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: 'image/png',
+      model: 'gpt-image-2.5',
+    })
     const res = response()
-    await serveCpaGenerate(request({ engine: 'gpt', prompt: 'blocked', model: 'gpt-image-2' }), res, deps(generate))
-    expect(res.statusCode).toBe(400)
-    expect(generate).not.toHaveBeenCalled()
+    await serveCpaGenerate(request({ engine: 'gpt', prompt: 'selected', model: 'gpt-image-2.5' }), res, deps(generate))
+    expect(res.statusCode).toBe(200)
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ engine: 'gpt', model: 'gpt-image-2.5', prompt: 'selected' }))
+    expect(JSON.parse(res.body())).toMatchObject({ engine: 'gpt', model: 'gpt-image-2.5' })
+  })
+
+  it('does not claim a model when an older CPA service has no model catalog', async () => {
+    const generate = vi.fn<CpaImageGenerationService['generate']>().mockResolvedValue({ data: new Uint8Array([1]), mediaType: 'image/png' })
+    const res = response()
+    await serveCpaGenerate(request({ engine: 'gpt', prompt: 'legacy', model: 'gpt-image-2.5' }), res, {
+      ...deps(generate),
+      getService: () => ({ generate }),
+    })
+    expect(res.statusCode).toBe(200)
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ engine: 'gpt' }))
+    expect(generate.mock.calls[0]?.[0]).not.toHaveProperty('model')
+    expect(JSON.parse(res.body())).not.toHaveProperty('model')
+  })
+
+  it('uses the configured model for browser regeneration when the body only names an engine', async () => {
+    const generate = vi.fn<CpaImageGenerationService['generate']>().mockResolvedValue({ data: new Uint8Array([1]), mediaType: 'image/png', model: 'gemini-future-image' })
+    const res = response()
+    await serveCpaGenerate(request({ engine: 'gemini', prompt: 'configured model' }), res, deps(generate, 'gemini-future-image'))
+    expect(res.statusCode).toBe(200)
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ engine: 'gemini', model: 'gemini-future-image' }))
+    expect(JSON.parse(res.body())).toMatchObject({ model: 'gemini-future-image' })
   })
 
   it('returns a stable timeout when the CPA service remains pending', async () => {

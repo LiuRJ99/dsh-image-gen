@@ -8,7 +8,7 @@
 
 - 用注入的 CPA 图片服务替代直接供应商 HTTP 请求和凭据解析。
 - 保持 `generate_image` 工具、附件卡片、工作区保存和 Gallery 行为稳定。
-- 只展示简单的 `GPT Image 2` 或 `Gemini Image` 引擎选择，不暴露 raw model 或 key。
+- 展示 GPT/Gemini 引擎及 CPA Host 提供的具体图片模型选择，不暴露 raw endpoint 或 key；模型 ID 由 Provider 负责校验。
 - 迁移旧 Gallery 元数据，不改变已有附件 ID。
 - 同时交付 DSH runtime metadata 和可复用的 Codex `.codex-plugin` wrapper。
 
@@ -22,7 +22,7 @@
 
 ### 1. 使用只包含引擎的 Host 配置
 
-将 Host `Config` 收敛为 `engine: 'gpt' | 'gemini'`、`saveToWorkspace` 和 `workspaceFolder`，默认引擎为 `gpt`。工具执行时把引擎、提示词、尺寸参数和 `AbortSignal` 转发给 `dshCpaImageGeneration.generate`。插件不读取 CPA 模型 ID，也不解析任何 credential reference。
+Host `Config` 保留 `engine: 'gpt' | 'gemini'` 作为协议族兼容字段，并增加可选的 CPA `model`、`saveToWorkspace` 和 `workspaceFolder`。设置页通过 Host 专用模型目录选择具体模型；工具执行时把引擎、模型、提示词、尺寸参数和 `AbortSignal` 转发给 `dshCpaImageGeneration.generate`。插件不解析任何 credential reference，模型 ID 仍由 Provider 校验。
 
 这样插件可以复用不同 CPA 账号的模型路由，模型策略集中在 Provider。保留 direct-provider fallback 会重新制造本次 change 要消除的配置分叉，因此不采用。
 
@@ -36,7 +36,7 @@
 
 ### 4. 简化设置但保留仍有意义的用户控制
 
-设置卡只包含引擎、工作区保存开关和工作区文件夹，删除 API key、endpoint 与 raw model 输入。稳定显示 `GPT Image 2` 和 `Gemini Image`，底层模型 ID 由 CPA 维护。
+设置卡包含引擎、CPA 动态图片模型、工作区保存开关和工作区文件夹，删除 API key、endpoint 输入。模型列表来自 Provider 的脱敏 Host route；底层模型 ID 由 CPA 维护并在 Host 侧校验。
 
 ### 5. Codex 元数据采用增量包装
 
@@ -51,7 +51,7 @@
 - **[旧用户仍有 provider-specific settings] →** 对已知 OpenAI/Google provider 做最小映射或使用默认引擎，旧 key 和 endpoint 只作为迁移输入，绝不再次渲染。
 - **[CPA 服务未安装或版本过旧] →** 把依赖写入包契约，并在工具注册阶段给出诊断；通过服务导出和类型检查守护契约。
 - **[Gallery schema 发生变化] →** 读写时统一规范化，保留附件 ID，并用旧 OpenAI/Google 与新 engine 记录做聚焦测试。
-- **[引擎标签隐藏了模型差异] →** raw model 继续由 CPA 内部管理，文档只记录两个已验证的 MVP 映射；动态模型选择另立 change。
+- **[图片模型能力差异] →** CPA catalog 优先提供 `image_generation`、`image_engine`、`image_edit` 元数据；旧版仅返回 id/name 时，Provider 使用受限的 GPT/Gemini 图片命名空间兼容规则，并保留固定默认回退。
 - **[Codex 与 DSH manifest 规则不同] →** 分别校验两个 manifest，并把二者都纳入 package dry-run。
 
 ## 迁移计划

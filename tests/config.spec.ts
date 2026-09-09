@@ -18,6 +18,10 @@ describe('Config Schema validation', () => {
     expect(Config({ engine: 'gemini' }).engine).toBe('gemini')
   })
 
+  it('accepts a CPA-owned concrete image model alongside the engine', () => {
+    expect(Config({ engine: 'gpt', model: 'gpt-image-2.5' }).model).toBe('gpt-image-2.5')
+  })
+
   it('strips legacy provider, credentialRef, and other undeclared fields', () => {
     const validated = Config({
       engine: 'gemini',

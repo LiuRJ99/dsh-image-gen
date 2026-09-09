@@ -1,3 +1,5 @@
+# Source-only checkout: the selected CPA sibling is supplied by the build
+# staging layout at ../dsh-cpa-plugin. This is not a consumer/runtime dependency.
 autoInstallPeers: false
 overrides:
   '@LiuRJ99/dsh-cpa-plugin': link:../dsh-cpa-plugin

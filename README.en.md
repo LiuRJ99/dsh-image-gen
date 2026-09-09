@@ -49,34 +49,65 @@ flowchart LR
 
 ## Install and configure
 
-The current `@LiuRJ99/dsh-cpa-plugin` is a private sibling Provider in this checkout and must not be assumed to exist on the public registry. In a monorepo/internal profile, install the sibling package or an approved Provider tarball first, then install the Adapter:
+`dsh-image-gen` is currently delivered as **source build → tarball**. A source checkout is not a standalone Git-installable package. For cross-machine or stable runtime use, install an approved CPA Provider artifact and an exact image-gen release/tarball; do not use `#main`, `@latest`, or machine A's `link:`.
+
+Install and verify the CPA Provider before the Adapter:
 
 ```bash
-dsh plugin --profile web add <path-to-dsh-cpa-plugin-or-approved-provider-tarball>
-dsh plugin --profile web add dsh-image-gen@0.5.0
+dsh plugin --profile web add <approved-cpa-provider-artifact>
+dsh plugin --profile web add <approved-dsh-image-gen-version-or-tarball>
 ```
 
-If the Provider has been published inside the target profile, use its exact approved package name. The Adapter peer range does not pretend that the private Provider is independently installable; without the Provider, image generation routes are unavailable.
+Without the Provider service contract, image generation is unavailable. Server-side thumbnails use the `sharp` peer supplied by the DSH host. Do not install another `sharp` copy into the Web profile, or macOS may load duplicate native `libvips` libraries.
 
-Local release tarballs use the same command shape:
+### Build an artifact from source
 
-Server-side thumbnails use the `sharp` peer supplied by the DSH host. Do not install another `sharp` copy into the Web profile, or macOS may load duplicate native `libvips` libraries.
+The source build uses a controlled staging layout because the development manifest resolves `../dsh-cpa-plugin` as a local build sibling. Build CPA first, then image-gen:
+
+```text
+staging/
+  dsh-cpa-plugin/
+  dsh-image-gen/
+```
 
 ```bash
-dsh plugin --profile web add <provider-package-or-tarball>
-dsh plugin --profile web add <image-plugin-package-or-tarball>
+cd staging/dsh-cpa-plugin
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run bundle
+
+cd ../dsh-image-gen
+PNPM_CONFIG_IGNORE_SCRIPTS=true pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run test
+pnpm run build
+pnpm run pack:check
+pnpm run pack:artifact -- --pack-destination /tmp/dsh-image-gen-artifacts
 ```
 
-Configure the model route and credentials in the CPA Provider, then verify that the Host route contains `gpt-image-2` or `gemini-3.1-flash-image`. In **Settings → Plugins → Image generation**, choose only the engine (`GPT Image 2` or `Gemini Image`) and workspace controls. The former Provider, API key, Endpoint, and raw-model fields are not part of the current ImageGen setup.
+Install the resulting tarball into a candidate profile and promote it only after verification. `pack:artifact` removes the source-only local sibling `devDependency` from the final publish manifest; do not edit the generated tarball manually.
 
-The ordinary model selector hides image-only models `gpt-image-1.5`, `gpt-image-2`, and `gemini-3.1-flash-image`; `gemini-3.1-flash-lite` remains available as a regular text model.
+### Local development link
+
+Only use a link in the `web-dev` profile after the current machine has built the checkout and verified its entry points:
+
+```bash
+dsh plugin --profile web-dev add -w \
+  "dsh-image-gen@link:/absolute/path/to/staging/dsh-image-gen"
+```
+
+A link only references the current machine's directory. It does not install dependencies, run prepare/build, or migrate to another machine.
+
+Configure the model route and credentials in the CPA Provider. The ImageGen settings card loads available image models from a dedicated CPA Host catalog, filters them by GPT/Gemini engine, and persists the selected `model`; the browser never connects to CPA and never receives an API key. If the image catalog is unavailable or an older Provider is installed, generation falls back to the Provider's default image model.
+
+The ordinary model selector hides models marked as image-only by CPA. The legacy IDs `gpt-image-1.5`, `gpt-image-2`, and `gemini-3.1-flash-image` remain hidden for compatibility, while `gemini-3.1-flash-lite` remains available as a regular text model.
 
 ## Two CPA protocol paths
 
 | Engine | CPA request path | Image result |
 | :--- | :--- | :--- |
-| **GPT Image 2** | `/v1/images/generations` | `data[].b64_json` |
-| **Gemini Image** | `/v1/chat/completions` | `choices[0].message.images[].image_url.url` |
+| **GPT image models** | `/v1/images/generations` | `data[].b64_json` |
+| **Gemini image models** | `/v1/chat/completions` | `choices[0].message.images[].image_url.url` |
 
 Both engines support `generate_image` for new images and, when the CPA Provider exposes the optional edit capability, `edit_image` for editing or combining existing references. The Adapter saves successful results as DSH Attachments and presents them in the conversation; workspace saving is optional.
 
@@ -89,7 +120,7 @@ Both engines support `generate_image` for new images and, when the CPA Provider 
 
 ## Inspiration and Gallery management
 
-- **Inspiration Library**: a compact built-in catalog with fixed case/category/style/scene allowlists supports search, favorites, prompt copying, and one-click CPA generation with either GPT Image 2 or Gemini Image. Images try the fixed mirror first, then jsDelivr/GitHub; the browser submits case IDs, never arbitrary URLs.
+- **Inspiration Library**: a compact built-in catalog with fixed case/category/style/scene allowlists supports search, favorites, prompt copying, and one-click CPA generation with either GPT Image or Gemini Image. Images try the fixed mirror first, then jsDelivr/GitHub; the browser submits case IDs, never arbitrary URLs.
 - **Cache boundaries**: browser IndexedDB catalog/image caches are size-bounded. The optional Host disk cache is under `~/.dsh/cache/dsh-image-gen/inspiration`; failures fall back to generated built-in SVG previews and never block image generation. Refresh/clear removes plugin caches, and third-party requests are limited to the fixed HTTPS sources in code.
 - **Gallery management**: Better Sidebar Gallery keeps the fork's DB v3 schema, thumbnail/full-image cache, and virtualized Grid/Table views while adding favorites, batch select/delete, current-workspace filtering, prompt copy, and CPA-only regeneration. List view displays the complete prompt.
 - **Workspace governance**: normal `generate_image` writes only to the current agent session cwd using atomic writes and realpath containment. Dynamically discovered DSH workspaces are used only for strict root authorization; browser batch deletion accepts saved generated-file paths only, and browser regeneration creates an Attachment without expanding write authorization.
@@ -100,15 +131,19 @@ The CPA service keeps `generate` backward-compatible and may expose an optional 
 
 With an older CPA Provider that has no `edit` method, the Adapter registers only `generate_image`; it never invents `edit_image`, copies attachments through shell commands, or claims an unverified result. A Studio native-provider backend, native model comparison, `provider=comfyui`, and Provider/BYOK/API-key configuration remain outside this package.
 
-## Local development
+## Local development checks
+
+This repository is not a standalone Provider checkout. Prepare the adjacent CPA sibling first and run checks in the order “CPA bundle → image-gen build → package artifact”. At minimum:
 
 ```bash
-pnpm install
+PNPM_CONFIG_IGNORE_SCRIPTS=true pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm run test
 pnpm run build
 pnpm run pack:check
 ```
+
+For a cross-machine artifact, also run `pnpm run pack:artifact -- --pack-destination <directory>`.
 
 ## License
 

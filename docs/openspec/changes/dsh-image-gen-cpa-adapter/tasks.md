@@ -1,6 +1,6 @@
 ## 1. CPA 服务接入
 
-- [x] 1.1 将 `src/config.ts`/`src/shared.ts` 收敛为 `engine: 'gpt' | 'gemini'`、工作区保存和文件夹配置，默认 engine 为 `gpt`。
+- [x] 1.1 将 `src/config.ts`/`src/shared.ts` 收敛为 `engine: 'gpt' | 'gemini'`、可选 CPA `model`、工作区保存和文件夹配置，默认 engine 为 `gpt`。
 - [x] 1.2 在 `src/index.ts` 中声明并解析 `dshCpaImageGeneration` 依赖，移除 provider-specific credential resolution 和直接供应商客户端导入。
 - [x] 1.3 保持 `generate_image` 工具、Attachment 输出和取消信号语义不变，转发 engine、prompt、aspect ratio、image size 和 size 到 CPA 服务。
 - [x] 1.4 新增 `tests/cpa-service-contract.spec.ts` 与配置测试，验证服务参数转发、无密钥解析和缺少服务时的诊断行为。
@@ -8,7 +8,7 @@
 
 ## 2. 设置与 Gallery 迁移
 
-- [x] 2.1 修改 `src/client/index.tsx` 设置卡，只保留 GPT Image 2/Gemini Image 引擎、工作区保存开关和相对文件夹字段。
+- [x] 2.1 修改 `src/client/index.tsx` 设置卡，保留 GPT/Gemini 引擎、CPA 动态图片模型选择、工作区保存开关和相对文件夹字段。
 - [x] 2.2 从设置接口和 UI 中移除 API key、endpoint 与 raw model 字段，确认页面不渲染供应商凭据。
 - [x] 2.3 在 `src/client/gallery-store.ts` 中增加 engine 元数据规范化，将旧的 OpenAI/Google provider 映射为 gpt/gemini，并保留 Attachment ID。
 - [x] 2.4 更新 `src/client/gallery-view.tsx` 和图片卡片的引擎标签，保持复制、下载、全屏和现有二进制存储行为。
@@ -47,3 +47,10 @@
 - [x] 6.4 在 `dsh-image-gen` 迁移 Host-side Attachment resolver、`edit_image`、客户端 card/turn-tail 和安全 workspace path 校验。
 - [x] 6.5 增加 CPA 协议、参考图解析、工具 contract、客户端渲染和 feature-detection 回归测试。
 - [ ] 6.6 在带认证的真实 CPA relay 上验证 Gemini 参考图编辑；确认部署版本至少包含 GPT edits 和 Gemini 3.1 image route 提交。
+
+## 7. CPA 动态图片模型选择增量
+
+- [x] 7.1 扩展 CPA 图片模型能力投影，优先读取图片生成/引擎/编辑元数据，并兼容旧版 GPT/Gemini 图片模型命名空间。
+- [x] 7.2 扩展 `dshCpaImageGeneration` 的可选 `listModels()`、model-aware `generate/edit` 和旧 Provider fallback。
+- [x] 7.3 增加 ImageGen same-origin 图片模型目录、动态设置选择、生成/编辑/Gallery model metadata 传递。
+- [x] 7.4 增加未来模型、错误路由、旧服务兼容和模型目录 route 回归测试。
