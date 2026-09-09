@@ -32,6 +32,11 @@ const client: UserConfig = {
   clean: false,
   external: CLIENT_EXTERNALS,
   noExternal: (id: string) => CLIENT_EXTERNALS.includes(id) ? undefined : true,
+  // The host webview has no `process` global; CJS deps (zustand, @xyflow) read
+  // NODE_ENV at runtime, so bake it in at build time instead.
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   alias: {
     'lucide-react': 'lucide-react/dist/esm/lucide-react.mjs',
   },
