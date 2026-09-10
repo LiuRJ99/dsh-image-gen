@@ -48,6 +48,9 @@ describe('unsupported dsh-settings degradation', () => {
     expect(tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image'])
     expect(ctx.logger.warn).toHaveBeenCalledTimes(1)
     expect(vi.mocked(ctx.logger.warn).mock.calls[0]?.[0]).toContain('neither settings API generation')
-    expect(ctx.inject).not.toHaveBeenCalled()
+    // Optional service injection for the studio chat: declaring a dependency
+    // that this bare host never provides is safe (the callback never fires),
+    // which is exactly the graceful degradation this test guards.
+    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry'], expect.any(Function))
   })
 })

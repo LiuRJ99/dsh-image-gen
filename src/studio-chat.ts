@@ -17,9 +17,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session'
+import type { Agent, AgentHandle, AgentRegistry } from '@deepseek-ai/dsh-agent'
+import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { CHAT_ROUTE, STUDIO_CHAT_SESSION_ID, type ChatImageRef, type StudioChatEvent } from './shared.js'
 
@@ -47,9 +46,7 @@ interface ChatRuntime {
   /** Highest projected seq (0 before the first event). */
   latestSeq: number
   /** Live agent handle fields the send path needs; undefined until created. */
-  agent: {
-    followup(message: unknown): void
-  } | undefined
+  agent: Agent | undefined
   /** Agent teardown when this plugin created the agent; reattaches have none. */
   disposeAgent: (() => void) | undefined
 }
@@ -72,9 +69,31 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   const runtime: ChatRuntime = { events: [], latestSeq: 0, agent: undefined, disposeAgent: undefined }
   const disposers: Array<() => void> = []
 
-  void ensureAgent(ctx, runtime).catch(error => {
-    ctx.logger.warn(`dsh-image-gen: studio chat unavailable: ${error instanceof Error ? error.message : String(error)}`)
-  })
+  // Dynamic service injection (optional-dependency pattern): the callback
+  // fires once BOTH the agent registry and the workspace registry are live.
+  // A direct ctx.agents read here is always undefined on real hosts because
+  // the plugin's static inject list does not declare these services - the
+  // route then reports chat-unavailable, which is exactly the degraded state
+  // hosts without agent services should see (never a failed plugin load).
+  if (typeof ctx.inject === 'function') {
+    const injectServices = ctx.inject as unknown as (
+      deps: readonly string[],
+      callback: (owner: Context) => void,
+    ) => unknown
+    const fiber = injectServices(['agents', 'workspaceRegistry'], (scoped: Context) => {
+      void ensureAgent(scoped, runtime).catch(error => {
+        ctx.logger.warn(`dsh-image-gen: studio chat unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    })
+    const disposeFiber = (fiber as { dispose?: () => void } | null | undefined)?.dispose
+    if (typeof disposeFiber === 'function') disposers.push(disposeFiber.bind(fiber))
+  } else {
+    // Plain-cordis harness without the inject API: try immediately; the
+    // ensureAgent guards report the missing services through the route.
+    void ensureAgent(ctx, runtime).catch(error => {
+      ctx.logger.warn(`dsh-image-gen: studio chat unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
 
   // Subscribe when the host exposes the cordis event bus; a host (or test
   // harness) without it simply never receives events and the panel degrades
@@ -98,35 +117,53 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   }
 }
 
-/** Create the dedicated agent once; reattach if the session already exists. */
+/** Create the dedicated agent once; reattach live, resume persisted, else create. */
 async function ensureAgent(ctx: Context, runtime: ChatRuntime): Promise<void> {
   if (runtime.agent !== undefined) return
-  const agents = (ctx as Context & { agents?: { get(id: string): unknown } }).agents
+  const agents = (ctx as Context & { agents?: AgentRegistry }).agents
   if (agents === undefined) throw new Error('DSH host does not expose the agent service')
 
-  // Reattach to an already-live session (e.g. plugin reload) instead of
-  // colliding with ctx.agents.create's duplicate-id rejection.
-  const existing = agents.get(STUDIO_CHAT_SESSION_ID)
+  // Live re-attach: the host kept running across a plugin reload, so the
+  // session is already in the registry (the same handle the sidebar factory
+  // would return). No duplicate-id collision with create.
+  const existing = agents.get(STUDIO_CHAT_SESSION_ID as SessionId)
   if (existing !== undefined) {
-    runtime.agent = existing as ChatRuntime['agent']
+    runtime.agent = existing
     await archiveQuietly(ctx)
     return
   }
 
-  const handle = await ctx.agents.create({
+  // Restart path: the session is persisted but not live. resume() loads the
+  // durable conversation so the agent keeps its memory across DSH restarts;
+  // it rejects when nothing is persisted, which is the first-use case below.
+  try {
+    const resumed = await agents.resume({ resumeSessionId: STUDIO_CHAT_SESSION_ID as SessionId })
+    runtime.agent = resumed.agent
+    bindAgentDisposer(ctx, runtime, resumed)
+    await archiveQuietly(ctx)
+    return
+  } catch {
+    // Not persisted either - first use, fall through to create.
+  }
+
+  const handle = await agents.create({
     sessionId: STUDIO_CHAT_SESSION_ID as SessionId,
     meta: { cwd: process.cwd() },
   })
   runtime.agent = handle.agent
+  bindAgentDisposer(ctx, runtime, handle)
+  await archiveQuietly(ctx)
+}
+
+/** Attach handle teardown to the runtime disposer; disposal failures are logged, never thrown. */
+function bindAgentDisposer(ctx: Context, runtime: ChatRuntime, handle: AgentHandle): void {
   // Teardown runs through the runtime disposer (not ctx.effect) because this
-  // registration happens after apply's synchronous section; disposal failures
-  // are logged, never thrown.
+  // registration happens after apply's synchronous section.
   runtime.disposeAgent = () => {
     void handle.dispose().catch(error => {
       ctx.logger.warn(`dsh-image-gen: studio chat agent dispose failed: ${error instanceof Error ? error.message : String(error)}`)
     })
   }
-  await archiveQuietly(ctx)
 }
 
 /** Archive the session out of every sidebar grouping surface; never fatal. */
@@ -299,7 +336,7 @@ async function serveSend(
       role: 'user',
       content: [{ type: 'text', text }],
       source: { kind: 'user' },
-    })
+    } as UserMessage)
   } catch (error) {
     ctx.logger.warn(`dsh-image-gen: chat send failed: ${error instanceof Error ? error.message : String(error)}`)
     return jsonError(res, 502, 'send-failed')
