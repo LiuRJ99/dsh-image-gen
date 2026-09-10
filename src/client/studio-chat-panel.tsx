@@ -130,10 +130,16 @@ export const StudioChatPanel: FC<{
       try {
         const response = await fetch(`${CHAT_ROUTE}?since=${since}`, { credentials: 'same-origin' })
         if (disposed) return
-        const payload = await response.json() as { ok?: boolean; latestSeq?: number; events?: StudioChatEvent[]; error?: string }
+        const payload = await response.json() as { ok?: boolean; latestSeq?: number; events?: StudioChatEvent[]; error?: string; unavailable?: string }
         if (disposed) return
         if (!response.ok || payload.error !== undefined || !Array.isArray(payload.events)) {
           setFeedError(t('feedError', { reason: payload.error ?? `HTTP ${response.status}` }))
+          return
+        }
+        // The backing agent could not be created (missing services, no default
+        // model, …): show why instead of an empty silent transcript.
+        if (typeof payload.unavailable === 'string' && payload.unavailable.length > 0) {
+          setFeedError(t('feedError', { reason: payload.unavailable }))
           return
         }
         setFeedError(null)

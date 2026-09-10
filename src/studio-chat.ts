@@ -17,7 +17,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, AgentRegistry } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions, AgentRegistry } from '@deepseek-ai/dsh-agent'
 import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { CHAT_ROUTE, STUDIO_CHAT_SESSION_ID, type ChatImageRef, type StudioChatEvent } from './shared.js'
@@ -27,6 +27,8 @@ export interface StudioChatStateResponse {
   ok: true
   latestSeq: number
   events: StudioChatEvent[]
+  /** Why the backing agent is missing, when creation failed; absent otherwise. */
+  unavailable?: string
 }
 export interface StudioChatSendResponse {
   ok: true
@@ -54,6 +56,8 @@ interface ChatRuntime {
    * can show the model's chosen name (the result event carries no name).
    */
   toolNames: Map<string, string>
+  /** Why the agent could not be created; surfaced through GET and POST. */
+  unavailable: string | undefined
 }
 
 export interface StudioChatDeps {
@@ -71,8 +75,23 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   serve: (req: IncomingMessage, res: ServerResponse) => Promise<void>
   dispose(): void
 } {
-  const runtime: ChatRuntime = { events: [], latestSeq: 0, agent: undefined, disposeAgent: undefined, toolNames: new Map() }
+  const runtime: ChatRuntime = { events: [], latestSeq: 0, agent: undefined, disposeAgent: undefined, toolNames: new Map(), unavailable: undefined }
   const disposers: Array<() => void> = []
+
+  // Agent-creation failures land here once and are replayed to the browser
+  // through the GET feed and POST error bodies, so the panel can explain why
+  // chat is unavailable instead of only logging to the host console.
+  const ensure = async (): Promise<void> => {
+    try {
+      await ensureAgent(ctx, runtime)
+      runtime.unavailable = undefined
+    } catch (error) {
+      runtime.unavailable = error instanceof Error && error.message.length > 0
+        ? error.message
+        : 'agent unavailable'
+      ctx.logger.warn(`dsh-image-gen: studio chat unavailable: ${runtime.unavailable}`)
+    }
+  }
 
   // Dynamic service injection (optional-dependency pattern): the callback
   // fires once BOTH the agent registry and the workspace registry are live.
@@ -85,19 +104,15 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
       deps: readonly string[],
       callback: (owner: Context) => void,
     ) => unknown
-    const fiber = injectServices(['agents', 'workspaceRegistry'], (scoped: Context) => {
-      void ensureAgent(scoped, runtime).catch(error => {
-        ctx.logger.warn(`dsh-image-gen: studio chat unavailable: ${error instanceof Error ? error.message : String(error)}`)
-      })
+    const fiber = injectServices(['agents', 'workspaceRegistry'], () => {
+      void ensure()
     })
     const disposeFiber = (fiber as { dispose?: () => void } | null | undefined)?.dispose
     if (typeof disposeFiber === 'function') disposers.push(disposeFiber.bind(fiber))
   } else {
     // Plain-cordis harness without the inject API: try immediately; the
     // ensureAgent guards report the missing services through the route.
-    void ensureAgent(ctx, runtime).catch(error => {
-      ctx.logger.warn(`dsh-image-gen: studio chat unavailable: ${error instanceof Error ? error.message : String(error)}`)
-    })
+    void ensure()
   }
 
   // Subscribe when the host exposes the cordis event bus; a host (or test
@@ -128,9 +143,21 @@ async function ensureAgent(ctx: Context, runtime: ChatRuntime): Promise<void> {
   const agents = (ctx as Context & { agents?: AgentRegistry }).agents
   if (agents === undefined) throw new Error('DSH host does not expose the agent service')
 
+  // Entry points like the sidebar pass the host's default model when creating
+  // agents; without it the agent has no model and prompt assembly fails every
+  // turn with `prompt variable "{{model}}" has no value`. Resolve the same
+  // selection for our session; an explicitly empty selection is a hard error
+  // because no turn could ever run, while a missing service falls through so
+  // hosts that wire defaults differently keep working.
+  const agentOptions = defaultModelOptionsOf(ctx)
+  if (agentOptions === CONFIGURED_EMPTY_MODEL) {
+    throw new Error('no default model configured in DSH settings; pick one first')
+  }
+
   // Live re-attach: the host kept running across a plugin reload, so the
   // session is already in the registry (the same handle the sidebar factory
-  // would return). No duplicate-id collision with create.
+  // would return). No duplicate-id collision with create, and its model
+  // selection already exists - do not disturb it.
   const existing = agents.get(STUDIO_CHAT_SESSION_ID as SessionId)
   if (existing !== undefined) {
     runtime.agent = existing
@@ -142,7 +169,10 @@ async function ensureAgent(ctx: Context, runtime: ChatRuntime): Promise<void> {
   // durable conversation so the agent keeps its memory across DSH restarts;
   // it rejects when nothing is persisted, which is the first-use case below.
   try {
-    const resumed = await agents.resume({ resumeSessionId: STUDIO_CHAT_SESSION_ID as SessionId })
+    const resumed = await agents.resume({
+      resumeSessionId: STUDIO_CHAT_SESSION_ID as SessionId,
+      ...(agentOptions !== undefined ? { agentOptions } : {}),
+    })
     runtime.agent = resumed.agent
     bindAgentDisposer(ctx, runtime, resumed)
     await archiveQuietly(ctx)
@@ -154,10 +184,43 @@ async function ensureAgent(ctx: Context, runtime: ChatRuntime): Promise<void> {
   const handle = await agents.create({
     sessionId: STUDIO_CHAT_SESSION_ID as SessionId,
     meta: { cwd: process.cwd() },
+    ...(agentOptions !== undefined ? { agentOptions } : {}),
   })
   runtime.agent = handle.agent
   bindAgentDisposer(ctx, runtime, handle)
   await archiveQuietly(ctx)
+}
+
+/**
+ * Structural type for ctx.agentDefaultModel (dsh-agent-default-model): the
+ * host-owned default model selection backing new sidebar conversations.
+ * Kept local so the package stays a type-only convenience, not a dependency.
+ */
+interface AgentDefaultModelService {
+  currentSelection(): { provider: string; model: string; reasoningEffort?: string }
+}
+
+/** Sentinel: the service exists but has no usable selection configured. */
+const CONFIGURED_EMPTY_MODEL = Symbol('configured-empty-model')
+
+/**
+ * Resolve the host's default model into create/resume agentOptions.
+ * Returns the provider/model pair, CONFIGURED_EMPTY_MODEL when the host
+ * exposes the service with nothing configured (a guaranteed broken agent),
+ * or undefined when the service is absent (let the host's own wiring decide).
+ */
+function defaultModelOptionsOf(ctx: Context): { provider: string; model: string } | typeof CONFIGURED_EMPTY_MODEL | undefined {
+  const service = (ctx as Context & { agentDefaultModel?: AgentDefaultModelService }).agentDefaultModel
+  if (service === undefined || typeof service.currentSelection !== 'function') return undefined
+  let selection: { provider: string; model: string } | undefined
+  try {
+    selection = service.currentSelection()
+  } catch {
+    return undefined
+  }
+  if (typeof selection?.provider !== 'string' || typeof selection?.model !== 'string') return undefined
+  if (selection.provider.trim().length === 0 || selection.model.trim().length === 0) return CONFIGURED_EMPTY_MODEL
+  return { provider: selection.provider, model: selection.model }
 }
 
 /** Attach handle teardown to the runtime disposer; disposal failures are logged, never thrown. */
@@ -366,7 +429,12 @@ function serveFeed(runtime: ChatRuntime, req: IncomingMessage, res: ServerRespon
   const sinceRaw = url.searchParams.get('since')
   const since = sinceRaw !== null && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : 0
   const events = runtime.events.filter(event => event.seq > since)
-  json(res, 200, { ok: true, latestSeq: runtime.latestSeq, events } satisfies StudioChatStateResponse)
+  json(res, 200, {
+    ok: true,
+    latestSeq: runtime.latestSeq,
+    events,
+    ...(runtime.agent === undefined && runtime.unavailable !== undefined ? { unavailable: runtime.unavailable } : {}),
+  } satisfies StudioChatStateResponse)
 }
 
 /** POST handler: validate the text and submit one follow-up turn. */
@@ -377,7 +445,9 @@ async function serveSend(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (runtime.agent === undefined) return jsonError(res, 503, 'chat-unavailable')
+  if (runtime.agent === undefined) {
+    return jsonError(res, 503, runtime.unavailable !== undefined ? `chat-unavailable: ${runtime.unavailable}` : 'chat-unavailable')
+  }
   if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
     return jsonError(res, 415, 'json-required')
   }
