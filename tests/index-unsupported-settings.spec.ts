@@ -51,6 +51,6 @@ describe('unsupported dsh-settings degradation', () => {
     // Optional service injection for the studio chat: declaring a dependency
     // that this bare host never provides is safe (the callback never fires),
     // which is exactly the graceful degradation this test guards.
-    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry'], expect.any(Function))
+    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry', 'agentDefaultModel'], expect.any(Function))
   })
 })

@@ -65,7 +65,7 @@ describe('legacy dsh-settings (<= 0.1.1-rc.2) compatibility', () => {
     // The legacy host keeps working: the studio chat's optional service
     // injection is declared (services this host never provides, so the
     // callback never fires) but never breaks the legacy settings relay.
-    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry'], expect.any(Function))
+    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry', 'agentDefaultModel'], expect.any(Function))
   })
 
   it('never throws when the install relay itself rejects', () => {

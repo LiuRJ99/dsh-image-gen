@@ -81,9 +81,9 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   // Agent-creation failures land here once and are replayed to the browser
   // through the GET feed and POST error bodies, so the panel can explain why
   // chat is unavailable instead of only logging to the host console.
-  const ensure = async (): Promise<void> => {
+  const ensure = async (target: Context): Promise<void> => {
     try {
-      await ensureAgent(ctx, runtime)
+      await ensureAgent(target, runtime)
       runtime.unavailable = undefined
     } catch (error) {
       runtime.unavailable = error instanceof Error && error.message.length > 0
@@ -94,25 +94,25 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   }
 
   // Dynamic service injection (optional-dependency pattern): the callback
-  // fires once BOTH the agent registry and the workspace registry are live.
-  // A direct ctx.agents read here is always undefined on real hosts because
-  // the plugin's static inject list does not declare these services - the
-  // route then reports chat-unavailable, which is exactly the degraded state
-  // hosts without agent services should see (never a failed plugin load).
+  // fires once the agent registry, the workspace registry, and the default
+  // model config are live, and receives a scoped context whose fiber declared
+  // exactly those services. Service reads MUST go through that scoped
+  // context: on any other context cordis throws
+  // `cannot get property "agents" without inject` instead of resolving.
   if (typeof ctx.inject === 'function') {
     const injectServices = ctx.inject as unknown as (
       deps: readonly string[],
       callback: (owner: Context) => void,
     ) => unknown
-    const fiber = injectServices(['agents', 'workspaceRegistry'], () => {
-      void ensure()
+    const fiber = injectServices(['agents', 'workspaceRegistry', 'agentDefaultModel'], (scoped: Context) => {
+      void ensure(scoped)
     })
     const disposeFiber = (fiber as { dispose?: () => void } | null | undefined)?.dispose
     if (typeof disposeFiber === 'function') disposers.push(disposeFiber.bind(fiber))
   } else {
     // Plain-cordis harness without the inject API: try immediately; the
     // ensureAgent guards report the missing services through the route.
-    void ensure()
+    void ensure(ctx)
   }
 
   // Subscribe when the host exposes the cordis event bus; a host (or test
