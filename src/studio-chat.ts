@@ -49,6 +49,11 @@ interface ChatRuntime {
   agent: Agent | undefined
   /** Agent teardown when this plugin created the agent; reattaches have none. */
   disposeAgent: (() => void) | undefined
+  /**
+   * toolCallId → tool name, learned from tool/call events so tool/result rows
+   * can show the model's chosen name (the result event carries no name).
+   */
+  toolNames: Map<string, string>
 }
 
 export interface StudioChatDeps {
@@ -66,7 +71,7 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   serve: (req: IncomingMessage, res: ServerResponse) => Promise<void>
   dispose(): void
 } {
-  const runtime: ChatRuntime = { events: [], latestSeq: 0, agent: undefined, disposeAgent: undefined }
+  const runtime: ChatRuntime = { events: [], latestSeq: 0, agent: undefined, disposeAgent: undefined, toolNames: new Map() }
   const disposers: Array<() => void> = []
 
   // Dynamic service injection (optional-dependency pattern): the callback
@@ -101,7 +106,7 @@ export function createStudioChat(ctx: Context, deps: StudioChatDeps): {
   const subscribeEvents = typeof ctx.on === 'function'
     ? ctx.on('session/event', (session, event) => {
         if (String(session.id) !== STUDIO_CHAT_SESSION_ID) return
-        const projected = projectEvent(event)
+        const projected = projectEvent(runtime, event)
         if (projected !== undefined) appendEvent(runtime, projected)
       })
     : undefined
@@ -175,8 +180,16 @@ async function archiveQuietly(ctx: Context): Promise<void> {
   }
 }
 
-/** Project one raw session event into the browser feed, or undefined to skip. */
-function projectEvent(event: unknown): StudioChatEvent | undefined {
+/**
+ * Project one raw session event into the browser feed, or undefined to skip.
+ *
+ * Field paths verified against dsh-session's SessionEventMap: 'user/message'
+ * data IS the UserMessage itself (content at `data.content`), while
+ * 'assistant/message' and 'tool/result' wrap theirs in `data.message`.
+ * 'tool/call' data carries the model-chosen `name` and `callId`; the result
+ * event never repeats the name, so the runtime's toolNames map closes the gap.
+ */
+function projectEvent(runtime: ChatRuntime, event: unknown): StudioChatEvent | undefined {
   const raw = event as { type?: string; seq?: number; data?: Record<string, unknown> }
   if (typeof raw.type !== 'string' || typeof raw.seq !== 'number') return undefined
   const seq = raw.seq
@@ -184,7 +197,11 @@ function projectEvent(event: unknown): StudioChatEvent | undefined {
 
   switch (raw.type) {
     case 'user/message': {
-      const text = textOf((data as { message?: { content?: unknown[] } }).message?.content)
+      // Only direct human prompts render; synthetic agent.inject() contexts
+      // and goal continuations share this event type but carry other sources.
+      const source = (data as { source?: { kind?: unknown } }).source
+      if (source?.kind !== 'user') return undefined
+      const text = textOf((data as { content?: unknown[] }).content)
       if (text === '') return undefined
       return { seq, type: 'user', text }
     }
@@ -195,25 +212,72 @@ function projectEvent(event: unknown): StudioChatEvent | undefined {
       const interrupted = (data as { interrupted?: boolean }).interrupted === true
       return interrupted ? { seq, type: 'assistant', text, interrupted } : { seq, type: 'assistant', text }
     }
+    case 'tool/call': {
+      const callId = (data as { callId?: unknown }).callId
+      const name = (data as { name?: unknown }).name
+      if (typeof callId === 'string' && typeof name === 'string') runtime.toolNames.set(callId, name)
+      return undefined
+    }
     case 'tool/result': {
       const images = imagesFromToolResult(data)
-      const name = typeof (data as { toolName?: unknown }).toolName === 'string'
-        ? String((data as { toolName?: unknown }).toolName)
+      const block = firstToolResultBlock(data)
+      const name = block !== undefined
+        ? runtime.toolNames.get(block.toolCallId) ?? 'tool'
         : 'tool'
-      const ok = !('error' in data) || data.error === undefined || data.error === null
+      const ok = data.error === undefined || data.error === null
       return { seq, type: 'tool', name, ok, images }
     }
     case 'turn/start':
       return { seq, type: 'status', phase: 'turn-start' }
     case 'turn/end': {
-      const reason = (data as { reason?: unknown }).reason
-      return {
-        seq,
-        type: 'status',
-        phase: 'turn-end',
-        ...(typeof reason === 'string' ? { reason } : {}),
-      }
+      const detail = turnEndDetail((data as { reason?: unknown }).reason)
+      return detail === undefined
+        ? { seq, type: 'status', phase: 'turn-end' }
+        : { seq, type: 'status', phase: 'turn-end', detail }
     }
+    default:
+      return undefined
+  }
+}
+
+/** The toolCallId of a tool/result's single ToolResultBlock, if present. */
+function firstToolResultBlock(data: Record<string, unknown>): { toolCallId: string } | undefined {
+  const content = (data as { message?: { content?: unknown[] } }).message?.content
+  if (!Array.isArray(content) || content.length === 0) return undefined
+  const block = content[0]
+  if (typeof block !== 'object' || block === null) return undefined
+  const candidate = block as { type?: unknown; toolCallId?: unknown }
+  if (candidate.type !== 'tool-result' || typeof candidate.toolCallId !== 'string') return undefined
+  return { toolCallId: candidate.toolCallId }
+}
+
+/**
+ * Render the structured TurnEndReason into a short panel-visible ending.
+ * Clean completions (and unknown shapes) stay silent; only error, abort,
+ * block, max-tokens, and crash-interrupted turns surface a detail row.
+ */
+function turnEndDetail(reason: unknown): string | undefined {
+  if (typeof reason !== 'object' || reason === null) return undefined
+  const kind = (reason as { kind?: unknown }).kind
+  switch (kind) {
+    case 'completed':
+      return undefined
+    case 'error': {
+      const error = (reason as { error?: { message?: unknown; code?: unknown } }).error
+      const message = typeof error?.message === 'string' ? error.message : ''
+      return message.length > 0 ? message : 'turn failed'
+    }
+    case 'aborted': {
+      const cause = (reason as { reason?: unknown }).reason
+      const text = typeof cause === 'string' ? cause : typeof cause === 'object' && cause !== null && 'message' in (cause as Record<string, unknown>) ? String((cause as { message?: unknown }).message ?? '') : ''
+      return text.length > 0 ? text : 'turn aborted'
+    }
+    case 'blocked':
+      return 'turn blocked'
+    case 'max-tokens':
+      return 'output token ceiling reached'
+    case 'interrupted':
+      return 'turn interrupted by reload'
     default:
       return undefined
   }

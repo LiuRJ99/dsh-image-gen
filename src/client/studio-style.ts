@@ -138,6 +138,8 @@ export const STUDIO_STYLE = `
 .dsh-ig-chat-thumb{position:relative;width:62px;height:62px;border-radius:7px;overflow:hidden;border:1px solid var(--ig-line);background:var(--ig-soft,#f1f4f9);display:inline-flex;align-items:center;justify-content:center;color:#929bad;flex:none}
 .dsh-ig-chat-thumb img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
 .dsh-ig-chat-typing{display:inline-flex;align-items:center;gap:7px;align-self:flex-start;padding:7px 11px;border-radius:11px;border-bottom-left-radius:4px;background:var(--ig-soft,#f1f4f9);color:#8790a3;font-size:10.5px}
+.dsh-ig-chat-system{display:inline-flex;align-items:center;gap:6px;max-width:100%;align-self:flex-start;padding:7px 11px;border-radius:9px;border:1px solid #f2caca;background:#fff8f8;color:#b63737;font-size:10.5px;line-height:15px}
+.dsh-ig-chat-system span{overflow-wrap:anywhere}
 .dsh-ig-chat-input{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--ig-line);padding:10px}
 .dsh-ig-chat-input textarea{width:100%;height:74px;padding:9px 11px;resize:vertical;border:1px solid var(--ig-line);border-radius:9px;background:var(--background,#fff);font-size:11.5px;line-height:18px;outline:none;font-family:inherit}
 .dsh-ig-chat-input textarea:focus{border-color:var(--ig-blue);box-shadow:0 0 0 3px rgba(47,100,245,.09)}

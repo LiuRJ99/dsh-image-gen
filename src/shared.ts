@@ -35,7 +35,17 @@ export type StudioChatEvent =
   | { seq: number; type: 'user'; text: string }
   | { seq: number; type: 'assistant'; text: string; interrupted?: boolean }
   | { seq: number; type: 'tool'; name: string; ok: boolean; images: ChatImageRef[] }
-  | { seq: number; type: 'status'; phase: 'turn-start' | 'turn-end'; reason?: string }
+  | {
+      seq: number
+      type: 'status'
+      phase: 'turn-start' | 'turn-end'
+      /**
+       * Only on turn-end: a short human-readable ending when the turn did not
+       * complete cleanly (error message, abort cause, token ceiling). Derived
+       * from the structured TurnEndReason; empty/undefined for a clean turn.
+       */
+      detail?: string
+    }
 
 /**
  * Image reference extracted from a tool result event. Carries the full field

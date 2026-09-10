@@ -291,9 +291,21 @@ export const StudioChatPanel: FC<{
   )
 }
 
-/** Rendered rows: user (right bubble), assistant (left bubble), tool (summary card). */
+/** Rendered rows: user (right bubble), assistant (left bubble), tool (summary card), turn-end failures (system row). */
 const ChatRow: FC<{ event: StudioChatEvent; lang: 'zh' | 'en' }> = ({ event, lang }) => {
-  if (event.type === 'status') return null
+  if (event.type === 'status') {
+    // Only non-clean turn endings surface a row; turn-start feeds the typing
+    // indicator and clean turn-end stays silent so the transcript stays tight.
+    if (event.phase !== 'turn-end' || event.detail === undefined) return null
+    return (
+      <div className="dsh-ig-chat-row is-system">
+        <div className="dsh-ig-chat-system">
+          <X size={12} />
+          <span>{event.detail}</span>
+        </div>
+      </div>
+    )
+  }
   if (event.type === 'user') {
     return (
       <div className="dsh-ig-chat-row is-user">
