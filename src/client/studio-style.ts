@@ -111,4 +111,7 @@ export const STUDIO_STYLE = `
 .dsh-ig-save-gallery-btn{color:var(--ig-blue)!important;border-color:rgba(47,100,245,.35)!important;background:rgba(47,100,245,.06)!important}
 .dsh-ig-save-gallery-btn:hover{background:rgba(47,100,245,.12)!important}
 .dsh-ig-save-gallery-btn.is-saved{color:#64748b!important;border-color:var(--ig-line)!important;background:transparent!important}
+
+/* tldraw infinite canvas surface (P0 spike) */
+.dsh-ig-tl-canvas{position:relative;flex:1 1 0;height:0;min-height:0;overflow:hidden;isolation:isolate}
 `

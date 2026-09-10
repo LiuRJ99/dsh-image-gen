@@ -12,6 +12,7 @@ import {
   Download,
   Expand,
   FileText,
+  Frame,
   Heart,
   ImagePlus,
   LoaderCircle,
@@ -32,6 +33,7 @@ import { deleteGalleryItem, getGalleryItems, saveGalleryItem, subscribeGallery, 
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
 import { buildComparisonTargets, initialComparisonProviders } from './multi-model-compare.js'
+import { StudioTlCanvas } from './tl/studio-tl-canvas.js'
 
 const PAGE_SIZE = 12
 
@@ -66,7 +68,7 @@ const COPY = {
     retry: '重新加载', configLoadFailed: '工作台配置加载失败，请检查服务后重试。',
     noProvider: '请先在设置中配置至少一个云端图像 Provider 的 API Key。', selectConfigured: '该 Provider 尚未配置，请先到设置中配置 API Key。',
     needPrompt: '请输入提示词', needReference: '请先添加至少一张参考图', result: '本次结果', continueEdit: '继续编辑（垫图）', regenerate: '再次生成',
-    copy: '复制', copied: '已复制到剪贴板', copyFailed: '复制失败', download: '下载', remove: '删除', fit: '适应窗口', loading: '正在读取图片…', generationFailed: '生成失败',
+    copy: '复制', copied: '已复制到剪贴板', copyFailed: '复制失败', download: '下载', remove: '删除', fit: '适应窗口', infiniteCanvas: '无限画布', loading: '正在读取图片…', generationFailed: '生成失败',
     selectHistory: '从左侧选择一张图片，或在右侧开始新的生成。', created: '生成时间', elapsed: '耗时', dimensions: '尺寸', output: '输出参数',
     closeReference: '移除参考图', uploadInvalid: '请选择有效的图片文件（最大 10MB）', imageLoadFailed: '图片读取失败',
     fullscreen: '大图全屏', close: '关闭', copyPpt: '复制 Prompt', copiedPrompt: '已复制 Prompt', copiedImage: '已复制图片',
@@ -93,7 +95,7 @@ const COPY = {
     retry: 'Retry', configLoadFailed: 'Failed to load studio configuration.',
     noProvider: 'Configure an API key for at least one cloud image provider in Settings.', selectConfigured: 'This provider is not configured. Add its API key in Settings first.',
     needPrompt: 'Enter a prompt', needReference: 'Add at least one reference image first', result: 'Current result', continueEdit: 'Continue editing', regenerate: 'Generate again',
-    copy: 'Copy', copied: 'Copied to clipboard', copyFailed: 'Copy failed', download: 'Download', remove: 'Delete', fit: 'Fit', loading: 'Loading image…', generationFailed: 'Generation failed',
+    copy: 'Copy', copied: 'Copied to clipboard', copyFailed: 'Copy failed', download: 'Download', remove: 'Delete', fit: 'Fit', infiniteCanvas: 'Infinite canvas', loading: 'Loading image…', generationFailed: 'Generation failed',
     selectHistory: 'Select an image on the left, or start a new generation on the right.', created: 'Created', elapsed: 'Elapsed', dimensions: 'Dimensions', output: 'Output',
     closeReference: 'Remove reference', uploadInvalid: 'Choose a valid image file up to 10MB.', imageLoadFailed: 'Could not load image',
     fullscreen: 'Fullscreen', close: 'Close', copyPpt: 'Copy Prompt', copiedPrompt: 'Prompt copied', copiedImage: 'Image copied',
@@ -157,6 +159,11 @@ export const StudioView: FC<{
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null)
   const hasDraggedRef = useRef(false)
+
+  // Canvas surface: 'preview' keeps the single-image viewer (fake canvas),
+  // 'infinite' mounts the tldraw editor. Defaults to 'preview' so existing
+  // behaviour is untouched until the toggle is clicked.
+  const [canvasSurface, setCanvasSurface] = useState<'preview' | 'infinite'>('preview')
 
   const [dragging, setDragging] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -928,13 +935,27 @@ export const StudioView: FC<{
                   <span>{t('newGeneration')}</span>
                 </button>
               )}
-              <button type="button" className={fit ? 'is-active' : ''} onClick={resetFit}>{t('fit')} <ChevronDown size={13} /></button>
-              <button type="button" onClick={() => { setFit(false); setZoom(value => Math.max(25, value - 25)) }} title="Zoom out"><ZoomOut size={16} /></button>
-              <span className="dsh-ig-zoom-display">{fit ? 'AUTO' : `${Math.round(zoom)}%`}</span>
-              <button type="button" onClick={() => { setFit(false); setZoom(value => Math.min(500, value + 25)) }} title="Zoom in"><ZoomIn size={16} /></button>
-              <button type="button" onClick={() => setLightboxOpen(true)} title={t('fullscreen')} disabled={selected === null}><Expand size={16} /></button>
+              <button
+                type="button"
+                className={canvasSurface === 'infinite' ? 'is-active' : ''}
+                onClick={() => setCanvasSurface(surface => surface === 'infinite' ? 'preview' : 'infinite')}
+                title={t('infiniteCanvas')}
+              >
+                <Frame size={14} />
+                <span>{t('infiniteCanvas')}</span>
+              </button>
+              {canvasSurface === 'preview' && (<>
+                <button type="button" className={fit ? 'is-active' : ''} onClick={resetFit}>{t('fit')} <ChevronDown size={13} /></button>
+                <button type="button" onClick={() => { setFit(false); setZoom(value => Math.max(25, value - 25)) }} title="Zoom out"><ZoomOut size={16} /></button>
+                <span className="dsh-ig-zoom-display">{fit ? 'AUTO' : `${Math.round(zoom)}%`}</span>
+                <button type="button" onClick={() => { setFit(false); setZoom(value => Math.min(500, value + 25)) }} title="Zoom in"><ZoomIn size={16} /></button>
+                <button type="button" onClick={() => setLightboxOpen(true)} title={t('fullscreen')} disabled={selected === null}><Expand size={16} /></button>
+              </>)}
             </div>
           </div>
+          {canvasSurface === 'infinite' ? (
+            <StudioTlCanvas />
+          ) : (
           <div
             className={`dsh-ig-canvas ${isDragging ? 'is-dragging' : ''}`}
             ref={canvasRef}
@@ -996,7 +1017,8 @@ export const StudioView: FC<{
               <div className="dsh-ig-canvas-empty"><ImagePlus size={32} /><span>{t('imageLoadFailed')}</span></div>
             )}
           </div>
-          {selected !== null && <>
+          )}
+          {selected !== null && canvasSurface === 'preview' && <>
             <div className="dsh-ig-result-strip"><span>{t('result')}</span><div><button type="button" onClick={() => void continueEdit()}><PencilLine size={15} />{t('continueEdit')}</button><button type="button" onClick={() => { setMode('generate'); setPanelTab('generate'); setPrompt(selected.prompt) }}><RefreshCw size={15} />{t('regenerate')}</button></div></div>
             <div className="dsh-ig-result-actions">
               <p>{selected.prompt}</p>

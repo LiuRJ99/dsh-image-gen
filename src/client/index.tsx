@@ -44,6 +44,7 @@ import { enqueuePendingCanvasImport } from './canvas/canvas-store.js'
 import { fetchAttachmentBlob } from './image-cache.js'
 import { imageRef, type ToolCallBlock } from './image-ref.js'
 import { STUDIO_STYLE } from './studio-style.js'
+import { TL_CSS } from './tl/tl-css.js'
 import { INSPIRATION_STYLE } from './inspiration-style.js'
 import {
   IMAGE_RESULT_NODE_KIND,
@@ -639,7 +640,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.plugin = 'dsh-image-gen'
-    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${CANVAS_STYLE}`
+    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${CANVAS_STYLE}\n${TL_CSS}`
     document.head.appendChild(style)
     return () => {
       style.remove()
