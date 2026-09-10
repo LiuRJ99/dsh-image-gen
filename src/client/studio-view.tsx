@@ -34,6 +34,7 @@ import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
 import { buildComparisonTargets, initialComparisonProviders } from './multi-model-compare.js'
 import { StudioTlCanvas } from './tl/studio-tl-canvas.js'
+import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 
 const PAGE_SIZE = 12
 
@@ -603,6 +604,8 @@ export const StudioView: FC<{
         setSelected(galleryEntries[0]!)
         setPanelTab('details')
         resetFit()
+        // Mirror the comparison batch onto the tldraw infinite canvas.
+        pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
         if (failed > 0) flash(t('comparePartial', { success: String(successes.length), failed: String(failed) }))
         return
       }
@@ -658,6 +661,8 @@ export const StudioView: FC<{
       }
       setPanelTab('details')
       resetFit()
+      // Mirror the generated batch onto the tldraw infinite canvas.
+      pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
 
       if (payload.failedCount && payload.failedCount > 0) {
         flash(t('partialSuccess', { success: String(generatedList.length), failed: String(payload.failedCount) }))
