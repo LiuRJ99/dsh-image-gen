@@ -32,6 +32,54 @@
 
 ---
 
+## Fork 增强特性（v0.5.0）
+
+> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.0`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
+
+### 1. 本 Fork 安装方式
+
+本仓库 `.gitignore` 包含 `lib/`，**构建产物不进版本控制**，因此不能直接用 `github:` 安装（缺少 `main` 指向的入口）。请使用 release tarball：
+
+```bash
+# 先安装并验证 CPA Provider，再安装本 Adapter
+dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.1"
+
+curl -fL \
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.0/dsh-image-gen-0.5.0.tgz \
+  -o /stable/path/dsh-image-gen-0.5.0.tgz
+dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.0.tgz
+```
+
+不要使用裸包名 `dsh-image-gen` 安装：npm 上的同名包属于上游项目，不是本 fork。
+
+### 2. 与上游的差异
+
+| | 上游 | 本 fork `v0.5.0` |
+|---|---|---|
+| Provider 归属 | 自带 Provider 与 BYOK 配置 | 只做 Adapter，模型/协议/凭据由 CPA Provider 持有 |
+| 双引擎路由 | — | 统一承接 GPT `images/generations` 与 Gemini `chat/completions` |
+| 参考图编辑 | 原生 `edit_image` | `edit()` 契约，读取 DSH Attachment，受 workspace containment 保护 |
+| 图片模型目录 | 静态硬编码 | 从 CPA 目录动态投影，新增模型无需改本插件 |
+| Gallery | 基础画廊 | 迁移到 `dsh-better-sidebar`，含虚拟化滚动、favorites、批量操作、workspace 过滤 |
+| 缩略图 | — | 服务端 WebP 缩略图 + HTTP 缓存；复用 Host 的 `sharp` peer，避免装第二份原生 `libvips` |
+| Peer 契约 | 放宽为 `>=4.0.0 <5` / `>=3.18.0 <4` | 固定精确 Host 版本（`0.1.2-rc.1`） |
+| DSH `0.1.2-rc.1` 兼容 | — | 已适配 |
+
+> **可选的 CPA `edit` 能力是向后兼容的**：旧版 CPA Provider 没有 `edit` 时，本插件只注册 `generate_image`，不会伪造编辑工具。
+
+### 3. 与上游同步
+
+```bash
+git remote add upstream https://github.com/shanliuling/dsh-image-gen.git
+git fetch upstream
+git merge upstream/main     # 与上游的 peer 范围冲突必须重新对齐为精确 Host 版本
+pnpm run typecheck && pnpm run test && pnpm run build
+```
+
+合并后必须回归验证两条 CPA 协议路径与参考图编辑链路。
+
+**关于 tag 命名**：本 fork 的版本号与上游并行演进，两边存在同名 tag（例如 `v0.5.0` 在本仓库指向 fork 的提交，在上游指向另一个提交）。按 `github:LiuRJ99/dsh-image-gen#<tag>` 或本仓库 tarball 安装取到的是 fork 的产物；直接对比版本号无法判断领先关系，需对照 CHANGELOG。
+
 ## 架构
 
 `dsh-image-gen` 是只负责工具、Attachment、Gallery 和工作区输出的 Adapter。模型 ID、请求协议和凭据由先安装的 `@LiuRJ99/dsh-cpa-plugin` Provider 持有；ImageGen 设置页不保存 Provider key。
