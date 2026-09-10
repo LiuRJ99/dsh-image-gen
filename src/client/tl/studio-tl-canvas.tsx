@@ -17,10 +17,12 @@ import { subscribeTlLandings, takeTlLandings, type TlLandingItem } from './tl-ca
  * Infinite canvas surface for the Studio workbench, backed by tldraw.
  *
  * Generated images are pushed here through the tl-canvas-bridge (both studio
- * form paths land the same way). Images become tldraw image assets with
- * data-URL sources so the persistenceKey document restores them after a
- * reload. Shapes carry `meta.galleryId` so re-landing the same generation is
- * a no-op. One batch = one createShapes transaction = one undo step.
+ * form paths land the same way) and become in-memory image assets with
+ * data-URL sources. The surface deliberately runs WITHOUT persistenceKey:
+ * unsaved generations vanish on restart, matching the plugin's save-first
+ * philosophy; data-URL assets therefore never touch disk. Shapes carry
+ * `meta.galleryId` so re-landing the same generation is a no-op. One batch
+ * = one createShapes transaction = one undo step.
  */
 
 const MAX_DISPLAY_SIDE = 380
@@ -142,8 +144,10 @@ export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
 
   return (
     <div className="dsh-ig-tl-canvas">
+      {/* No persistenceKey: the canvas is a session-scratch surface. Unsaved
+          generations must vanish on restart (save-first philosophy, same as
+          the previous preview pane); saved images remain in the gallery. */}
       <Tldraw
-        persistenceKey="dsh-image-gen-studio"
         onMount={editor => {
           editorRef.current = editor
           // One console line proves the editor booted inside the webview;

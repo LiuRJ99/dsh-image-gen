@@ -4,8 +4,9 @@
  * Generation paths (single, multi-image, multi-model comparison) push items
  * here; the mounted tldraw surface drains the queue. If the canvas is not
  * mounted (preview mode), items wait in memory and land on the next mount.
- * The queue is intentionally not persisted: shapes restored from IndexedDB
- * already carry the landed images as asset data URLs.
+ * Nothing here or on the canvas survives a restart: the tldraw surface runs
+ * without persistenceKey, so unsaved generations vanish on reload - the
+ * gallery remains the only durable store (save-first philosophy).
  */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
