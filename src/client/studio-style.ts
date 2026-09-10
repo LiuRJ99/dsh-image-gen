@@ -114,4 +114,36 @@ export const STUDIO_STYLE = `
 
 /* tldraw infinite canvas surface (P0 spike) */
 .dsh-ig-tl-canvas{position:relative;flex:1 1 0;height:0;min-height:0;overflow:hidden;isolation:isolate}
+
+/* Workbench chat panel (right column, second tab) */
+.dsh-ig-chat{flex:1 1 0;height:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.dsh-ig-chat-scroll{flex:1 1 0;height:0;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.dsh-ig-chat-empty{flex:1 1 auto;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#929bad;font-size:11.5px;line-height:17px;text-align:center;padding:20px;cursor:default}
+.dsh-ig-chat-error{padding:9px 10px;border-radius:7px;background:#fff1f1;color:#b63737;border:1px solid #f2caca;font-size:10.5px;line-height:16px}
+.dsh-ig-chat-error.is-inline{margin:0 0 2px}
+.dsh-ig-chat-row{display:flex;flex-direction:column}
+.dsh-ig-chat-row.is-user{align-items:flex-end}
+.dsh-ig-chat-bubble{max-width:86%;padding:9px 11px;border-radius:11px;font-size:11.5px;line-height:18px;white-space:pre-wrap;word-break:break-word}
+.dsh-ig-chat-row:not(.is-user) .dsh-ig-chat-bubble{background:var(--ig-soft,#f1f4f9);color:#3c4658;border-bottom-left-radius:4px}
+.dsh-ig-chat-row.is-user .dsh-ig-chat-bubble{background:linear-gradient(135deg,#386cf6,#2758e7);color:#fff;border-bottom-right-radius:4px}
+.dsh-ig-chat-bubble em{font-style:normal;color:#8790a3;font-size:10px;margin-left:4px}
+.dsh-ig-chat-row.is-user .dsh-ig-chat-bubble em{color:rgba(255,255,255,.75)}
+.dsh-ig-chat-tool{max-width:100%;padding:8px 10px;border:1px solid var(--ig-line);border-radius:9px;background:var(--background,#fff);display:flex;flex-direction:column;gap:7px}
+.dsh-ig-chat-row.is-tool.is-failed .dsh-ig-chat-tool{border-color:#f2caca;background:#fff8f8}
+.dsh-ig-chat-tool-name{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ig-blue);min-width:0}
+.dsh-ig-chat-row.is-tool.is-failed .dsh-ig-chat-tool-name{color:#b63737}
+.dsh-ig-chat-tool-name code{font-size:10.5px;background:transparent;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ig-chat-tool>small{font-size:9.5px;color:#8790a3}
+.dsh-ig-chat-thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.dsh-ig-chat-thumb{position:relative;width:62px;height:62px;border-radius:7px;overflow:hidden;border:1px solid var(--ig-line);background:var(--ig-soft,#f1f4f9);display:inline-flex;align-items:center;justify-content:center;color:#929bad;flex:none}
+.dsh-ig-chat-thumb img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.dsh-ig-chat-typing{display:inline-flex;align-items:center;gap:7px;align-self:flex-start;padding:7px 11px;border-radius:11px;border-bottom-left-radius:4px;background:var(--ig-soft,#f1f4f9);color:#8790a3;font-size:10.5px}
+.dsh-ig-chat-input{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--ig-line);padding:10px}
+.dsh-ig-chat-input textarea{width:100%;height:74px;padding:9px 11px;resize:vertical;border:1px solid var(--ig-line);border-radius:9px;background:var(--background,#fff);font-size:11.5px;line-height:18px;outline:none;font-family:inherit}
+.dsh-ig-chat-input textarea:focus{border-color:var(--ig-blue);box-shadow:0 0 0 3px rgba(47,100,245,.09)}
+.dsh-ig-chat-input button{height:34px;border:0;border-radius:8px;background:linear-gradient(135deg,#386cf6,#2758e7);color:#fff;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:650;cursor:pointer;transition:opacity .15s}
+.dsh-ig-chat-input button:hover:not(:disabled){opacity:.92}
+.dsh-ig-chat-input button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:900px){.dsh-ig-chat-scroll{min-height:220px}.dsh-ig-chat{height:auto}}
+@media(prefers-reduced-motion:reduce){.dsh-ig-chat-scroll{scroll-behavior:auto}}
 `

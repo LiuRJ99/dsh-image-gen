@@ -16,6 +16,7 @@ import {
   Heart,
   ImagePlus,
   LoaderCircle,
+  MessageCircle,
   PanelLeft,
   PanelLeftClose,
   PencilLine,
@@ -33,6 +34,7 @@ import { deleteGalleryItem, getGalleryItems, saveGalleryItem, subscribeGallery, 
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
 import { buildComparisonTargets, initialComparisonProviders } from './multi-model-compare.js'
+import { StudioChatPanel } from './studio-chat-panel.js'
 import { StudioTlCanvas } from './tl/studio-tl-canvas.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 
@@ -44,7 +46,8 @@ export interface LocaleService {
 }
 
 type Mode = 'generate' | 'edit'
-type PanelTab = 'generate' | 'details'
+/** Right panel tabs: the generation form and the DSH chat panel (the old details tab was replaced by the chat). */
+type PanelTab = 'generate' | 'chat'
 type BatchKind = 'multi-image' | 'multi-model'
 
 export interface StudioReferenceItem {
@@ -57,7 +60,7 @@ export interface StudioReferenceItem {
 const COPY = {
   zh: {
     title: '云端生图工作台', configured: 'API 已配置', unconfigured: '未配置', recent: '最近生成', empty: '暂无生成历史',
-    generate: '文生图', edit: '图生图', details: '图片详情', reference: '参考图', optional: '选填', upload: '点击或拖拽图片到此处',
+    generate: '文生图', edit: '图生图', chat: '对话', reference: '参考图', optional: '选填', upload: '点击或拖拽图片到此处',
     uploadHint: '支持 JPG / PNG / WebP / GIF，最大 10MB（最多 5 张）', prompt: '提示词 Prompt', clear: '清空', promptPlaceholder: '描述主体、构图、风格、光线与需要出现的文字…（支持 Ctrl+Enter 快捷生成）',
     provider: 'Provider', model: 'Model', ratio: '比例', quality: '清晰度', start: '开始生成', generating: '正在生成…', cancelGenerate: '取消生成',
     count: '生成数量', countUnit: '{n} 张', partialSuccess: '已生成 {success} 张图片，{failed} 张失败', generatingCount: '正在生成（共 {count} 张）…',
@@ -84,7 +87,7 @@ const COPY = {
   },
   en: {
     title: 'Cloud Image Studio', configured: 'API configured', unconfigured: 'Not configured', recent: 'Recent generations', empty: 'No generated images yet',
-    generate: 'Text to image', edit: 'Image to image', details: 'Image details', reference: 'Reference image', optional: 'optional', upload: 'Click or drop images here',
+    generate: 'Text to image', edit: 'Image to image', chat: 'Chat', reference: 'Reference image', optional: 'optional', upload: 'Click or drop images here',
     uploadHint: 'JPG / PNG / WebP / GIF, up to 10MB (max 5)', prompt: 'Prompt', clear: 'Clear', promptPlaceholder: 'Describe the subject, composition, style, lighting, and exact text… (Ctrl+Enter to generate)',
     provider: 'Provider', model: 'Model', ratio: 'Aspect ratio', quality: 'Quality', start: 'Generate', generating: 'Generating…', cancelGenerate: 'Cancel',
     count: 'Number of images', countUnit: '{n}', partialSuccess: 'Generated {success} images, {failed} failed', generatingCount: 'Generating ({count} images)…',
@@ -358,7 +361,8 @@ export const StudioView: FC<{
     setSelectedBatchIds([])
     setBatchKind(null)
     setSelected(item)
-    setPanelTab('details')
+    // No tab switch: the middle canvas shows the selection; the right panel
+    // stays on whatever the user is working in (form or chat).
     resetFit()
   }
 
@@ -602,7 +606,6 @@ export const StudioView: FC<{
         setSelectedBatchIds(galleryEntries.length > 1 ? [galleryEntries[0]!.id] : [])
         setBatchKind(galleryEntries.length > 1 ? 'multi-model' : null)
         setSelected(galleryEntries[0]!)
-        setPanelTab('details')
         resetFit()
         // Mirror the comparison batch onto the tldraw infinite canvas.
         pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
@@ -659,7 +662,6 @@ export const StudioView: FC<{
         setBatchKind(null)
         setSelected(galleryEntries[0]!)
       }
-      setPanelTab('details')
       resetFit()
       // Mirror the generated batch onto the tldraw infinite canvas.
       pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
@@ -1060,8 +1062,8 @@ export const StudioView: FC<{
         </main>
 
         <aside className="dsh-ig-generate-panel">
-          <div className="dsh-ig-panel-tabs"><button type="button" className={panelTab === 'generate' ? 'is-active' : ''} onClick={() => setPanelTab('generate')}>{t('generate')}</button><button type="button" className={panelTab === 'details' ? 'is-active' : ''} onClick={() => setPanelTab('details')}>{t('details')}</button></div>
-          {panelTab === 'details' ? <DetailsPanel item={selected} t={t} /> : <div className="dsh-ig-generator-form">
+          <div className="dsh-ig-panel-tabs"><button type="button" className={panelTab === 'generate' ? 'is-active' : ''} onClick={() => setPanelTab('generate')}>{t('generate')}</button><button type="button" className={panelTab === 'chat' ? 'is-active' : ''} onClick={() => setPanelTab('chat')}><MessageCircle size={13} />{t('chat')}</button></div>
+          {panelTab === 'chat' ? <StudioChatPanel lang={lang} workspace={workspace} /> : <div className="dsh-ig-generator-form">
             <div className="dsh-ig-mode-switch"><button type="button" className={mode === 'generate' ? 'is-active' : ''} onClick={() => setMode('generate')}><Sparkles size={15} />{t('generate')}</button><button type="button" className={mode === 'edit' ? 'is-active' : ''} onClick={() => setMode('edit')}><ImagePlus size={15} />{t('edit')}</button></div>
             {mode === 'edit' && (
               <div className="dsh-ig-field">
@@ -1456,8 +1458,6 @@ function comparisonQualityOptions(lang: 'zh' | 'en'): Array<{ value: string; lab
     { value: '4K', label: '4K' },
   ]
 }
-
-const DetailsPanel: FC<{ item: GalleryItem | null; t(key: CopyKey, values?: Record<string, string>): string }> = ({ item, t }) => item === null ? <div className="dsh-ig-details-empty"><ImagePlus size={28} /><span>{t('selectHistory')}</span></div> : <dl className="dsh-ig-details"><div><dt>{t('prompt')}</dt><dd>{item.prompt}</dd></div><div><dt>{t('provider')}</dt><dd>{item.provider}</dd></div><div><dt>{t('model')}</dt><dd>{item.model}</dd></div><div><dt>{t('dimensions')}</dt><dd>{item.attachment.width && item.attachment.height ? `${item.attachment.width} × ${item.attachment.height}` : '—'}</dd></div><div><dt>{t('output')}</dt><dd>{item.output ?? '—'}</dd></div><div><dt>{t('created')}</dt><dd>{new Date(item.createdAt).toLocaleString()}</dd></div></dl>
 
 const RecentItem: FC<{ item: GalleryItem; active: boolean; lang: 'zh' | 'en'; onClick(): void }> = ({ item, active, lang, onClick }) => {
   const [setRef, inView] = useInView<HTMLButtonElement>()

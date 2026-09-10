@@ -24,7 +24,18 @@ const listeners = new Set<TlLandingListener>()
 /** Queue freshly generated images for the tldraw canvas. Safe to call anywhere. */
 export function pushTlLandings(items: readonly TlLandingItem[]): void {
   if (items.length === 0) return
-  pending.push(...items)
+  // Enqueue dedupe: chat-panel remounts re-pull tool events, and re-pushing
+  // the same galleryId here would double-land it on the canvas (the landing
+  // filter only dedupes against shapes already on the page).
+  const known = new Set(pending.map(item => item.galleryId))
+  let pushed = 0
+  for (const item of items) {
+    if (known.has(item.galleryId)) continue
+    pending.push(item)
+    known.add(item.galleryId)
+    pushed += 1
+  }
+  if (pushed === 0) return
   for (const listener of listeners) listener()
 }
 
