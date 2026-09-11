@@ -11,6 +11,7 @@ import {
 } from 'tldraw'
 import { blobToDataUrl } from '../browser-image-utils.js'
 import { fetchAttachmentBlob } from '../image-cache.js'
+import { startCanvasSync } from './canvas-sync.js'
 import { getTlLandings, subscribeTlLandings, type TlLandingItem } from './tl-canvas-bridge.js'
 
 /**
@@ -99,7 +100,9 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
   if (landed.length === 0) return
   if (assets.length > 0) editor.createAssets(assets)
 
-  // Layout: rows of up to GRID_COLS images, block centered on the viewport.
+  // Layout: rows of up to GRID_COLS images. The block prefers the viewport
+  // center; when that spot is already occupied it drops below all existing
+  // content, so consecutive batches never stack on top of each other.
   const rows: Array<Array<{ galleryId: string; assetId: TLAssetId; w: number; h: number }>> = []
   for (let index = 0; index < landed.length; index += GRID_COLS) rows.push(landed.slice(index, index + GRID_COLS))
   const rowSizes = rows.map(row => ({
@@ -108,9 +111,33 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
   }))
   const blockWidth = Math.max(...rowSizes.map(size => size.width))
   const blockHeight = rowSizes.reduce((sum, size) => sum + size.height, 0) + GRID_GAP * (rows.length - 1)
-  const center = editor.getViewportPageBounds().center
-  const originX = center.x - blockWidth / 2
-  let cursorY = center.y - blockHeight / 2
+  const viewport = editor.getViewportPageBounds()
+  const originX = viewport.center.x - blockWidth / 2
+  let originY = viewport.center.y - blockHeight / 2
+
+  const existing = editor.getCurrentPageShapes()
+  if (existing.length > 0) {
+    // Cushion the candidate by half a gap so landed batches keep breathing room.
+    const cushion = GRID_GAP / 2
+    const candidateX = originX - cushion
+    const candidateY = originY - cushion
+    const candidateW = blockWidth + cushion * 2
+    const candidateH = blockHeight + cushion * 2
+    let occupied = false
+    let contentBottom = Number.NEGATIVE_INFINITY
+    for (const shape of existing) {
+      const bounds = editor.getShapePageBounds(shape.id)
+      if (bounds === undefined) continue
+      if (bounds.maxY > contentBottom) contentBottom = bounds.maxY
+      if (!occupied
+        && candidateX < bounds.maxX && candidateX + candidateW > bounds.minX
+        && candidateY < bounds.maxY && candidateY + candidateH > bounds.minY) {
+        occupied = true
+      }
+    }
+    if (occupied) originY = contentBottom + GRID_GAP
+  }
+  let cursorY = originY
   const shapes: TLCreateShapePartial<TLImageShape>[] = []
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex]!
@@ -130,6 +157,19 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
     cursorY += rowSize.height + GRID_GAP
   }
   editor.createShapes(shapes)
+
+  // When the batch landed outside the visible viewport (e.g. below older
+  // content), bring it into view: pan if it fits at the current zoom,
+  // otherwise zoom out just enough to frame it.
+  const visible = originX >= viewport.minX && originY >= viewport.minY
+    && originX + blockWidth <= viewport.maxX && originY + blockHeight <= viewport.maxY
+  if (!visible) {
+    if (blockWidth <= viewport.w && blockHeight <= viewport.h) {
+      editor.centerOnPoint({ x: originX + blockWidth / 2, y: originY + blockHeight / 2 }, { animation: { duration: 240 } })
+    } else {
+      editor.zoomToBounds({ x: originX, y: originY, w: blockWidth, h: blockHeight }, { animation: { duration: 240 }, inset: GRID_GAP })
+    }
+  }
 }
 
 export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
@@ -171,7 +211,11 @@ export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
           // useful when the host page swallows render errors.
           console.info(`[dsh-image-gen] tldraw mounted (instance ${editor.id})`)
           processQueue()
+          // Mirror this canvas into the host so the conversation agent can
+          // see it (canvas_state / view_canvas / edit_image canvas_selection).
+          const stopSync = startCanvasSync(editor)
           return () => {
+            stopSync()
             editorRef.current = null
           }
         }}

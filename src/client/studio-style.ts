@@ -4,6 +4,8 @@ export const STUDIO_STYLE = `
 .dsh-ig-workbench *{box-sizing:border-box}.dsh-ig-workbench button,.dsh-ig-workbench select,.dsh-ig-workbench textarea{font:inherit;color:inherit}
 .dsh-ig-workbench-grid{display:grid;grid-template-columns:minmax(190px,238px) minmax(0,1fr) minmax(286px,340px);grid-template-rows:minmax(0,1fr);min-height:0;height:0;flex:1 1 0;border:1px solid var(--ig-line);border-radius:12px;overflow:hidden;background:var(--background,#fff);box-shadow:0 12px 32px rgba(30,42,76,.05);transition:grid-template-columns .2s ease}
 .dsh-ig-workbench-grid.is-sidebar-collapsed{grid-template-columns:minmax(0,1fr) minmax(286px,340px)}
+.dsh-ig-workbench-grid.is-generate-collapsed{grid-template-columns:minmax(190px,238px) minmax(0,1fr)}
+.dsh-ig-workbench-grid.is-sidebar-collapsed.is-generate-collapsed{grid-template-columns:minmax(0,1fr)}
 .dsh-ig-recent-panel,.dsh-ig-generate-panel{min-width:0;min-height:0;overflow:hidden;background:color-mix(in srgb,var(--background,#fff) 96%,#f5f7fb)}.dsh-ig-recent-panel{display:flex;flex-direction:column;border-right:1px solid var(--ig-line)}
 .dsh-ig-panel-title{height:48px;flex:0 0 48px;padding:0 12px 0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--ig-line);font-size:13px;font-weight:650}
 .dsh-ig-count-badge{font-size:11px;min-width:22px;text-align:center;padding:2px 6px;border-radius:999px;background:var(--ig-soft);color:#7b8498;font-weight:500}
@@ -128,6 +130,8 @@ export const STUDIO_STYLE = `
 .dsh-ig-page-in-sidebar .dsh-ig-workbench{padding:8px}
 .dsh-ig-page-in-sidebar .dsh-ig-workbench-grid{grid-template-columns:minmax(150px,190px) minmax(0,1fr) minmax(206px,264px)}
 .dsh-ig-page-in-sidebar .dsh-ig-workbench-grid.is-sidebar-collapsed{grid-template-columns:minmax(0,1fr) minmax(206px,264px)}
+.dsh-ig-page-in-sidebar .dsh-ig-workbench-grid.is-generate-collapsed{grid-template-columns:minmax(150px,190px) minmax(0,1fr)}
+.dsh-ig-page-in-sidebar .dsh-ig-workbench-grid.is-sidebar-collapsed.is-generate-collapsed{grid-template-columns:minmax(0,1fr)}
 .dsh-ig-page-in-sidebar .dsh-ig-recent-item{min-width:0}
 .dsh-ig-page-in-sidebar .dsh-ig-generate-panel .dsh-ig-field-grid{grid-template-columns:1fr}
 .dsh-ig-page-in-sidebar .dsh-ig-tl-canvas{min-height:280px}

@@ -18,6 +18,8 @@ import {
   LoaderCircle,
   PanelLeft,
   PanelLeftClose,
+  PanelRight,
+  PanelRightClose,
   PencilLine,
   Plus,
   RefreshCw,
@@ -35,16 +37,12 @@ import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-im
 import { buildComparisonTargets, initialComparisonProviders } from './multi-model-compare.js'
 import { StudioTlCanvas } from './tl/studio-tl-canvas.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
+import type { LocaleService } from './gallery-view.js'
 
 const PAGE_SIZE = 12
 
 /** Below this workbench width the recent-generations rail folds automatically. */
 const WORKBENCH_NARROW_WIDTH = 560
-
-export interface LocaleService {
-  subscribe(cb: () => void): () => void
-  getSnapshot(): { active?: string }
-}
 
 type Mode = 'generate' | 'edit'
 type BatchKind = 'multi-image' | 'multi-model'
@@ -82,6 +80,7 @@ const COPY = {
     newGeneration: '新建生成', new: '新建',
     configuredCount: 'API 已配置 · {count}', unconfiguredStatus: 'API 未配置', providerStatus: '云端提供商与模型状态',
     collapseSidebar: '折叠最近生成', expandSidebar: '展开最近生成',
+    collapseGenerate: '折叠生成面板', expandGenerate: '展开生成面板', generatePanel: '生成面板',
     findInspiration: '找灵感',
   },
   en: {
@@ -109,6 +108,7 @@ const COPY = {
     newGeneration: 'New generation', new: 'New',
     configuredCount: 'API configured · {count}', unconfiguredStatus: 'Not configured', providerStatus: 'Provider & Model Status',
     collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand recent list',
+    collapseGenerate: 'Collapse generate panel', expandGenerate: 'Expand generate panel', generatePanel: 'Generate',
     findInspiration: 'Find inspiration',
   },
 } as const
@@ -142,6 +142,9 @@ export const StudioView: FC<{
   const [configError, setConfigError] = useState<string | null>(null)
   const [items, setItems] = useState<GalleryItem[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /** Manual-only collapse for the right generate form; the form stays put in
+   *  narrow seats because it is the primary generation surface. */
+  const [generateCollapsed, setGenerateCollapsed] = useState(false)
   /** Workbench root, observed so a narrow column (right sidebar) can fold the recent rail. */
   const workbenchRootRef = useRef<HTMLElement | null>(null)
   /** Set once the user toggles the rail by hand; auto-folding then stands down for this mount. */
@@ -178,6 +181,11 @@ export const StudioView: FC<{
   // behaviour is untouched until the toggle is clicked; a caller may open the
   // infinite canvas directly (the right-sidebar studio variant does).
   const [canvasSurface, setCanvasSurface] = useState<'preview' | 'infinite'>(initialCanvasSurface ?? 'preview')
+  /** Mirrors `canvasSurface` for async reads: a generation started on the
+   *  infinite canvas must land there even if the user flips back to preview
+   *  while the request is in flight. */
+  const canvasSurfaceRef = useRef(canvasSurface)
+  canvasSurfaceRef.current = canvasSurface
 
   const [dragging, setDragging] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -557,6 +565,11 @@ export const StudioView: FC<{
     if (comparisonEnabled && comparisonTargets.length < 2) return setError(t('compareNeedTwo'))
     if (!comparisonEnabled && !activeProfile.configured) return setError(t('selectConfigured'))
     if (mode === 'edit' && references.length === 0) return setError(t('needReference'))
+    // Landing rule: capture the active surface at request start. The user may
+    // flip between preview and the infinite canvas while the request is in
+    // flight; where they were working when they hit generate decides whether
+    // results land on the canvas directly (preview trials wait for a save).
+    const startedOnInfinite = canvasSurfaceRef.current === 'infinite'
     setIsGenerating(true)
     setError(null)
     const controller = new AbortController()
@@ -629,8 +642,12 @@ export const StudioView: FC<{
         setBatchKind(galleryEntries.length > 1 ? 'multi-model' : null)
         setSelected(galleryEntries[0]!)
         resetFit()
-        // Mirror the comparison batch onto the tldraw infinite canvas.
-        pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
+        // Mirror the comparison batch onto the tldraw infinite canvas, but
+        // only when the user was working there when the request started (see
+        // the single-generation path).
+        if (startedOnInfinite) {
+          pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
+        }
         if (failed > 0) flash(t('comparePartial', { success: String(successes.length), failed: String(failed) }))
         return
       }
@@ -685,8 +702,13 @@ export const StudioView: FC<{
         setSelected(galleryEntries[0]!)
       }
       resetFit()
-      // Mirror the generated batch onto the tldraw infinite canvas.
-      pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
+      // Mirror the generated batch onto the tldraw infinite canvas, but only
+      // when the user was working there when the request started. Preview-mode
+      // generations stay in the preview pane until saved: unsaved attempts
+      // must not pile up on the canvas work surface.
+      if (startedOnInfinite) {
+        pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
+      }
 
       if (payload.failedCount && payload.failedCount > 0) {
         flash(t('partialSuccess', { success: String(generatedList.length), failed: String(payload.failedCount) }))
@@ -781,6 +803,10 @@ export const StudioView: FC<{
     setCurrentBatch(current => current?.map(item => savedById.get(item.id) ?? item) ?? null)
     setSelected(savedById.get(activeId) ?? saved[0]!)
     setError(null)
+    // Saving is the "keep this" signal: land the saved images on the infinite
+    // canvas even if they were generated in preview mode (dedupe keeps
+    // already-landed ones from duplicating).
+    pushTlLandings(saved.map(item => ({ galleryId: item.id, attachment: item.attachment })))
     flash(saved.length > 1 ? t('savedSelected', { count: String(saved.length) }) : t('savedToGallery'))
   }
 
@@ -888,7 +914,7 @@ export const StudioView: FC<{
 
   return (
     <section ref={workbenchRootRef} className="dsh-ig-workbench" aria-label={t('title')}>
-      <div className={`dsh-ig-workbench-grid ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
+      <div className={`dsh-ig-workbench-grid ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${generateCollapsed ? 'is-generate-collapsed' : ''}`}>
         {!sidebarCollapsed && (
           <aside className="dsh-ig-recent-panel">
             <div className="dsh-ig-panel-title">
@@ -980,6 +1006,16 @@ export const StudioView: FC<{
                 <button type="button" onClick={() => { setFit(false); setZoom(value => Math.min(500, value + 25)) }} title="Zoom in"><ZoomIn size={16} /></button>
                 <button type="button" onClick={() => setLightboxOpen(true)} title={t('fullscreen')} disabled={selected === null}><Expand size={16} /></button>
               </>)}
+              {generateCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => { setGenerateCollapsed(false) }}
+                  title={t('expandGenerate')}
+                >
+                  <PanelRight size={14} />
+                  <span>{t('generatePanel')}</span>
+                </button>
+              )}
             </div>
           </div>
           {canvasSurface === 'infinite' ? (
@@ -1083,7 +1119,19 @@ export const StudioView: FC<{
           </>}
         </main>
 
+        {!generateCollapsed && (
         <aside className="dsh-ig-generate-panel">
+          <div className="dsh-ig-panel-title">
+            <span>{t('generatePanel')}</span>
+            <button
+              type="button"
+              className="dsh-ig-collapse-btn"
+              onClick={() => { setGenerateCollapsed(true) }}
+              title={t('collapseGenerate')}
+            >
+              <PanelRightClose size={15} />
+            </button>
+          </div>
           <div className="dsh-ig-generator-form">
             <div className="dsh-ig-mode-switch"><button type="button" className={mode === 'generate' ? 'is-active' : ''} onClick={() => setMode('generate')}><Sparkles size={15} />{t('generate')}</button><button type="button" className={mode === 'edit' ? 'is-active' : ''} onClick={() => setMode('edit')}><ImagePlus size={15} />{t('edit')}</button></div>
             {mode === 'edit' && (
@@ -1232,6 +1280,7 @@ export const StudioView: FC<{
             )}
           </div>
         </aside>
+        )}
       </div>
 
       {/* Unified Pure Centered Lightbox Modal (Aligned with Gallery) */}

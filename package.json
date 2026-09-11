@@ -136,7 +136,6 @@
   },
   "packageManager": "pnpm@11.7.0",
   "dependencies": {
-    "@xyflow/react": "^12.11.6",
     "lucide-react": "^1.38.0",
     "tldraw": "5.3.0"
   }

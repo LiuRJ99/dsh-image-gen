@@ -32,8 +32,8 @@ const client: UserConfig = {
   clean: false,
   external: CLIENT_EXTERNALS,
   noExternal: (id: string) => CLIENT_EXTERNALS.includes(id) ? undefined : true,
-  // The host webview has no `process` global; CJS deps (zustand, @xyflow) read
-  // NODE_ENV at runtime, so bake it in at build time instead.
+  // The host webview has no `process` global; CJS deps (e.g. zustand via the
+  // client runtime) read NODE_ENV at runtime, so bake it in at build time.
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
     // Baked at build time; the canvas logs it so stale host caches are provable.

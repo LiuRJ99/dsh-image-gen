@@ -39,8 +39,6 @@ import {
 import { validateComfyUIWorkflowJson } from '../comfyui-workflow.js'
 import { saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type GalleryViewTabProps, type LocaleService } from './gallery-view.js'
-import { CANVAS_STYLE } from './canvas/canvas-style.js'
-import { enqueuePendingCanvasImport } from './canvas/canvas-store.js'
 import { fetchAttachmentBlob } from './image-cache.js'
 import { imageRef, type ToolCallBlock } from './image-ref.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
@@ -61,6 +59,16 @@ import {
 } from './conversation-image-revisions.js'
 import { conversationRegenerateRequest } from './conversation-regenerate.js'
 import { ImageProviderPill, PROVIDER_PILL_STYLE, type ProviderPillFace } from './provider-pill.js'
+
+/** Build timestamp injected by tsdown at bundle time. */
+declare const __CANVAS_BUILD_TS__: string
+
+// Convention: the canvas bundle announces its build timestamp on load, so a
+// stale host webview cache is provable from the browser console. The typeof
+// guard keeps the module importable where the define is absent (vitest).
+if (typeof __CANVAS_BUILD_TS__ !== 'undefined') {
+  console.info(`[dsh-image-gen] canvas bundle ${__CANVAS_BUILD_TS__}`)
+}
 
 type Provider = ImageProvider
 interface ImageSettings {
@@ -235,8 +243,6 @@ const DICT = {
     resultShown: '图片结果已显示在对话中',
     copyImg: '复制图片',
     download: '下载图片',
-    addToCanvas: '加入画布',
-    addedToCanvasToast: '已加入画布',
     openNewTab: '新标签页打开',
     copiedImage: '已复制图片',
     copyFailed: '复制失败',
@@ -337,8 +343,6 @@ const DICT = {
     resultShown: 'Image result is shown in the conversation',
     copyImg: 'Copy Image',
     download: 'Download Image',
-    addToCanvas: 'Add to Canvas',
-    addedToCanvasToast: 'Added to canvas',
     openNewTab: 'Open in new tab',
     copiedImage: 'Image copied',
     copyFailed: 'Copy failed',
@@ -663,12 +667,21 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.plugin = 'dsh-image-gen'
-    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${CANVAS_STYLE}\n${TL_CSS}`
+    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${TL_CSS}`
     document.head.appendChild(style)
     return () => {
       style.remove()
     }
   }, 'dsh-image-gen: styles')
+
+  // One-time cleanup: the workflow canvas tab was removed; drop its orphaned
+  // IndexedDB database. Best-effort only: a missing database succeeds
+  // immediately, and failures (locked/blocked) are ignored.
+  if (typeof indexedDB !== 'undefined') {
+    const request = indexedDB.deleteDatabase('dsh_image_gen_canvas')
+    request.onerror = () => {}
+    request.onblocked = () => {}
+  }
 
   const register = ctx.slots.register.bind(ctx.slots) as unknown as (options: object, component: unknown) => () => void
 
@@ -1773,21 +1786,6 @@ function ImageResultCard({
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  const addToCanvas = async () => {
-    if (activeAttachment === undefined || activeResult === undefined) return
-    await enqueuePendingCanvasImport({
-      attachment: activeAttachment,
-      prompt: activeResult.prompt,
-      provider: activeResult.provider,
-      model: activeResult.model,
-      ...(activeResult.sourceAttachmentIds !== undefined && activeResult.sourceAttachmentIds.length > 0
-        ? { sourceAttachmentIds: [...activeResult.sourceAttachmentIds] }
-        : {}),
-    })
-    setToast(t('addedToCanvasToast'))
-    setTimeout(() => { setToast(undefined) }, 2000)
-  }
-
   const openRegenerate = (event: React.MouseEvent) => {
     event.stopPropagation()
     if (activeResult === undefined || isRegenerating) return
@@ -1913,9 +1911,6 @@ function ImageResultCard({
         </button>
         <button type="button" className="dsh-ig-tool-btn" title={t('download')} onClick={download}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <button type="button" className="dsh-ig-tool-btn" title={t('addToCanvas')} onClick={() => { void addToCanvas() }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3"/><line x1="10" y1="17.5" x2="14.5" y2="17.5"/></svg>
         </button>
         <button type="button" className="dsh-ig-tool-btn" title={t('openNewTab')} onClick={openNewTab}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
