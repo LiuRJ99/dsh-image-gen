@@ -7,7 +7,12 @@
 
 ---
 
-## [Unreleased]
+## [0.5.1] - 2026-09-11
+
+### Changed
+- 放宽 16 个 DSH `peerDependencies` 范围为 `>=0.1.2-rc.1 <0.2.0`，与最新 DSH 宿主规范及补丁版本兼容。
+- 放宽 `dsh-better-sidebar` peer 依赖为 `^0.18.0 || ^0.19.0`。
+- 打包内置灵感库数据快照（541 个案例）并升级离线回退。
 
 ### Added
 - Added dynamic CPA image-model selection: the settings card consumes the CPA Host's redacted image catalog, persists a concrete `model`, and Gallery/browser regeneration plus tool metadata preserve the selected model without browser-side credentials or CPA calls.
