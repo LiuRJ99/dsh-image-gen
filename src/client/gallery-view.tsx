@@ -572,9 +572,11 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
         <div className="dsh-ig-gallery-page-top">
           <div className="dsh-ig-gallery-page-title-row">
             <span className="dsh-ig-gallery-page-title">🖼️ {t('galleryTitle')}</span>
-            <span className="dsh-ig-gallery-page-count">
-              {t('totalCount', { count: String(items.length) })}
-            </span>
+            {activeTab === 'gallery' ? (
+              <span className="dsh-ig-gallery-page-count">
+                {t('totalCount', { count: String(items.length) })}
+              </span>
+            ) : null}
           </div>
 
           <div className="dsh-ig-gallery-tab-toggle" role="tablist">
@@ -583,53 +585,57 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
           </div>
 
           {/* View mode toggle */}
-          <div className="dsh-ig-gallery-view-toggle" role="group" aria-label={t('viewGrid')}>
-            <button
-              type="button"
-              className={`dsh-ig-view-toggle-btn ${viewMode === 'grid' ? 'is-active' : ''}`}
-              title={t('viewGrid')}
-              aria-pressed={viewMode === 'grid'}
-              onClick={() => setViewMode('grid')}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            </button>
-            <button
-              type="button"
-              className={`dsh-ig-view-toggle-btn ${viewMode === 'list' ? 'is-active' : ''}`}
-              title={t('viewList')}
-              aria-pressed={viewMode === 'list'}
-              onClick={() => setViewMode('list')}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
-            </button>
-            <button
-              type="button"
-              className={`dsh-ig-view-toggle-btn ${viewMode === 'table' ? 'is-active' : ''}`}
-              title={t('viewTable')}
-              aria-pressed={viewMode === 'table'}
-              onClick={() => setViewMode('table')}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="10" x2="9" y2="20"/></svg>
-            </button>
-          </div>
+          {activeTab === 'gallery' ? (
+            <div className="dsh-ig-gallery-view-toggle" role="group" aria-label={t('viewGrid')}>
+              <button
+                type="button"
+                className={`dsh-ig-view-toggle-btn ${viewMode === 'grid' ? 'is-active' : ''}`}
+                title={t('viewGrid')}
+                aria-pressed={viewMode === 'grid'}
+                onClick={() => setViewMode('grid')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              </button>
+              <button
+                type="button"
+                className={`dsh-ig-view-toggle-btn ${viewMode === 'list' ? 'is-active' : ''}`}
+                title={t('viewList')}
+                aria-pressed={viewMode === 'list'}
+                onClick={() => setViewMode('list')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
+              </button>
+              <button
+                type="button"
+                className={`dsh-ig-view-toggle-btn ${viewMode === 'table' ? 'is-active' : ''}`}
+                title={t('viewTable')}
+                aria-pressed={viewMode === 'table'}
+                onClick={() => setViewMode('table')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="10" x2="9" y2="20"/></svg>
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {/* Engine category pills with dynamic counts */}
-        <div className="dsh-ig-gallery-pills" role="tablist" aria-label={t('engineAll')}>
-          {ENGINE_FILTERS.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              role="tab"
-              aria-selected={selectedEngine === filter.value}
-              className={`dsh-ig-gallery-pill ${selectedEngine === filter.value ? 'is-active' : ''}`}
-              onClick={() => setSelectedEngine(filter.value)}
-            >
-              <span>{t(filter.labelKey)}</span>
-              <span className="dsh-ig-gallery-pill-badge">{countByEngine(items, filter.value)}</span>
-            </button>
-          ))}
-        </div>
+        {activeTab === 'gallery' ? (
+          <div className="dsh-ig-gallery-pills" role="tablist" aria-label={t('engineAll')}>
+            {ENGINE_FILTERS.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                role="tab"
+                aria-selected={selectedEngine === filter.value}
+                className={`dsh-ig-gallery-pill ${selectedEngine === filter.value ? 'is-active' : ''}`}
+                onClick={() => setSelectedEngine(filter.value)}
+              >
+                <span>{t(filter.labelKey)}</span>
+                <span className="dsh-ig-gallery-pill-badge">{countByEngine(items, filter.value)}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         {activeTab === 'gallery' ? (
           <div className="dsh-ig-gallery-management-row">
