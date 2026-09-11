@@ -178,6 +178,7 @@ const STYLE = `
 .dsh-ig-view-toggle-btn:hover{color:var(--dsw-alias-label-primary,inherit)}
 .dsh-ig-view-toggle-btn.is-active{background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-brand-primary,#4c78ff);box-shadow:0 1px 3px rgba(0,0,0,0.12)}
 .dsh-ig-gallery-page-body{flex:1;overflow-y:auto;padding:12px 14px;box-sizing:border-box}
+.dsh-ig-gallery-page-body-flat{padding:0!important;overflow:hidden!important;display:flex;flex-direction:column}
 .dsh-ig-gallery-virtual{width:100%}
 .dsh-ig-gallery-grid-row{position:absolute;left:0;right:0;display:grid;gap:20px}
 .dsh-ig-gallery-list-flow{display:flex;flex-direction:column;gap:12px;min-height:100%;padding:0 2px 12px}.dsh-ig-gallery-list-flow .dsh-ig-gallery-list-item{flex:0 0 auto}

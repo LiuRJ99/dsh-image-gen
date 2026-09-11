@@ -716,7 +716,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
       </header>
 
       {/* Content */}
-      <div className="dsh-ig-gallery-page-body" ref={bodyRef}>
+      <div className={activeTab === 'inspiration' ? 'dsh-ig-gallery-page-body dsh-ig-gallery-page-body-flat' : 'dsh-ig-gallery-page-body'} ref={bodyRef}>
         {activeTab === 'inspiration' ? (
           <InspirationView
             locale={locale}
