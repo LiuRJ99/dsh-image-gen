@@ -7,6 +7,17 @@
 
 ---
 
+## [0.5.2] - 2026-09-11
+
+### Fixed
+- 修复灵感库与画廊标签页渲染时出现的 `TypeError: Cannot read properties of undefined (reading 'map')` 异常。
+- 防御性兼容旧版灵感库缓存（历史单数 `style`/`scene` 标量格式）与部分字段缺失的条目，在前端自动正规化为 `styles`/`scenes` 数组。
+- 补齐灵感库目录分类与维度筛选的空值安全防御 `(catalog?.categories ?? []).map`。
+- 补齐画廊历史工作区记录与虚拟化行映射的空值安全保护。
+- 补齐 IndexedDB `getAllKeys` / `getAll` 请求结果可能为 `undefined` 的兜底处理。
+
+---
+
 ## [0.5.1] - 2026-09-11
 
 ### Changed

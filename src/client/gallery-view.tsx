@@ -321,7 +321,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
       .then((value) => {
         if (!active) return
         const rows = recordArray(value, 'workspaces')
-        setWorkspaceRecords(rows.map((row) => ({
+        setWorkspaceRecords((rows ?? []).map((row) => ({
           ...(typeof row.workspaceId === 'string' ? { workspaceId: row.workspaceId } : {}),
           ...(typeof row.path === 'string' ? { path: row.path } : {}),
           ...(typeof row.title === 'string' ? { title: row.title } : {}),
@@ -741,7 +741,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
           </div>
         ) : viewMode === 'grid' ? (
           <div className="dsh-ig-gallery-virtual" style={{ position: 'relative', height: win.totalHeight }}>
-            {visibleGridRows.map((rowItems, ri) => {
+            {(visibleGridRows ?? []).map((rowItems, ri) => {
               const rowIndex = win.start + ri
               return (
                 <div
@@ -753,7 +753,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
                     gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                   }}
                 >
-                  {rowItems.map((item) => (
+                  {(rowItems ?? []).map((item) => (
                     <GalleryGridCard
                       key={item.id}
                       item={item}
@@ -774,7 +774,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
           </div>
         ) : viewMode === 'list' ? (
           <div className="dsh-ig-gallery-list-flow">
-            {processedItems.map((item) => (
+            {(processedItems ?? []).map((item) => (
               <GalleryListItem
                 key={item.id}
                 item={item}
@@ -806,7 +806,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
               </thead>
               <tbody>
                 {win.padTop > 0 && <tr className="dsh-ig-gallery-spacer" style={{ height: win.padTop }}><td colSpan={7} /></tr>}
-                {visibleItems.map((item) => (
+                {(visibleItems ?? []).map((item) => (
                   <GalleryTableRow
                     key={item.id}
                     item={item}

@@ -30,7 +30,7 @@ describe('CPA image service contract', () => {
 
   it('exports plugin metadata', () => {
     expect(name).toBe('dsh-image-gen')
-    expect(version).toBe('0.5.1')
+    expect(version).toBe('0.5.2')
   })
 
   it('declares and uses the injected service without resolving credentials', async () => {

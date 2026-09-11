@@ -337,7 +337,7 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 async function readAll(db: IDBDatabase, storeName: string): Promise<ImageCacheRecord[]> {
   const tx = db.transaction(storeName, 'readonly')
   const values = await requestResult<unknown[]>(tx.objectStore(storeName).getAll())
-  return values.map(asRecord)
+  return (values ?? []).map(asRecord)
     .filter((value): value is Record<string, unknown> => value !== undefined && typeof value.id === 'string')
     .filter((value) => validRecord(value, value.id as string, Number.MAX_SAFE_INTEGER)) as unknown as ImageCacheRecord[]
 }

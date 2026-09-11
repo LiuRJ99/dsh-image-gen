@@ -363,7 +363,7 @@ async function loadTombstones(db: IDBDatabase): Promise<Set<string>> {
       const store = tx.objectStore(TOMBSTONE_STORE)
       const req = store.getAllKeys()
       req.onsuccess = () => {
-        tombstonesCache = new Set(req.result.map(String))
+        tombstonesCache = new Set((req.result ?? []).map(String))
         resolve(tombstonesCache)
       }
       req.onerror = () => {

@@ -21,6 +21,58 @@ const COPY = {
 
 type CopyKey = keyof typeof COPY.zh
 
+/** Normalize cases for backward compatibility with legacy single style/scene data. */
+export function normalizeInspirationCase(item: InspirationCase): InspirationCase {
+  const styles = Array.isArray(item.styles) && item.styles.length > 0
+    ? item.styles
+    : typeof item.style === 'string' && item.style.trim() !== ''
+      ? [item.style]
+      : []
+  const scenes = Array.isArray(item.scenes) && item.scenes.length > 0
+    ? item.scenes
+    : typeof item.scene === 'string' && item.scene.trim() !== ''
+      ? [item.scene]
+      : []
+  return {
+    ...item,
+    styles,
+    scenes,
+    style: typeof item.style === 'string' && item.style ? item.style : styles[0] ?? '',
+    scene: typeof item.scene === 'string' && item.scene ? item.scene : scenes[0] ?? '',
+    category: typeof item.category === 'string' ? item.category : '',
+  }
+}
+
+/** Normalize catalog root and ensure categories/styles/scenes and case arrays are safely present. */
+export function normalizeInspirationCatalog(catalog: unknown): InspirationCatalog | null {
+  if (typeof catalog !== 'object' || catalog === null) return null
+  const root = catalog as Partial<InspirationCatalog>
+  if (root.version !== 1 || !Array.isArray(root.cases)) return null
+  const cases = root.cases.map(normalizeInspirationCase)
+  const categories = Array.isArray(root.categories) && root.categories.length > 0
+    ? root.categories
+    : [...new Set(cases.map((c) => c.category).filter(Boolean))]
+  const styles = Array.isArray(root.styles) && root.styles.length > 0
+    ? root.styles
+    : [...new Set(cases.flatMap((c) => c.styles))]
+  const scenes = Array.isArray(root.scenes) && root.scenes.length > 0
+    ? root.scenes
+    : [...new Set(cases.flatMap((c) => c.scenes))]
+  return {
+    version: 1,
+    updatedAt: typeof root.updatedAt === 'number' ? root.updatedAt : Date.now(),
+    source: root.source ?? 'builtin',
+    sourceId: root.sourceId ?? 'awesome-gpt-image-2',
+    repository: root.repository ?? '',
+    sourceVersion: root.sourceVersion ?? '',
+    totalCases: typeof root.totalCases === 'number' ? root.totalCases : cases.length,
+    categories,
+    styles,
+    scenes,
+    cases,
+  }
+}
+
 export interface InspirationViewProps {
   locale?: LocaleService | undefined
   defaultEngine?: ImageEngine | undefined
@@ -66,10 +118,11 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
     try {
       const cached = refresh ? undefined : await getCachedInspirationCatalog()
       if (requestId !== catalogRequestRef.current) return
-      if (cached) {
+      const normalizedCached = cached ? normalizeInspirationCatalog(cached) : null
+      if (normalizedCached) {
         hasCatalogRef.current = true
-        setCatalog(cached)
-        setSelected((old) => old ?? cached.cases[0] ?? null)
+        setCatalog(normalizedCached)
+        setSelected((old) => (old ? normalizeInspirationCase(old) : normalizedCached.cases[0] ?? null))
       }
       const response = await fetch(`${INSPIRATION_ROUTE}/${refresh ? 'refresh' : 'catalog'}`, {
         method: refresh ? 'POST' : 'GET',
@@ -80,12 +133,18 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
         throw new Error('invalid-catalog')
       }
       const bytes = await readBoundedCatalogBytes(response)
-      const value = JSON.parse(new TextDecoder().decode(bytes)) as InspirationCatalog
-      if (value.version !== 1 || !Array.isArray(value.cases)) throw new Error('invalid-catalog')
+      const parsedJson = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+      const value = normalizeInspirationCatalog(parsedJson)
+      if (!value) throw new Error('invalid-catalog')
       if (requestId !== catalogRequestRef.current) return
       hasCatalogRef.current = true
       setCatalog(value)
-      setSelected((old) => old && value.cases.some((item) => item.id === old.id) ? old : value.cases[0] ?? null)
+      setSelected((old) => {
+        const normalizedOld = old ? normalizeInspirationCase(old) : null
+        return normalizedOld && value.cases.some((item) => item.id === normalizedOld.id)
+          ? normalizedOld
+          : value.cases[0] ?? null
+      })
       void cacheInspirationCatalog(value)
     } catch {
       if (requestId === catalogRequestRef.current && !hasCatalogRef.current) setError(true)
@@ -104,10 +163,21 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
     return source.filter((item) => {
       if (onlyFavorites && !favorites.has(item.id)) return false
       if (category && item.category !== category) return false
-      if (style && !item.styles.includes(style) && item.style !== style) return false
-      if (scene && !item.scenes.includes(scene) && item.scene !== scene) return false
+      const itemStyles = item.styles ?? []
+      const itemScenes = item.scenes ?? []
+      if (style && !itemStyles.includes(style) && item.style !== style) return false
+      if (scene && !itemScenes.includes(scene) && item.scene !== scene) return false
       if (!needle) return true
-      return [item.title, item.description, item.prompt, item.category, item.style, item.scene, ...item.styles, ...item.scenes].some((value) => value.toLowerCase().includes(needle))
+      return [
+        item.title,
+        item.description,
+        item.prompt,
+        item.category,
+        item.style,
+        item.scene,
+        ...itemStyles,
+        ...itemScenes,
+      ].some((value) => typeof value === 'string' && value.toLowerCase().includes(needle))
     })
   }, [catalog, query, category, style, scene, onlyFavorites, favorites])
 
@@ -180,9 +250,9 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
       </header>
       <div className="dsh-ig-inspiration-toolbar">
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} aria-label={t('search')} />
-        <label><span>{t('category')}</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">{t('all')}</option>{catalog?.categories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-        <label><span>{t('style')}</span><select value={style} onChange={(event) => setStyle(event.target.value)}><option value="">{t('all')}</option>{catalog?.styles.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-        <label><span>{t('scene')}</span><select value={scene} onChange={(event) => setScene(event.target.value)}><option value="">{t('all')}</option>{catalog?.scenes.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label><span>{t('category')}</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">{t('all')}</option>{(catalog?.categories ?? []).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label><span>{t('style')}</span><select value={style} onChange={(event) => setStyle(event.target.value)}><option value="">{t('all')}</option>{(catalog?.styles ?? []).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label><span>{t('scene')}</span><select value={scene} onChange={(event) => setScene(event.target.value)}><option value="">{t('all')}</option>{(catalog?.scenes ?? []).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         <button type="button" className={onlyFavorites ? 'is-active' : ''} onClick={() => setOnlyFavorites((value) => !value)}>★ {t('favorites')} {favorites.size > 0 ? `(${favorites.size})` : ''}</button>
       </div>
       {error ? <div className="dsh-ig-inspiration-empty"><p>{t('failed')}</p><button type="button" onClick={() => void loadCatalog()}>{t('retry')}</button></div> : catalog === null ? <div className="dsh-ig-inspiration-empty">{t('loading')}</div> : matching.length === 0 ? <div className="dsh-ig-inspiration-empty">{t('noResults')}</div> : (
@@ -196,7 +266,7 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
               <div className="dsh-ig-inspiration-inspector-copy">
                 <div className="dsh-ig-inspiration-inspector-title"><h3>{selected.title}</h3><button type="button" onClick={() => toggleFavorite(selected.id)} aria-label={t('favorites')}>{favorites.has(selected.id) ? '★' : '☆'}</button></div>
                 <p>{selected.description}</p>
-                <div className="dsh-ig-inspiration-tags"><span>{selected.category}</span>{selected.styles.map((value) => <span key={`style-${value}`}>{value}</span>)}{selected.scenes.map((value) => <span key={`scene-${value}`}>{value}</span>)}</div>
+                <div className="dsh-ig-inspiration-tags"><span>{selected.category}</span>{(selected.styles ?? []).map((value) => <span key={`style-${value}`}>{value}</span>)}{(selected.scenes ?? []).map((value) => <span key={`scene-${value}`}>{value}</span>)}</div>
                 <label className="dsh-ig-inspiration-prompt-label">{t('prompt')}<textarea readOnly value={selected.prompt} /></label>
                 <div className="dsh-ig-inspiration-actions"><button type="button" onClick={() => void copyPrompt(selected)}>{t('copy')}</button><button type="button" disabled={busy} onClick={() => void generate(defaultEngine)}>{defaultEngine === 'gemini' ? t('useGemini') : t('useGpt')}</button><button type="button" disabled={busy} onClick={() => void generate(defaultEngine === 'gemini' ? 'gpt' : 'gemini')}>{defaultEngine === 'gemini' ? t('useGpt') : t('useGemini')}</button></div>
               </div>
@@ -212,7 +282,7 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
 const InspirationCard: FC<{ item: InspirationCase; selected: boolean; favorite: boolean; featured: string; onSelect(): void; onFavorite(): void }> = ({ item, selected, favorite, featured, onSelect, onFavorite }) => (
   <button type="button" className={`dsh-ig-inspiration-card ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
     <div className="dsh-ig-inspiration-card-media"><InspirationImage id={item.id} alt={item.title} /><span className="dsh-ig-inspiration-card-favorite" role="button" onClick={(event) => { event.stopPropagation(); onFavorite() }}>{favorite ? '★' : '☆'}</span>{item.featured ? <span className="dsh-ig-inspiration-featured">✦ {featured}</span> : null}</div>
-    <strong>{item.title}</strong><small>{item.category} · {item.styles.join(', ')}</small>
+    <strong>{item.title}</strong><small>{item.category} · {(item.styles ?? (item.style ? [item.style] : [])).join(', ')}</small>
   </button>
 )
 

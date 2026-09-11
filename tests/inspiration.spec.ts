@@ -20,6 +20,10 @@ import {
   readResponseBytes,
 } from '../src/inspiration.js'
 import { serveInspirationRoute } from '../src/inspiration-route.js'
+import {
+  normalizeInspirationCase,
+  normalizeInspirationCatalog,
+} from '../src/client/inspiration-view.js'
 import { fetchInspirationCatalog } from '../src/client/inspiration-catalog-cache.js'
 
 function request(method: string, url: string, body = ''): IncomingMessage {
@@ -257,5 +261,37 @@ describe('same-origin Inspiration routes', () => {
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
+  })
+
+  it('normalizes legacy and partial inspiration cases defensively', () => {
+    const legacyRaw = {
+      id: 'golden-hour-portrait',
+      title: 'Golden-hour portrait',
+      description: 'Warm editorial portrait',
+      prompt: 'test prompt',
+      category: 'portrait',
+      style: 'editorial',
+      scene: 'studio',
+      imagePath: 'images/golden-hour-portrait.svg',
+      imageMediaType: 'image/svg+xml' as const,
+      source: 'builtin' as const,
+    }
+    const normalized = normalizeInspirationCase(legacyRaw as any)
+    expect(normalized.styles).toEqual(['editorial'])
+    expect(normalized.scenes).toEqual(['studio'])
+    expect(normalized.style).toBe('editorial')
+    expect(normalized.scene).toBe('studio')
+
+    const legacyCatalog = {
+      version: 1,
+      cases: [legacyRaw],
+    }
+    const catalog = normalizeInspirationCatalog(legacyCatalog)
+    expect(catalog).toBeDefined()
+    expect(catalog?.categories).toEqual(['portrait'])
+    expect(catalog?.styles).toEqual(['editorial'])
+    expect(catalog?.scenes).toEqual(['studio'])
+    expect(catalog?.cases[0].styles).toEqual(['editorial'])
+    expect(catalog?.cases[0].scenes).toEqual(['studio'])
   })
 })

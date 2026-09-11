@@ -32,9 +32,9 @@
 
 ---
 
-## Fork 增强特性（v0.5.1）
+## Fork 增强特性（v0.5.2）
 
-> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.1`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
+> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.2`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
 
 ### 1. 本 Fork 安装方式
 
@@ -45,16 +45,16 @@
 dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.1"
 
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.1/dsh-image-gen-0.5.1.tgz \
-  -o /stable/path/dsh-image-gen-0.5.1.tgz
-dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.1.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.2/dsh-image-gen-0.5.2.tgz \
+  -o /stable/path/dsh-image-gen-0.5.2.tgz
+dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.2.tgz
 ```
 
 不要使用裸包名 `dsh-image-gen` 安装：npm 上的同名包属于上游项目，不是本 fork。
 
 ### 2. 与上游的差异
 
-| | 上游 | 本 fork `v0.5.1` |
+| | 上游 | 本 fork `v0.5.2` |
 |---|---|---|
 | Provider 归属 | 自带 Provider 与 BYOK 配置 | 只做 Adapter，模型/协议/凭据由 CPA Provider 持有 |
 | 双引擎路由 | — | 统一承接 GPT `images/generations` 与 Gemini `chat/completions` |
@@ -105,11 +105,11 @@ flowchart LR
 # 1. 安装 CPA Provider (v0.4.1)
 dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.1"
 
-# 2. 下载并安装经过验证的 v0.5.1 Release Tarball
+# 2. 下载并安装经过验证的 v0.5.2 Release Tarball
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.1/dsh-image-gen-0.5.1.tgz \
-  -o /tmp/dsh-image-gen-0.5.1.tgz
-dsh plugin --profile web add /tmp/dsh-image-gen-0.5.1.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.2/dsh-image-gen-0.5.2.tgz \
+  -o /tmp/dsh-image-gen-0.5.2.tgz
+dsh plugin --profile web add /tmp/dsh-image-gen-0.5.2.tgz
 ```
 
 没有 Provider service contract 时，image-gen 不可用。服务端缩略图使用 DSH Host 已提供的 `sharp` peer，不要再向 Web profile 单独安装一份 `sharp`，以免加载重复的原生 `libvips`。
