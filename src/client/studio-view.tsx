@@ -16,7 +16,6 @@ import {
   Heart,
   ImagePlus,
   LoaderCircle,
-  MessageCircle,
   PanelLeft,
   PanelLeftClose,
   PencilLine,
@@ -34,11 +33,13 @@ import { deleteGalleryItem, getGalleryItems, saveGalleryItem, subscribeGallery, 
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
 import { buildComparisonTargets, initialComparisonProviders } from './multi-model-compare.js'
-import { StudioChatPanel } from './studio-chat-panel.js'
 import { StudioTlCanvas } from './tl/studio-tl-canvas.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 
 const PAGE_SIZE = 12
+
+/** Below this workbench width the recent-generations rail folds automatically. */
+const WORKBENCH_NARROW_WIDTH = 560
 
 export interface LocaleService {
   subscribe(cb: () => void): () => void
@@ -46,8 +47,6 @@ export interface LocaleService {
 }
 
 type Mode = 'generate' | 'edit'
-/** Right panel tabs: the generation form and the DSH chat panel (the old details tab was replaced by the chat). */
-type PanelTab = 'generate' | 'chat'
 type BatchKind = 'multi-image' | 'multi-model'
 
 export interface StudioReferenceItem {
@@ -60,7 +59,7 @@ export interface StudioReferenceItem {
 const COPY = {
   zh: {
     title: '云端生图工作台', configured: 'API 已配置', unconfigured: '未配置', recent: '最近生成', empty: '暂无生成历史',
-    generate: '文生图', edit: '图生图', chat: '对话', reference: '参考图', optional: '选填', upload: '点击或拖拽图片到此处',
+    generate: '文生图', edit: '图生图', reference: '参考图', optional: '选填', upload: '点击或拖拽图片到此处',
     uploadHint: '支持 JPG / PNG / WebP / GIF，最大 10MB（最多 5 张）', prompt: '提示词 Prompt', clear: '清空', promptPlaceholder: '描述主体、构图、风格、光线与需要出现的文字…（支持 Ctrl+Enter 快捷生成）',
     provider: 'Provider', model: 'Model', ratio: '比例', quality: '清晰度', start: '开始生成', generating: '正在生成…', cancelGenerate: '取消生成',
     count: '生成数量', countUnit: '{n} 张', partialSuccess: '已生成 {success} 张图片，{failed} 张失败', generatingCount: '正在生成（共 {count} 张）…',
@@ -87,7 +86,7 @@ const COPY = {
   },
   en: {
     title: 'Cloud Image Studio', configured: 'API configured', unconfigured: 'Not configured', recent: 'Recent generations', empty: 'No generated images yet',
-    generate: 'Text to image', edit: 'Image to image', chat: 'Chat', reference: 'Reference image', optional: 'optional', upload: 'Click or drop images here',
+    generate: 'Text to image', edit: 'Image to image', reference: 'Reference image', optional: 'optional', upload: 'Click or drop images here',
     uploadHint: 'JPG / PNG / WebP / GIF, up to 10MB (max 5)', prompt: 'Prompt', clear: 'Clear', promptPlaceholder: 'Describe the subject, composition, style, lighting, and exact text… (Ctrl+Enter to generate)',
     provider: 'Provider', model: 'Model', ratio: 'Aspect ratio', quality: 'Quality', start: 'Generate', generating: 'Generating…', cancelGenerate: 'Cancel',
     count: 'Number of images', countUnit: '{n}', partialSuccess: 'Generated {success} images, {failed} failed', generatingCount: 'Generating ({count} images)…',
@@ -127,19 +126,29 @@ export const StudioView: FC<{
   locale?: LocaleService | undefined
   workspace?: StudioWorkspaceProps | null | undefined
   initialPrompt?: string | undefined
+  /**
+   * Canvas surface opened first: 'preview' (single-image viewer, the default)
+   * or 'infinite' (the tldraw editor). The right-sidebar variant opens the
+   * infinite canvas directly - mirroring chat-generated images while the
+   * native conversation runs beside it is the point of the split.
+   */
+  initialCanvasSurface?: 'preview' | 'infinite' | undefined
   onInitialPromptApplied?(): void
   onOpenInspiration?(): void
-}> = ({ locale, workspace, initialPrompt, onInitialPromptApplied, onOpenInspiration }) => {
+}> = ({ locale, workspace, initialPrompt, initialCanvasSurface, onInitialPromptApplied, onOpenInspiration }) => {
   const [lang, setLang] = useState<'zh' | 'en'>(() => locale?.getSnapshot?.().active?.startsWith('en') ? 'en' : 'zh')
   const [config, setConfig] = useState<StudioConfigResponse | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
   const [items, setItems] = useState<GalleryItem[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /** Workbench root, observed so a narrow column (right sidebar) can fold the recent rail. */
+  const workbenchRootRef = useRef<HTMLElement | null>(null)
+  /** Set once the user toggles the rail by hand; auto-folding then stands down for this mount. */
+  const railToggledByUserRef = useRef(false)
   const [visibleLimit, setVisibleLimit] = useState(30)
   const [selected, setSelected] = useState<GalleryItem | null>(null)
   const [mode, setMode] = useState<Mode>('generate')
-  const [panelTab, setPanelTab] = useState<PanelTab>('generate')
   const [provider, setProvider] = useState('google')
   const [model, setModel] = useState('')
   const [ratio, setRatio] = useState('1:1')
@@ -166,8 +175,9 @@ export const StudioView: FC<{
 
   // Canvas surface: 'preview' keeps the single-image viewer (fake canvas),
   // 'infinite' mounts the tldraw editor. Defaults to 'preview' so existing
-  // behaviour is untouched until the toggle is clicked.
-  const [canvasSurface, setCanvasSurface] = useState<'preview' | 'infinite'>('preview')
+  // behaviour is untouched until the toggle is clicked; a caller may open the
+  // infinite canvas directly (the right-sidebar studio variant does).
+  const [canvasSurface, setCanvasSurface] = useState<'preview' | 'infinite'>(initialCanvasSurface ?? 'preview')
 
   const [dragging, setDragging] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -181,10 +191,26 @@ export const StudioView: FC<{
   useEffect(() => {
     if (initialPrompt === undefined) return
     setMode('generate')
-    setPanelTab('generate')
     setPrompt(initialPrompt)
     onInitialPromptApplied?.()
   }, [initialPrompt, onInitialPromptApplied])
+
+  // Narrow-column auto-fold: the right-sidebar seat is far narrower than the
+  // conversation-view tab, and the form + canvas need the width more than the
+  // recent rail does. Auto mode stands down after the first manual toggle.
+  useEffect(() => {
+    const root = workbenchRootRef.current
+    if (root === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      if (railToggledByUserRef.current) return
+      for (const entry of entries) {
+        const narrow = entry.contentRect.width < WORKBENCH_NARROW_WIDTH
+        setSidebarCollapsed(prev => (prev === narrow ? prev : narrow))
+      }
+    })
+    observer.observe(root)
+    return () => { observer.disconnect() }
+  }, [])
 
   const maxReferences = comparisonEnabled
     ? (comparisonProviders.includes('dashscope') ? 3 : 5)
@@ -371,7 +397,6 @@ export const StudioView: FC<{
     setSelectedBatchIds([])
     setBatchKind(null)
     setSelected(null)
-    setPanelTab('generate')
     resetFit()
   }
 
@@ -452,7 +477,6 @@ export const StudioView: FC<{
 
     if (referencesRef.current.some(r => r.attachment?.attachmentId === targetAttId)) {
       setMode('edit')
-      setPanelTab('generate')
       changeProvider(targetItem.provider)
       return
     }
@@ -465,7 +489,6 @@ export const StudioView: FC<{
       const blob = image.blob ?? await fetchAttachmentBlob(targetItem.attachment)
       if (referencesRef.current.some(r => r.attachment?.attachmentId === targetAttId)) {
         setMode('edit')
-        setPanelTab('generate')
         changeProvider(targetItem.provider)
         return
       }
@@ -485,7 +508,6 @@ export const StudioView: FC<{
       referencesRef.current = nextList
       setError(null)
       setMode('edit')
-      setPanelTab('generate')
       changeProvider(targetItem.provider)
     } catch {
       setError(t('imageLoadFailed'))
@@ -865,7 +887,7 @@ export const StudioView: FC<{
   }
 
   return (
-    <section className="dsh-ig-workbench" aria-label={t('title')}>
+    <section ref={workbenchRootRef} className="dsh-ig-workbench" aria-label={t('title')}>
       <div className={`dsh-ig-workbench-grid ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
         {!sidebarCollapsed && (
           <aside className="dsh-ig-recent-panel">
@@ -877,7 +899,7 @@ export const StudioView: FC<{
               <button
                 type="button"
                 className="dsh-ig-collapse-btn"
-                onClick={() => setSidebarCollapsed(true)}
+                onClick={() => { railToggledByUserRef.current = true; setSidebarCollapsed(true) }}
                 title={t('collapseSidebar')}
               >
                 <PanelLeftClose size={15} />
@@ -900,7 +922,7 @@ export const StudioView: FC<{
               {sidebarCollapsed && (
                 <button
                   type="button"
-                  onClick={() => setSidebarCollapsed(false)}
+                  onClick={() => { railToggledByUserRef.current = true; setSidebarCollapsed(false) }}
                   title={t('expandSidebar')}
                 >
                   <PanelLeft size={14} />
@@ -1026,7 +1048,7 @@ export const StudioView: FC<{
           </div>
           )}
           {selected !== null && canvasSurface === 'preview' && <>
-            <div className="dsh-ig-result-strip"><span>{t('result')}</span><div><button type="button" onClick={() => void continueEdit()}><PencilLine size={15} />{t('continueEdit')}</button><button type="button" onClick={() => { setMode('generate'); setPanelTab('generate'); setPrompt(selected.prompt) }}><RefreshCw size={15} />{t('regenerate')}</button></div></div>
+            <div className="dsh-ig-result-strip"><span>{t('result')}</span><div><button type="button" onClick={() => void continueEdit()}><PencilLine size={15} />{t('continueEdit')}</button><button type="button" onClick={() => { setMode('generate'); setPrompt(selected.prompt) }}><RefreshCw size={15} />{t('regenerate')}</button></div></div>
             <div className="dsh-ig-result-actions">
               <p>{selected.prompt}</p>
               <div>
@@ -1062,8 +1084,7 @@ export const StudioView: FC<{
         </main>
 
         <aside className="dsh-ig-generate-panel">
-          <div className="dsh-ig-panel-tabs"><button type="button" className={panelTab === 'generate' ? 'is-active' : ''} onClick={() => setPanelTab('generate')}>{t('generate')}</button><button type="button" className={panelTab === 'chat' ? 'is-active' : ''} onClick={() => setPanelTab('chat')}><MessageCircle size={13} />{t('chat')}</button></div>
-          {panelTab === 'chat' ? <StudioChatPanel lang={lang} workspace={workspace} /> : <div className="dsh-ig-generator-form">
+          <div className="dsh-ig-generator-form">
             <div className="dsh-ig-mode-switch"><button type="button" className={mode === 'generate' ? 'is-active' : ''} onClick={() => setMode('generate')}><Sparkles size={15} />{t('generate')}</button><button type="button" className={mode === 'edit' ? 'is-active' : ''} onClick={() => setMode('edit')}><ImagePlus size={15} />{t('edit')}</button></div>
             {mode === 'edit' && (
               <div className="dsh-ig-field">
@@ -1209,7 +1230,7 @@ export const StudioView: FC<{
                 <span>{comparisonEnabled ? `${t('compareStart')} (${comparisonTargets.length})` : `${t('start')}${count > 1 ? ` (${count})` : ''}`}</span>
               </button>
             )}
-          </div>}
+          </div>
         </aside>
       </div>
 

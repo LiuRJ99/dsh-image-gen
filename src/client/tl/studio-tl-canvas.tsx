@@ -11,14 +11,18 @@ import {
 } from 'tldraw'
 import { blobToDataUrl } from '../browser-image-utils.js'
 import { fetchAttachmentBlob } from '../image-cache.js'
-import { subscribeTlLandings, takeTlLandings, type TlLandingItem } from './tl-canvas-bridge.js'
+import { getTlLandings, subscribeTlLandings, type TlLandingItem } from './tl-canvas-bridge.js'
 
 /**
  * Infinite canvas surface for the Studio workbench, backed by tldraw.
  *
- * Generated images are pushed here through the tl-canvas-bridge (both studio
- * form paths land the same way) and become in-memory image assets with
- * data-URL sources. The surface deliberately runs WITHOUT persistenceKey:
+ * Generated images are pushed onto the tl-canvas-bridge landing bus (studio
+ * form paths and chat tool cards land the same way) and become in-memory
+ * image assets with data-URL sources. The bus broadcasts, so this surface
+ * RECONCILES instead of draining: it lands the bus items its own page does
+ * not carry yet. The conversation-view gallery tab and the right-sidebar
+ * studio tab can both be mounted, and each mirrors the full session-scratch
+ * set independently. The surface deliberately runs WITHOUT persistenceKey:
  * unsaved generations vanish on restart, matching the plugin's save-first
  * philosophy; data-URL assets therefore never touch disk. Shapes carry
  * `meta.galleryId` so re-landing the same generation is a no-op. One batch
@@ -40,14 +44,21 @@ function displaySizeOf(attachment: ImageAttachmentRef): { w: number; h: number }
   return { w: Math.round(width * scale), h: Math.round(height * scale) }
 }
 
-async function landTlItems(editor: Editor, items: readonly TlLandingItem[]): Promise<void> {
-  // Dedupe against shapes already on the page (meta.galleryId).
+/** Gallery ids already on one page (image shapes' `meta.galleryId`). */
+function landedIdsOf(editor: Editor): Set<string> {
   const landedIds = new Set<string>()
   for (const shape of editor.getCurrentPageShapes()) {
     if (shape.type !== 'image') continue
     const galleryId = (shape.meta as { galleryId?: unknown } | undefined)?.galleryId
     if (typeof galleryId === 'string') landedIds.add(galleryId)
   }
+  return landedIds
+}
+
+async function landTlItems(editor: Editor, items: readonly TlLandingItem[], failedIds: Set<string>): Promise<void> {
+  // Dedupe against shapes already on the page (meta.galleryId); under
+  // broadcast semantics this also makes a re-entrant reconcile a no-op.
+  const landedIds = landedIdsOf(editor)
   const pending = items.filter(item => !landedIds.has(item.galleryId))
   if (pending.length === 0) return
 
@@ -75,6 +86,9 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[]): Pro
           },
         })
       } catch (error) {
+        // Remember the miss: broadcast semantics never remove bus items, so
+        // an unreadable attachment must not re-enter the reconcile loop.
+        failedIds.add(item.galleryId)
         console.warn('[dsh-image-gen] canvas landing skipped (attachment unreadable):', item.galleryId, error)
         continue
       }
@@ -121,21 +135,24 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[]): Pro
 export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
   const editorRef = useRef<Editor | null>(null)
   const landingRef = useRef(false)
+  /** Per-canvas attachment misses, so one bad blob cannot spin the reconcile. */
+  const failedRef = useRef(new Set<string>())
 
   const processQueue = useCallback(() => {
     const editor = editorRef.current
     if (editor === null) return
     if (landingRef.current) return
-    const items = takeTlLandings()
+    const landedIds = landedIdsOf(editor)
+    const items = getTlLandings().filter(item => !landedIds.has(item.galleryId) && !failedRef.current.has(item.galleryId))
     if (items.length === 0) return
     landingRef.current = true
-    void landTlItems(editor, items)
+    void landTlItems(editor, items, failedRef.current)
       .catch(error => {
         console.warn('[dsh-image-gen] tldraw canvas landing failed:', error)
       })
       .finally(() => {
         landingRef.current = false
-        // Items pushed while a landing was in flight are drained now.
+        // Items pushed while a landing was in flight are reconciled now.
         processQueue()
       })
   }, [])

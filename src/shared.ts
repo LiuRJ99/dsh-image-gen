@@ -13,60 +13,7 @@ export const INSPIRATION_ROUTE = '/plugins/dsh-image-gen/inspiration'
 export const SAVE_WORKSPACE_ROUTE = '/plugins/dsh-image-gen/save-workspace'
 /** Browser route the settings card probes provider connectivity through. */
 export const TEST_CONNECTION_ROUTE = '/plugins/dsh-image-gen/test'
-/**
- * Same-origin route for the workbench chat panel: GET returns the simplified
- * event feed of the dedicated studio session (with `?since=<seq>` increments),
- * POST submits one user turn into that session.
- */
-export const CHAT_ROUTE = '/plugins/dsh-image-gen/chat'
-/**
- * Fixed session id for the workbench chat. A dedicated DSH agent session is
- * created on demand and archived out of the sidebar history list; the id is
- * stable so a restart reattaches to the persisted conversation.
- */
-export const STUDIO_CHAT_SESSION_ID = 'dsh-image-gen-studio'
 
-/**
- * Simplified chat event projected from the studio session's event log for the
- * browser panel. Deliberately lossy: the panel renders text turns, tool
- * summaries, and generated-image references - not raw protocol events.
- */
-export type StudioChatEvent =
-  | { seq: number; type: 'user'; text: string }
-  | { seq: number; type: 'assistant'; text: string; interrupted?: boolean }
-  | { seq: number; type: 'tool'; name: string; ok: boolean; images: ChatImageRef[] }
-  | {
-      seq: number
-      type: 'status'
-      phase: 'turn-start' | 'turn-end'
-      /**
-       * Only on turn-end: a short human-readable ending when the turn did not
-       * complete cleanly (error message, abort cause, token ceiling). Derived
-       * from the structured TurnEndReason; empty/undefined for a clean turn.
-       */
-      detail?: string
-    }
-
-/**
- * Image reference extracted from a tool result event. Carries the full field
- * set IMAGE_ROUTE validates (bytes/width/height are mandatory positive
- * integers there), produced from the plugin's own tool presentation meta,
- * never from untrusted input.
- */
-export interface ChatImageRef {
-  attachmentId: string
-  mediaType: string
-  /** Exact encoded byte length; IMAGE_ROUTE rejects references without it. */
-  bytes: number
-  /** Intrinsic pixel width; IMAGE_ROUTE rejects references without it. */
-  width: number
-  /** Intrinsic pixel height; IMAGE_ROUTE rejects references without it. */
-  height: number
-  name?: string
-  provider?: string
-  model?: string
-  prompt?: string
-}
 /** Namespace persisted through DSH Settings. */
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'
 

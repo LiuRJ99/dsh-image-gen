@@ -13,9 +13,8 @@ import { IMAGE_ROUTE, DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, imageAttachmentFromMet
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './openai-compatible.js'
 import { resolveReferenceImages } from './reference-image.js'
 import { editSeedreamImage } from './seedream.js'
-import { IMAGE_GENERATION_NAMESPACE, IMAGE_PROVIDERS, INSPIRATION_ROUTE, STUDIO_ROUTE, TEST_CONNECTION_ROUTE, CHAT_ROUTE, mergeComfyUIPrompt } from './shared.js'
+import { IMAGE_GENERATION_NAMESPACE, IMAGE_PROVIDERS, INSPIRATION_ROUTE, STUDIO_ROUTE, TEST_CONNECTION_ROUTE, mergeComfyUIPrompt } from './shared.js'
 import { createInspirationRoute } from './inspiration-route.js'
-import { createStudioChat } from './studio-chat.js'
 import { generateFromStudio, describeStudio } from './studio.js'
 import { serveStudio } from './studio-route.js'
 import { serveTestConnection } from './test-route.js'
@@ -26,7 +25,6 @@ export { IMAGE_ROUTE, DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, imageAttachmentFromMet
 export { STUDIO_ROUTE } from './shared.js'
 export { INSPIRATION_ROUTE } from './shared.js'
 export { TEST_CONNECTION_ROUTE } from './shared.js'
-export { CHAT_ROUTE } from './shared.js'
 
 export const name = 'dsh-image-gen'
 export const inject = ['tools', 'attachments', 'credentials', 'webServer']
@@ -135,18 +133,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       return serveInspiration(req, res)
     },
   }), 'dsh-image-gen: inspiration route')
-
-  // Dedicated archived agent session for the workbench chat panel. Optional at
-  // runtime: a host without the agent services logs a warning and the panel
-  // surfaces chat-unavailable, but the plugin keeps working.
-  const studioChat = createStudioChat(ctx, {
-    maxBodyBytes: 256 * 1024,
-  })
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact', path: CHAT_ROUTE,
-    handler: (req, res) => studioChat.serve(req, res),
-  }), 'dsh-image-gen: chat route')
-  ctx.effect(() => () => studioChat.dispose(), 'dsh-image-gen: chat runtime')
 
   ctx.tools.register(defineTool({
     name: 'generate_image',
