@@ -57,11 +57,11 @@ Install and verify the CPA Provider before the Adapter:
 # 1. Install CPA Provider (v0.4.1)
 dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.1"
 
-# 2. Download and install verified v0.5.2 Release Tarball
+# 2. Download and install verified v0.5.3 Release Tarball
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.2/dsh-image-gen-0.5.2.tgz \
-  -o /tmp/dsh-image-gen-0.5.2.tgz
-dsh plugin --profile web add /tmp/dsh-image-gen-0.5.2.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.3/dsh-image-gen-0.5.3.tgz \
+  -o /tmp/dsh-image-gen-0.5.3.tgz
+dsh plugin --profile web add /tmp/dsh-image-gen-0.5.3.tgz
 ```
 
 Without the Provider service contract, image generation is unavailable. Server-side thumbnails use the `sharp` peer supplied by the DSH host. Do not install another `sharp` copy into the Web profile, or macOS may load duplicate native `libvips` libraries.

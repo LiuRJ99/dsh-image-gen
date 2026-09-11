@@ -57,11 +57,11 @@ flowchart LR
 # 1. 安装 CPA Provider (v0.4.1)
 dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.1"
 
-# 2. 下载并安装经过验证的 v0.5.2 Release Tarball
+# 2. 下载并安装经过验证的 v0.5.3 Release Tarball
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.2/dsh-image-gen-0.5.2.tgz \
-  -o /tmp/dsh-image-gen-0.5.2.tgz
-dsh plugin --profile web add /tmp/dsh-image-gen-0.5.2.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.3/dsh-image-gen-0.5.3.tgz \
+  -o /tmp/dsh-image-gen-0.5.3.tgz
+dsh plugin --profile web add /tmp/dsh-image-gen-0.5.3.tgz
 ```
 
 没有 Provider service contract 时，image-gen 不可用。服务端缩略图使用 DSH Host 已提供的 `sharp` peer，不要再向 Web profile 单独安装一份 `sharp`，以免加载重复的原生 `libvips`。

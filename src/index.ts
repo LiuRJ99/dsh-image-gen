@@ -25,7 +25,7 @@ export { DELETE_ROUTE, IMAGE_MODELS_ROUTE, IMAGE_ROUTE, INSPIRATION_ROUTE, WORKS
 /** Cordis plugin name. */
 export const name = 'dsh-image-gen'
 /** Cordis plugin version. */
-export const version = '0.5.2'
+export const version = '0.5.3'
 /** Host services required by the Bundle. */
 export const inject = ['tools', 'attachments', 'webServer']
 
