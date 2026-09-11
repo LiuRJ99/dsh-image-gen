@@ -12,7 +12,6 @@ import {
   builtinInspirationSvg,
   fetchInspirationCandidates,
   filterInspirationCases,
-  getInspirationCase,
   inspirationCatalogSourceUrls,
   inspirationImageSourceUrls,
   isInspirationCaseId,
@@ -50,6 +49,7 @@ const IMAGE_CACHE_MAX_AGE = 3600
 
 interface RouteState {
   catalog: InspirationCatalog | undefined
+  cacheEpoch: number
 }
 
 export interface InspirationRouteDeps {
@@ -64,7 +64,7 @@ export interface InspirationRouteDeps {
 }
 
 const defaultCache = new DiskCache()
-const defaultState: RouteState = { catalog: undefined }
+const defaultState: RouteState = { catalog: undefined, cacheEpoch: 0 }
 const customStates = new WeakMap<object, RouteState>()
 
 /**
@@ -89,7 +89,7 @@ export async function serveInspirationRoute(
     return serveCacheClear(req, res, deps, state)
   }
   if (pathname === INSPIRATION_IMAGE_ROUTE || pathname.startsWith(`${INSPIRATION_IMAGE_ROUTE}/`)) {
-    return serveInspirationImage(req, res, deps)
+    return serveInspirationImage(req, res, deps, state.catalog ?? builtinInspirationCatalog(), state)
   }
   return jsonError(res, 404, 'not-found')
 }
@@ -109,7 +109,7 @@ export function inspirationRouteRegistration(deps: InspirationRouteDeps = {}) {
 
 /** Build an isolated route handler with its own in-memory catalog state. */
 export function createInspirationRoute(deps: InspirationRouteDeps = {}) {
-  const state: RouteState = { catalog: undefined }
+  const state: RouteState = { catalog: undefined, cacheEpoch: 0 }
   return (req: IncomingMessage, res: ServerResponse): Promise<void> => serveInspirationRoute(req, res, { ...deps, state })
 }
 
@@ -227,11 +227,16 @@ async function fetchRemoteCatalog(
         continue
       }
       const source = sourceKind(url)
+      if (parsed.repository !== 'https://github.com/freestylefly/awesome-gpt-image-2' || parsed.totalCases !== parsed.cases.length) {
+        lastError = new Error('Unexpected inspiration catalog source')
+        continue
+      }
       return {
         catalog: {
           ...parsed,
           source,
           updatedAt: parsed.updatedAt,
+          cases: parsed.cases.map((item) => ({ ...item, source })),
         },
       }
     } catch (error) {
@@ -274,11 +279,18 @@ async function serveCacheClear(
     return jsonError(res, 413, 'request-too-large')
   }
   state.catalog = undefined
+  state.cacheEpoch += 1
   await (deps.cache ?? defaultCache).clear()
   json(res, 200, { ok: true })
 }
 
-export async function serveInspirationImage(req: IncomingMessage, res: ServerResponse, deps: InspirationRouteDeps = {}): Promise<void> {
+export async function serveInspirationImage(
+  req: IncomingMessage,
+  res: ServerResponse,
+  deps: InspirationRouteDeps = {},
+  catalog: InspirationCatalog = builtinInspirationCatalog(),
+  state?: RouteState,
+): Promise<void> {
   if (!sameOrigin(req)) return jsonError(res, 403, 'origin-rejected')
   if (req.method !== 'GET' && req.method !== 'POST') return jsonError(res, 405, 'method-not-allowed')
   let caseId: string | undefined
@@ -288,9 +300,10 @@ export async function serveInspirationImage(req: IncomingMessage, res: ServerRes
     return jsonError(res, 400, 'invalid-request')
   }
   if (!isInspirationCaseId(caseId)) return jsonError(res, 400, 'invalid-case')
-  const item = getInspirationCase(caseId)
+  const item = catalog.cases.find((candidate) => candidate.id === caseId)
   if (!item) return jsonError(res, 404, 'case-not-found')
   const cache = deps.cache ?? defaultCache
+  const requestEpoch = state?.cacheEpoch ?? 0
   const cacheKey = `${IMAGE_CACHE_KEY_PREFIX}${caseId}`
   const cached = await cache.get(cacheKey)
   if (cached !== undefined && cached.byteLength <= MAX_INSPIRATION_IMAGE_BYTES) {
@@ -320,7 +333,7 @@ export async function serveInspirationImage(req: IncomingMessage, res: ServerRes
     bytes = fetched.data
     const detectedType = sniffImageContentType(bytes)
     if (detectedType === undefined || (declaredType !== undefined && declaredType !== detectedType)) throw new Error('invalid-image-content')
-    void cache.set(cacheKey, bytes)
+    if (state === undefined || state.cacheEpoch === requestEpoch) void cache.set(cacheKey, bytes)
     return imageResponse(res, bytes, detectedType, false)
   } catch {
     if (clientAborted && !timedOut) return jsonError(res, 499, 'request-aborted')
@@ -456,7 +469,7 @@ function stateFor(deps: InspirationRouteDeps): RouteState {
   const key = deps as object
   const existing = customStates.get(key)
   if (existing !== undefined) return existing
-  const state: RouteState = { catalog: undefined }
+  const state: RouteState = { catalog: undefined, cacheEpoch: 0 }
   customStates.set(key, state)
   return state
 }

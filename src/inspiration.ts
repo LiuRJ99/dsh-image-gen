@@ -2,7 +2,7 @@
  * Provider-neutral Inspiration Library primitives.
  *
  * The host owns the catalog/image fetches and this module deliberately keeps
- * the remote surface closed: only the small built-in case allowlist and the
+ * the remote surface closed: only the bundled case ids and the
  * three fixed repository origins below can ever be addressed. Browser callers
  * pass case ids, never URLs.
  */
@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import rawAwesomeGptImage2 from './inspiration/data/awesome-gpt-image-2.json' with { type: 'json' }
 import { INSPIRATION_SOURCE_REF } from './shared.js'
 
 /** Same-origin route prefix used by the host and browser faces. */
@@ -19,50 +20,57 @@ export const INSPIRATION_REFRESH_ROUTE = `${INSPIRATION_ROUTE_PREFIX}/refresh`
 export const INSPIRATION_CACHE_CLEAR_ROUTE = `${INSPIRATION_ROUTE_PREFIX}/cache-clear`
 export const INSPIRATION_IMAGE_ROUTE = `${INSPIRATION_ROUTE_PREFIX}/image`
 
-/** Fixed allowlists. These are intentionally small and provider independent. */
-export const INSPIRATION_CATEGORIES = [
-  'portrait',
-  'landscape',
-  'product',
-  'architecture',
-  'nature',
-  'illustration',
-] as const
+/**
+ * The dimensions are part of the bundled upstream snapshot, not a hand-written
+ * six-item allowlist. They remain fixed at runtime until the package is rebuilt.
+ */
+interface UpstreamCatalogDocument {
+  repository?: unknown
+  totalCases?: unknown
+  categories?: unknown
+  styles?: unknown
+  scenes?: unknown
+  cases?: unknown
+}
+
+const UPSTREAM_CATALOG = rawAwesomeGptImage2 as unknown as UpstreamCatalogDocument
+const UPSTREAM_SOURCE_VERSION = 'c7d293963b21c60bf338003915438cc5c39dd3ca'
+const DEFAULT_DIMENSION = 'Other Use Cases'
+
+function dimensionValues(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length === 0 || seen.has(entry)) continue
+    seen.add(entry)
+    result.push(entry)
+  }
+  return result
+}
+
+export const INSPIRATION_CATEGORIES = dimensionValues(UPSTREAM_CATALOG.categories)
 export const INSPIRATION_CATEGORY_ALLOWLIST = INSPIRATION_CATEGORIES
-export const INSPIRATION_STYLES = [
-  'photorealistic',
-  'cinematic',
-  'editorial',
-  'minimal',
-  'watercolor',
-  'anime',
-] as const
+export const INSPIRATION_STYLES = dimensionValues(UPSTREAM_CATALOG.styles)
 export const INSPIRATION_STYLE_ALLOWLIST = INSPIRATION_STYLES
-export const INSPIRATION_SCENES = [
-  'studio',
-  'urban',
-  'coastal',
-  'interior',
-  'forest',
-  'fantasy',
-] as const
+export const INSPIRATION_SCENES = dimensionValues(UPSTREAM_CATALOG.scenes)
 export const INSPIRATION_SCENE_ALLOWLIST = INSPIRATION_SCENES
 
-export type InspirationCategory = typeof INSPIRATION_CATEGORIES[number]
-export type InspirationStyle = typeof INSPIRATION_STYLES[number]
-export type InspirationScene = typeof INSPIRATION_SCENES[number]
+export type InspirationCategory = string
+export type InspirationStyle = string
+export type InspirationScene = string
 
-/** Fixed remote repository used for optional catalog/image refreshes. */
+/** Versioned upstream repository used for optional catalog/image refreshes. */
 export const INSPIRATION_REPOSITORY = {
-  owner: 'LiuRJ99',
-  name: 'dsh-image-gen',
-  // Immutable release pin; update deliberately with a release rather than a
-  // mutable branch so remote refresh cannot silently change prompts/assets.
+  owner: 'freestylefly',
+  name: 'awesome-gpt-image-2',
+  // The version marker is an immutable upstream commit/content ref. Do not
+  // replace it with a mutable branch when changing the bundled snapshot.
   ref: INSPIRATION_SOURCE_REF,
-  directory: 'inspiration',
+  directory: 'data',
 } as const
 
-/** Only these hosts and path prefixes are ever fetched by the host. */
+/** Only these fixed hosts and path prefixes are ever fetched by the host. */
 export const INSPIRATION_SOURCE_URLS = {
   mirror: `https://cdn.statically.io/gh/${INSPIRATION_REPOSITORY.owner}/${INSPIRATION_REPOSITORY.name}/${INSPIRATION_REPOSITORY.ref}/${INSPIRATION_REPOSITORY.directory}`,
   jsdelivr: `https://cdn.jsdelivr.net/gh/${INSPIRATION_REPOSITORY.owner}/${INSPIRATION_REPOSITORY.name}@${INSPIRATION_REPOSITORY.ref}/${INSPIRATION_REPOSITORY.directory}`,
@@ -77,8 +85,9 @@ export const INSPIRATION_SOURCE_IDS = ['mirror', 'jsdelivr', 'github'] as const
 export type InspirationRemoteSource = typeof INSPIRATION_SOURCE_IDS[number]
 export type InspirationSource = 'builtin' | InspirationRemoteSource
 
-/** Limits used by the host fetcher and disk cache. */
-export const MAX_INSPIRATION_CATALOG_BYTES = 512 * 1024
+/** Limits used by the host fetcher and disk cache. The upstream JSON is ~1.3MB. */
+export const MAX_INSPIRATION_CASES = 2_000
+export const MAX_INSPIRATION_CATALOG_BYTES = 4 * 1024 * 1024
 export const MAX_INSPIRATION_IMAGE_BYTES = 8 * 1024 * 1024
 export const MAX_INSPIRATION_DISK_CACHE_BYTES = 32 * 1024 * 1024
 /** Compatibility aliases for callers that prefer a `DEFAULT_*` spelling. */
@@ -86,52 +95,68 @@ export const DEFAULT_INSPIRATION_CATALOG_MAX_BYTES = MAX_INSPIRATION_CATALOG_BYT
 export const DEFAULT_INSPIRATION_IMAGE_MAX_BYTES = MAX_INSPIRATION_IMAGE_BYTES
 export const DEFAULT_INSPIRATION_DISK_CACHE_MAX_BYTES = MAX_INSPIRATION_DISK_CACHE_BYTES
 
+export const INSPIRATION_SOURCE_ID = 'awesome-gpt-image-2'
+export const INSPIRATION_SOURCE_VERSION = UPSTREAM_SOURCE_VERSION
+export const INSPIRATION_SOURCE_REPOSITORY = 'https://github.com/freestylefly/awesome-gpt-image-2'
+/** SHA-256 of JSON.stringify(the pinned upstream document), independent of whitespace. */
+export const INSPIRATION_SOURCE_INTEGRITY_SHA256 = '2c3fa2e62887d3d50c8f9684f84949201daeefabec9c15dbe744bd8f55db1304'
+
 export function inspirationDiskCacheDir(): string {
   const home = process.env.USERPROFILE || process.env.HOME || homedir()
   return join(home, '.dsh', 'cache', 'dsh-image-gen', 'inspiration')
 }
 export const INSPIRATION_DISK_CACHE_DIR = inspirationDiskCacheDir()
-export const INSPIRATION_CATALOG_FILE = 'catalog.json'
+export const INSPIRATION_CATALOG_FILE = 'cases.json'
 
-const CASE_IDS = [
-  'golden-hour-portrait',
-  'neon-city-rain',
-  'quiet-coastal-house',
-  'ceramic-still-life',
-  'misty-pine-forest',
-  'editorial-sneaker',
-  'watercolor-market',
-  'fantasy-library',
-] as const
-export const INSPIRATION_CASE_IDS = CASE_IDS
+const CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
+export const INSPIRATION_CASE_IDS = [] as string[]
 /** Alias used by integrations that call the list an allowlist. */
-export const INSPIRATION_CASE_ALLOWLIST = CASE_IDS
-export type InspirationCaseId = typeof CASE_IDS[number]
+export const INSPIRATION_CASE_ALLOWLIST = INSPIRATION_CASE_IDS
+export type InspirationCaseId = string
 
 export type InspirationImageMediaType = 'image/svg+xml' | 'image/webp' | 'image/png' | 'image/jpeg' | 'image/gif'
 
 export interface InspirationCase {
+  /** Stable browser/cache id derived from the upstream numeric id. */
   id: InspirationCaseId
+  /** Original upstream numeric id, retained for lossless catalog mapping. */
+  upstreamId: number
   title: string
   description: string
+  imageAlt: string
+  sourceLabel?: string
+  /** Original attribution URL from the upstream record; never used as a fetch target. */
+  attributionUrl?: string
+  githubUrl?: string
   prompt: string
+  promptPreview: string
   category: InspirationCategory
+  /** Full upstream dimensions. `style`/`scene` are compatibility aliases. */
+  styles: readonly InspirationStyle[]
+  scenes: readonly InspirationScene[]
   style: InspirationStyle
   scene: InspirationScene
-  /** Relative path under the fixed inspiration repository directory. */
+  featured: boolean
+  /** Relative path under the fixed upstream data directory. */
   imagePath: string
   imageMediaType: InspirationImageMediaType
-  /** `builtin` is used for local records; remote records may carry a fixed URL. */
+  /** `builtin` is used for local records; remote records may carry a fixed source. */
   source: 'builtin' | InspirationRemoteSource
+  /** Optional allowlisted asset URL retained for compatibility with old records. */
   sourceUrl?: string
 }
 
 export type InspirationCatalogSource = 'builtin' | InspirationRemoteSource
 
 export interface InspirationCatalog {
+  /** Fork route schema version; distinct from the upstream source version. */
   version: 1
   updatedAt: number
   source: InspirationCatalogSource
+  sourceId: string
+  repository: string
+  sourceVersion: string
+  totalCases: number
   categories: readonly InspirationCategory[]
   styles: readonly InspirationStyle[]
   scenes: readonly InspirationScene[]
@@ -149,109 +174,104 @@ export interface InspirationFilters {
   sourceUrl?: string
 }
 
-/** Built-in records keep the feature useful offline without shipping binaries. */
-export const BUILTIN_INSPIRATION_CASES: readonly InspirationCase[] = [
-  {
-    id: 'golden-hour-portrait',
-    title: 'Golden-hour portrait',
-    description: 'Warm editorial portrait with a gentle late-afternoon glow.',
-    prompt: 'Editorial portrait of a thoughtful person by a sunlit window, warm golden-hour rim light, soft film grain, natural skin texture, quiet contemporary styling, balanced negative space.',
-    category: 'portrait',
-    style: 'editorial',
-    scene: 'studio',
-    imagePath: 'images/golden-hour-portrait.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'neon-city-rain',
-    title: 'Neon city rain',
-    description: 'Cinematic night street scene with reflections and color contrast.',
-    prompt: 'Cinematic rainy city street at night, magenta and cyan neon reflected in puddles, one umbrella in the distance, atmospheric haze, detailed wide composition, no logos or text.',
-    category: 'landscape',
-    style: 'cinematic',
-    scene: 'urban',
-    imagePath: 'images/neon-city-rain.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'quiet-coastal-house',
-    title: 'Quiet coastal house',
-    description: 'Minimal architecture study in calm morning light.',
-    prompt: 'Minimal coastal house on a low cliff above a calm sea, pale morning light, clean concrete and warm wood, a few windswept grasses, architectural photography, generous negative space.',
-    category: 'architecture',
-    style: 'minimal',
-    scene: 'coastal',
-    imagePath: 'images/quiet-coastal-house.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'ceramic-still-life',
-    title: 'Ceramic still life',
-    description: 'A small product composition with tactile studio shadows.',
-    prompt: 'Product still life of handmade ceramic vessels in sand, ivory, and terracotta, soft side lighting, subtle shadows, matte paper backdrop, premium catalog photography, centered composition.',
-    category: 'product',
-    style: 'photorealistic',
-    scene: 'studio',
-    imagePath: 'images/ceramic-still-life.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'misty-pine-forest',
-    title: 'Misty pine forest',
-    description: 'Layered natural depth for a quiet, atmospheric landscape.',
-    prompt: 'Misty pine forest at dawn, layered blue-green hills, a narrow trail disappearing into fog, soft diffused light, peaceful natural color palette, detailed landscape photography.',
-    category: 'nature',
-    style: 'photorealistic',
-    scene: 'forest',
-    imagePath: 'images/misty-pine-forest.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'editorial-sneaker',
-    title: 'Editorial sneaker',
-    description: 'Graphic fashion still life with a crisp magazine feel.',
-    prompt: 'Editorial fashion still life of a white sneaker floating above a cobalt geometric plinth, hard directional light, crisp shadows, clean magazine art direction, high detail, no brand marks.',
-    category: 'product',
-    style: 'editorial',
-    scene: 'studio',
-    imagePath: 'images/editorial-sneaker.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'watercolor-market',
-    title: 'Watercolor market',
-    description: 'Loose hand-painted color and people in a lively square.',
-    prompt: 'Loose watercolor illustration of a lively morning market square, striped awnings, flower stalls, small figures in motion, paper texture, airy washes, joyful but restrained palette.',
-    category: 'illustration',
-    style: 'watercolor',
-    scene: 'urban',
-    imagePath: 'images/watercolor-market.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-  {
-    id: 'fantasy-library',
-    title: 'Fantasy library',
-    description: 'A storybook interior with a luminous impossible ceiling.',
-    prompt: 'Whimsical fantasy library with towering shelves, spiral staircases, floating candles, and a starlit glass ceiling, richly detailed storybook illustration, warm amber and indigo lighting.',
-    category: 'illustration',
-    style: 'anime',
-    scene: 'fantasy',
-    imagePath: 'images/fantasy-library.svg',
-    imageMediaType: 'image/svg+xml',
-    source: 'builtin',
-  },
-]
-/** Short alias for integrations that render the representative cases directly. */
+/**
+ * The complete upstream snapshot is bundled as data rather than expanded into
+ * this TypeScript file. That keeps the source maintainable and makes the same
+ * 541 cases available when remote refresh is unavailable.
+ */
+function normalizeDimensionList(value: unknown): string[] {
+  return dimensionValues(value)
+}
+
+function normalizeImagePath(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const path = value.trim().replace(/^\/+/, '')
+  return safeImagePath(path) ? path : undefined
+}
+
+function imageMediaTypeForPath(path: string): InspirationImageMediaType {
+  const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  if (extension === 'svg') return 'image/svg+xml'
+  if (extension === 'webp') return 'image/webp'
+  if (extension === 'png') return 'image/png'
+  if (extension === 'gif') return 'image/gif'
+  return 'image/jpeg'
+}
+
+function matchesUpstreamImagePath(path: string, upstreamId: number): boolean {
+  return new RegExp(`^images/case${upstreamId}\\.(?:png|jpe?g|webp)$`, 'u').test(path)
+}
+
+function normalizeUpstreamCase(value: unknown, source: InspirationSource): InspirationCase | undefined {
+  const root = record(value)
+  if (!root) return undefined
+  const upstreamId = root.id
+  if (typeof upstreamId !== 'number' || !Number.isSafeInteger(upstreamId) || upstreamId <= 0) return undefined
+  const imagePath = normalizeImagePath(root.image)
+  const title = boundedString(root.title, 240)
+  const prompt = boundedString(root.prompt, 16_000)
+  if (!imagePath || !title || !prompt || !matchesUpstreamImagePath(imagePath, upstreamId)) return undefined
+  const id = String(upstreamId)
+  const promptPreview = boundedString(root.promptPreview, 600) ?? prompt.slice(0, 280)
+  const imageAlt = boundedString(root.imageAlt, 320) ?? title
+  const styles = normalizeDimensionList(root.styles)
+  const scenes = normalizeDimensionList(root.scenes)
+  const category = boundedString(root.category, 120) ?? DEFAULT_DIMENSION
+  const style = styles[0] ?? DEFAULT_DIMENSION
+  const scene = scenes[0] ?? DEFAULT_DIMENSION
+  const sourceLabel = boundedString(root.sourceLabel, 240)
+  const attributionUrl = parseHttpSourceUrl(root.sourceUrl)?.href
+  const githubUrl = parseHttpSourceUrl(root.githubUrl)?.href
+  return {
+    id,
+    upstreamId,
+    title,
+    description: promptPreview,
+    imageAlt,
+    ...(sourceLabel === undefined ? {} : { sourceLabel }),
+    ...(attributionUrl === undefined ? {} : { attributionUrl }),
+    ...(githubUrl === undefined ? {} : { githubUrl }),
+    prompt,
+    promptPreview,
+    category,
+    styles,
+    scenes,
+    style,
+    scene,
+    featured: root.featured === true,
+    imagePath,
+    imageMediaType: imageMediaTypeForPath(imagePath),
+    source,
+  }
+}
+
+function parseUpstreamCases(value: unknown, source: InspirationSource): InspirationCase[] {
+  const root = record(value)
+  if (!Array.isArray(root?.cases)) return []
+  const seen = new Set<string>()
+  const cases: InspirationCase[] = []
+  for (const candidate of root.cases) {
+    const parsed = normalizeUpstreamCase(candidate, source)
+    if (!parsed || seen.has(parsed.id)) continue
+    seen.add(parsed.id)
+    cases.push(parsed)
+  }
+  return cases
+}
+
+/** Built-in records keep the feature useful offline with the full snapshot. */
+export const BUILTIN_INSPIRATION_CASES: readonly InspirationCase[] = parseUpstreamCases(UPSTREAM_CATALOG, 'builtin')
+if (BUILTIN_INSPIRATION_CASES.length === 0) throw new Error('Bundled inspiration catalog is empty')
+INSPIRATION_CASE_IDS.push(...BUILTIN_INSPIRATION_CASES.map((item) => item.id))
+
+/** Short alias used by integrations that render representative cases directly. */
 export const INSPIRATION_CASES = BUILTIN_INSPIRATION_CASES
 
 const CASE_BY_ID = new Map<string, InspirationCase>(BUILTIN_INSPIRATION_CASES.map((item) => [item.id, item]))
+
+function cloneCase(item: InspirationCase): InspirationCase {
+  return { ...item, styles: [...item.styles], scenes: [...item.scenes] }
+}
 
 /** Create the offline catalog. The returned arrays are fresh and safe to filter. */
 export function builtinInspirationCatalog(now = Date.now()): InspirationCatalog {
@@ -259,10 +279,14 @@ export function builtinInspirationCatalog(now = Date.now()): InspirationCatalog 
     version: 1,
     updatedAt: now,
     source: 'builtin',
+    sourceId: INSPIRATION_SOURCE_ID,
+    repository: typeof UPSTREAM_CATALOG.repository === 'string' ? UPSTREAM_CATALOG.repository : INSPIRATION_SOURCE_REPOSITORY,
+    sourceVersion: INSPIRATION_SOURCE_VERSION,
+    totalCases: BUILTIN_INSPIRATION_CASES.length,
     categories: [...INSPIRATION_CATEGORIES],
     styles: [...INSPIRATION_STYLES],
     scenes: [...INSPIRATION_SCENES],
-    cases: BUILTIN_INSPIRATION_CASES.map((item) => ({ ...item })),
+    cases: BUILTIN_INSPIRATION_CASES.map(cloneCase),
   }
 }
 
@@ -270,7 +294,7 @@ export function builtinInspirationCatalog(now = Date.now()): InspirationCatalog 
 export const getBuiltinInspirationCatalog = builtinInspirationCatalog
 
 export function isInspirationCaseId(value: unknown): value is InspirationCaseId {
-  return typeof value === 'string' && (CASE_IDS as readonly string[]).includes(value)
+  return typeof value === 'string' && CASE_ID_PATTERN.test(value)
 }
 
 export function isInspirationCategory(value: unknown): value is InspirationCategory {
@@ -296,7 +320,7 @@ export function isInspirationSource(value: unknown): value is InspirationSource 
 export function parseHttpSourceUrl(value: unknown): URL | undefined {
   if (typeof value !== 'string') return undefined
   const text = value.trim()
-  if (text.length === 0 || text.length > 2048) return undefined
+  if (text.length === 0 || text.length > 2048 || text.includes('\\')) return undefined
   let parsed: URL
   try {
     parsed = new URL(text)
@@ -312,6 +336,8 @@ export function parseHttpSourceUrl(value: unknown): URL | undefined {
 /**
  * Check a source URL against the fixed repository host/path allowlist. The
  * optional relative path makes the check suitable for a specific case asset.
+ * The host set stays the fork's mirror → jsDelivr → GitHub trio; only the
+ * versioned upstream data path and its safe image names are accepted.
  */
 export function isAllowedInspirationSourceUrl(value: unknown, relativePath?: string): boolean {
   const parsed = parseHttpSourceUrl(value)
@@ -324,9 +350,7 @@ export function isAllowedInspirationSourceUrl(value: unknown, relativePath?: str
     if (!parsed.pathname.startsWith(prefix)) return false
     const candidatePath = parsed.pathname.slice(prefix.length)
     if (relativePath !== undefined) return candidatePath === relativePath
-    if (candidatePath === INSPIRATION_CATALOG_FILE) return true
-    if (!safeImagePath(candidatePath)) return false
-    return CASE_IDS.some((caseId) => CASE_BY_ID.get(caseId)?.imagePath === candidatePath)
+    return candidatePath === INSPIRATION_CATALOG_FILE || safeImagePath(candidatePath)
   })
 }
 
@@ -337,7 +361,7 @@ export const parseSourceUrl = parseHttpSourceUrl
 export const parseHttpSource = parseHttpSourceUrl
 
 function safeImagePath(value: string): boolean {
-  return /^images\/(?:[a-z0-9]+-)*[a-z0-9]+\.(?:svg|webp|png|jpe?g)$/u.test(value)
+  return /^images\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.(?:svg|webp|png|jpe?g|gif)$/u.test(value)
 }
 
 function sourceUrlForPath(source: InspirationRemoteSource, relativePath: string): string {
@@ -365,11 +389,11 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function boundedString(value: unknown, maxLength: number): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' && value.length <= maxLength ? value.trim() : undefined
+  return typeof value === 'string' && value.trim() !== '' && value.length <= maxLength ? value : undefined
 }
 
-function parseSourceField(value: unknown, expectedPath: string): { source: 'builtin' | InspirationRemoteSource; sourceUrl?: string } | undefined {
-  if (value === undefined || value === 'builtin') return { source: 'builtin' }
+function parseSourceField(value: unknown, expectedPath: string, fallback: InspirationSource = 'builtin'): { source: InspirationSource; sourceUrl?: string } | undefined {
+  if (value === undefined || value === 'builtin') return { source: fallback }
   if (typeof value === 'string' && (INSPIRATION_SOURCE_IDS as readonly string[]).includes(value)) {
     return { source: value as InspirationRemoteSource }
   }
@@ -383,66 +407,130 @@ function parseSourceField(value: unknown, expectedPath: string): { source: 'buil
   return { source: sourceId, sourceUrl: sourceUrl.href }
 }
 
-function parseCase(value: unknown): InspirationCase | undefined {
+function uniqueDimensions(cases: readonly InspirationCase[], field: 'category' | 'style' | 'scene'): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const item of cases) {
+    const values = field === 'category' ? [item.category] : field === 'style' ? item.styles : item.scenes
+    for (const value of values) {
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      result.push(value)
+    }
+  }
+  return result
+}
+
+function parseCase(value: unknown, fallbackSource: InspirationSource = 'builtin'): InspirationCase | undefined {
   const root = record(value)
-  if (!root || !isInspirationCaseId(root.id)) return undefined
-  const id = root.id
-  const title = boundedString(root.title, 160)
-  const description = boundedString(root.description, 320)
-  const prompt = boundedString(root.prompt, 4000)
-  const category = root.category
-  const style = root.style
-  const scene = root.scene
-  const imagePath = boundedString(root.imagePath, 180)
-  const imageMediaType = root.imageMediaType
-  const expectedImagePath = CASE_BY_ID.get(id)?.imagePath
-  if (!title || !description || !prompt || !isInspirationCategory(category) || !isInspirationStyle(style) || !isInspirationScene(scene) || !imagePath || !safeImagePath(imagePath) || imagePath !== expectedImagePath) return undefined
-  if (imageMediaType !== 'image/svg+xml' && imageMediaType !== 'image/webp' && imageMediaType !== 'image/png' && imageMediaType !== 'image/jpeg' && imageMediaType !== 'image/gif') return undefined
-  const sourceInfo = parseSourceField(root.sourceUrl ?? root.source, imagePath)
+  const id = boundedString(root?.id, 120)
+  if (!root || !id || !isInspirationCaseId(id)) return undefined
+  const title = boundedString(root.title, 240)
+  const prompt = boundedString(root.prompt, 16_000)
+  const imagePath = normalizeImagePath(root.imagePath)
+  if (!title || !prompt || !imagePath) return undefined
+  const promptPreview = boundedString(root.promptPreview, 600) ?? prompt.slice(0, 280)
+  const imageAlt = boundedString(root.imageAlt, 320) ?? title
+  const description = boundedString(root.description, 600) ?? promptPreview
+  const category = boundedString(root.category, 120) ?? DEFAULT_DIMENSION
+  const styles = normalizeDimensionList(root.styles)
+  const scenes = normalizeDimensionList(root.scenes)
+  const style = boundedString(root.style, 120) ?? styles[0] ?? DEFAULT_DIMENSION
+  const scene = boundedString(root.scene, 120) ?? scenes[0] ?? DEFAULT_DIMENSION
+  const sourceInfo = parseSourceField(root.remoteUrl ?? root.sourceUrl ?? root.source, imagePath, fallbackSource)
   if (!sourceInfo) return undefined
+  const upstreamId = typeof root.upstreamId === 'number' && Number.isSafeInteger(root.upstreamId)
+    ? root.upstreamId
+    : Number(/^(?:case-)?(\d+)$/u.exec(id)?.[1] ?? 0)
+  if (upstreamId > 0 && (id !== String(upstreamId) || !matchesUpstreamImagePath(imagePath, upstreamId))) return undefined
+  const imageMediaType = root.imageMediaType
+  const resolvedMediaType = imageMediaType === undefined ? imageMediaTypeForPath(imagePath) : imageMediaType
+  if (resolvedMediaType !== 'image/svg+xml' && resolvedMediaType !== 'image/webp' && resolvedMediaType !== 'image/png' && resolvedMediaType !== 'image/jpeg' && resolvedMediaType !== 'image/gif') return undefined
+  const sourceLabel = boundedString(root.sourceLabel, 240)
+  const attributionUrl = parseHttpSourceUrl(root.attributionUrl)?.href
+  const githubUrl = parseHttpSourceUrl(root.githubUrl)?.href
   return {
     id,
+    upstreamId,
     title,
     description,
+    imageAlt,
+    ...(sourceLabel === undefined ? {} : { sourceLabel }),
+    ...(attributionUrl === undefined ? {} : { attributionUrl }),
+    ...(githubUrl === undefined ? {} : { githubUrl }),
     prompt,
+    promptPreview,
     category,
+    styles: styles.length > 0 ? styles : [style],
+    scenes: scenes.length > 0 ? scenes : [scene],
     style,
     scene,
+    featured: root.featured === true,
     imagePath,
-    imageMediaType,
+    imageMediaType: resolvedMediaType,
     source: sourceInfo.source,
     ...(sourceInfo.sourceUrl === undefined ? {} : { sourceUrl: sourceInfo.sourceUrl }),
   }
 }
 
+function catalogFromCases(root: Record<string, unknown>, parsedCases: readonly InspirationCase[], source: InspirationSource, now: number): InspirationCatalog {
+  const repository = parseHttpSourceUrl(root.repository)?.href ?? INSPIRATION_SOURCE_REPOSITORY
+  const sourceVersion = boundedString(root.sourceVersion ?? root.versionMarker, 128) ?? INSPIRATION_SOURCE_VERSION
+  const categories = normalizeDimensionList(root.categories)
+  const styles = normalizeDimensionList(root.styles)
+  const scenes = normalizeDimensionList(root.scenes)
+  const totalCases = typeof root.totalCases === 'number' && Number.isSafeInteger(root.totalCases) && root.totalCases >= parsedCases.length
+    ? root.totalCases
+    : parsedCases.length
+  return {
+    version: 1,
+    updatedAt: typeof root.updatedAt === 'number' && Number.isFinite(root.updatedAt) ? root.updatedAt : now,
+    source,
+    sourceId: boundedString(root.sourceId, 120) ?? INSPIRATION_SOURCE_ID,
+    repository,
+    sourceVersion,
+    totalCases,
+    categories: categories.length > 0 ? categories : uniqueDimensions(parsedCases, 'category'),
+    styles: styles.length > 0 ? styles : uniqueDimensions(parsedCases, 'style'),
+    scenes: scenes.length > 0 ? scenes : uniqueDimensions(parsedCases, 'scene'),
+    cases: parsedCases.map(cloneCase),
+  }
+}
+
+function catalogIntegrity(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value) ?? '').digest('hex')
+}
+
 /**
- * Validate a remote catalog while retaining only the fixed schema/case set.
- * Unknown fields are ignored; unknown case ids/categories/styles/scenes reject
- * the catalog rather than silently broadening the allowlist.
+ * Validate either the fork-normalized catalog or the upstream snapshot shape.
+ * Unknown metadata is ignored, but malformed cases and duplicate ids reject the
+ * document so a partial/poisoned catalog never replaces the offline snapshot.
  */
 export function parseInspirationCatalog(value: unknown): InspirationCatalog | undefined {
   const root = record(value)
   if (!root || (root.version !== undefined && root.version !== 1)) return undefined
-  if (!Array.isArray(root.cases) || root.cases.length === 0 || root.cases.length > CASE_IDS.length) return undefined
-  const parsedCases: InspirationCase[] = []
-  const seen = new Set<string>()
-  for (const item of root.cases) {
-    const parsed = parseCase(item)
-    if (!parsed || seen.has(parsed.id)) return undefined
-    seen.add(parsed.id)
-    parsedCases.push(parsed)
-  }
-  const updatedAt = typeof root.updatedAt === 'number' && Number.isFinite(root.updatedAt) ? root.updatedAt : Date.now()
+  if (!Array.isArray(root.cases) || root.cases.length === 0 || root.cases.length > MAX_INSPIRATION_CASES) return undefined
+  const upstreamShape = root.cases.some((item) => record(item)?.image !== undefined || typeof record(item)?.id === 'number')
+  if (upstreamShape && (root.repository !== INSPIRATION_SOURCE_REPOSITORY || root.totalCases !== root.cases.length || catalogIntegrity(value) !== INSPIRATION_SOURCE_INTEGRITY_SHA256)) return undefined
   const source = isInspirationSource(root.source) ? root.source : 'builtin'
-  return {
-    version: 1,
-    updatedAt,
-    source,
-    categories: [...INSPIRATION_CATEGORIES],
-    styles: [...INSPIRATION_STYLES],
-    scenes: [...INSPIRATION_SCENES],
-    cases: parsedCases,
+  if (upstreamShape) {
+    const categories = normalizeDimensionList(root.categories)
+    const styles = normalizeDimensionList(root.styles)
+    const scenes = normalizeDimensionList(root.scenes)
+    if (
+      categories.length !== INSPIRATION_CATEGORIES.length || !categories.every(isInspirationCategory)
+      || styles.length !== INSPIRATION_STYLES.length || !styles.every(isInspirationStyle)
+      || scenes.length !== INSPIRATION_SCENES.length || !scenes.every(isInspirationScene)
+    ) return undefined
   }
+  const parsedCases = upstreamShape
+    ? parseUpstreamCases(root, source)
+    : root.cases.map((item) => parseCase(item, source)).filter((item): item is InspirationCase => item !== undefined)
+  if (upstreamShape && parsedCases.some((item) => !isInspirationCategory(item.category) || item.styles.some((value) => !isInspirationStyle(value)) || item.scenes.some((value) => !isInspirationScene(value)))) return undefined
+  if (parsedCases.length !== root.cases.length) return undefined
+  const seen = new Set<string>()
+  if (parsedCases.some((item) => seen.has(item.id) || !seen.add(item.id))) return undefined
+  return catalogFromCases(root, parsedCases, source, Date.now())
 }
 
 /** Parse URL query/record filters against the fixed category/style/scene sets. */
@@ -506,20 +594,20 @@ export const parseInspirationFilter = parseInspirationFilters
 export function filterInspirationCases(cases: readonly InspirationCase[], filters: InspirationFilters = {}): InspirationCase[] {
   return cases.filter((item) => {
     if (filters.category !== undefined && item.category !== filters.category) return false
-    if (filters.style !== undefined && item.style !== filters.style) return false
-    if (filters.scene !== undefined && item.scene !== filters.scene) return false
+    if (filters.style !== undefined && !item.styles.includes(filters.style) && item.style !== filters.style) return false
+    if (filters.scene !== undefined && !item.scenes.includes(filters.scene) && item.scene !== filters.scene) return false
     if (filters.caseId !== undefined && item.id !== filters.caseId) return false
     if (filters.source !== undefined && item.source !== filters.source) return false
     if (filters.sourceUrl !== undefined && item.sourceUrl !== filters.sourceUrl) return false
     return true
-  }).map((item) => ({ ...item }))
+  }).map(cloneCase)
 }
 
-/** Resolve only a case from the built-in allowlist. */
+/** Resolve only a case from the bundled allowlist. */
 export function getInspirationCase(caseId: unknown): InspirationCase | undefined {
   if (!isInspirationCaseId(caseId)) return undefined
   const item = CASE_BY_ID.get(caseId)
-  return item === undefined ? undefined : { ...item }
+  return item === undefined ? undefined : cloneCase(item)
 }
 
 /** Read a bounded HTTP response stream; never buffers beyond `maxBytes`. */
@@ -634,17 +722,18 @@ function inspirationAbortError(): Error {
 export function builtinInspirationSvg(item: InspirationCase | InspirationCaseId): string {
   const resolved = typeof item === 'string' ? CASE_BY_ID.get(item) : item
   if (!resolved) return ''
-  const palettes: Record<InspirationCaseId, readonly [string, string, string]> = {
-    'golden-hour-portrait': ['#2b1b2d', '#e58d5c', '#ffd9a0'],
-    'neon-city-rain': ['#11183f', '#d94b9b', '#55e9e0'],
-    'quiet-coastal-house': ['#7da8b5', '#e5d4b0', '#f8f1de'],
-    'ceramic-still-life': ['#4b3430', '#c98766', '#f1ddc4'],
-    'misty-pine-forest': ['#1d3940', '#6e9b91', '#d6e5cf'],
-    'editorial-sneaker': ['#152a64', '#3d6be0', '#f3f4f6'],
-    'watercolor-market': ['#ee9b65', '#f4d06f', '#7097b5'],
-    'fantasy-library': ['#171837', '#5b4c9c', '#f1bf67'],
-  }
-  const [start, middle, end] = palettes[resolved.id]
+  const palettes: readonly (readonly [string, string, string])[] = [
+    ['#2b1b2d', '#e58d5c', '#ffd9a0'],
+    ['#11183f', '#d94b9b', '#55e9e0'],
+    ['#7da8b5', '#e5d4b0', '#f8f1de'],
+    ['#4b3430', '#c98766', '#f1ddc4'],
+    ['#1d3940', '#6e9b91', '#d6e5cf'],
+    ['#152a64', '#3d6be0', '#f3f4f6'],
+    ['#ee9b65', '#f4d06f', '#7097b5'],
+    ['#171837', '#5b4c9c', '#f1bf67'],
+  ]
+  const palette = palettes[Math.abs(resolved.upstreamId) % palettes.length] ?? palettes[0]!
+  const [start, middle, end] = palette
   const title = escapeXml(resolved.title)
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" role="img" aria-labelledby="title"><title id="title">${title}</title><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${start}"/><stop offset=".55" stop-color="${middle}"/><stop offset="1" stop-color="${end}"/></linearGradient><radialGradient id="glow"><stop stop-color="#fff" stop-opacity=".75"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><rect width="960" height="640" fill="url(#bg)"/><circle cx="760" cy="120" r="180" fill="url(#glow)" opacity=".45"/><path d="M0 510 Q180 430 360 510 T720 490 T960 500 V640 H0Z" fill="#101727" opacity=".42"/><path d="M70 115h360M70 145h260" stroke="#fff" stroke-opacity=".65" stroke-width="8" stroke-linecap="round"/><text x="70" y="560" fill="#fff" fill-opacity=".9" font-family="system-ui,sans-serif" font-size="32" font-weight="600">${title}</text></svg>`
 }

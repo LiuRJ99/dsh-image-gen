@@ -5,9 +5,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import {
   BUILTIN_INSPIRATION_CASES,
+  INSPIRATION_CATEGORIES,
+  INSPIRATION_SCENES,
   INSPIRATION_SOURCE_URLS,
+  INSPIRATION_SOURCE_VERSION,
+  INSPIRATION_STYLES,
   InspirationDiskCache,
   builtinInspirationCatalog,
+  filterInspirationCases,
   isAllowedInspirationSourceUrl,
   parseHttpSourceUrl,
   parseInspirationCatalog,
@@ -59,28 +64,58 @@ describe('Inspiration schema and source security', () => {
     expect(parseHttpSourceUrl('https://example.test/a?redirect=https://evil.test')).toBeUndefined()
   })
 
-  it('keeps remote URLs on the fixed repository path', () => {
-    const allowed = `${INSPIRATION_SOURCE_URLS.jsdelivr}/catalog.json`
-    expect(isAllowedInspirationSourceUrl(allowed)).toBe(true)
-    expect(isAllowedInspirationSourceUrl(`${INSPIRATION_SOURCE_URLS.jsdelivr}/../../etc/passwd`)).toBe(false)
-    expect(isAllowedInspirationSourceUrl('https://evil.test/inspiration/catalog.json')).toBe(false)
+  it('keeps remote URLs on the fixed upstream data path', () => {
+    const allowedCatalog = `${INSPIRATION_SOURCE_URLS.jsdelivr}/cases.json`
+    const allowedImage = `${INSPIRATION_SOURCE_URLS.jsdelivr}/images/case544.jpg`
+    expect(isAllowedInspirationSourceUrl(allowedCatalog)).toBe(true)
+    expect(isAllowedInspirationSourceUrl(allowedImage)).toBe(true)
+    expect(isAllowedInspirationSourceUrl(`${INSPIRATION_SOURCE_URLS.jsdelivr}/images/../../etc/passwd`)).toBe(false)
+    expect(isAllowedInspirationSourceUrl(`${INSPIRATION_SOURCE_URLS.jsdelivr}/images/evil\\case.jpg`)).toBe(false)
+    expect(isAllowedInspirationSourceUrl('https://evil.test/inspiration/cases.json')).toBe(false)
   })
 
-  it('parses allowlisted filters and rejects unknown values', () => {
-    expect(parseInspirationFilters('?category=portrait&style=editorial&scene=studio')).toEqual({
-      category: 'portrait',
-      style: 'editorial',
-      scene: 'studio',
+  it('parses URL-encoded upstream dimensions and rejects unknown values', () => {
+    expect(parseInspirationFilters('?category=Charts%20%26%20Infographics&style=UI&scene=Education')).toEqual({
+      category: 'Charts & Infographics',
+      style: 'UI',
+      scene: 'Education',
     })
     expect(parseInspirationFilters('?category=not-a-category')).toBeUndefined()
     expect(parseInspirationFilters('?unknown=value')).toBeUndefined()
   })
 
-  it('keeps the built-in catalog compact and schema-valid', () => {
+  it('bundles and validates all 541 upstream cases without losing fields', () => {
     const catalog = builtinInspirationCatalog(123)
-    expect(catalog.cases).toHaveLength(8)
-    expect(catalog.cases).toEqual(BUILTIN_INSPIRATION_CASES)
-    expect(parseInspirationCatalog(catalog)?.cases).toHaveLength(8)
+    expect(catalog.cases).toHaveLength(541)
+    expect(catalog.totalCases).toBe(541)
+    expect(catalog.sourceVersion).toBe(INSPIRATION_SOURCE_VERSION)
+    expect(catalog.categories).toEqual(INSPIRATION_CATEGORIES)
+    expect(catalog.styles).toEqual(INSPIRATION_STYLES)
+    expect(catalog.scenes).toEqual(INSPIRATION_SCENES)
+    expect(new Set(catalog.cases.map((item) => item.id)).size).toBe(541)
+    expect(catalog.cases.some((item) => item.id === '12')).toBe(false)
+    expect(catalog.cases.some((item) => item.id === '169')).toBe(false)
+    expect(catalog.cases.some((item) => item.id === '170')).toBe(false)
+    const jpg = catalog.cases.find((item) => item.id === '544')
+    const png = catalog.cases.find((item) => item.id === '400')
+    const longest = catalog.cases.find((item) => item.upstreamId === 532)
+    expect(jpg?.imagePath).toBe('images/case544.jpg')
+    expect(jpg?.imageMediaType).toBe('image/jpeg')
+    expect(png?.imagePath).toBe('images/case400.png')
+    expect(png?.imageMediaType).toBe('image/png')
+    expect(longest?.prompt.length).toBe(8143)
+    expect(longest?.promptPreview).toBeTruthy()
+    expect(longest?.attributionUrl).toBeTruthy()
+    expect(catalog.cases.some((item) => item.featured)).toBe(true)
+    expect(parseInspirationCatalog(catalog)?.cases).toHaveLength(541)
+  })
+
+  it('filters all styles/scenes while preserving the source total', () => {
+    const catalog = builtinInspirationCatalog(123)
+    const multi = catalog.cases.find((item) => item.styles.length > 1 && item.scenes.length > 1)!
+    expect(filterInspirationCases(catalog.cases, { style: multi.styles[1] })).toContainEqual(multi)
+    expect(filterInspirationCases(catalog.cases, { scene: multi.scenes[1] })).toContainEqual(multi)
+    expect(filterInspirationCases(catalog.cases, { category: multi.category })).toHaveLength(catalog.cases.filter((item) => item.category === multi.category).length)
   })
 })
 
@@ -133,6 +168,7 @@ describe('browser Inspiration loaders', () => {
     expect(requestUrl).toContain('/plugins/dsh-image-gen/inspiration/refresh')
     expect(requestMethod).toBe('POST')
     expect(result?.updatedAt).toBe(42)
+    expect(result?.cases).toHaveLength(541)
   })
 })
 
@@ -143,9 +179,11 @@ describe('same-origin Inspiration routes', () => {
     try {
       cache = new InspirationDiskCache({ directory })
       const ok = response()
-      await serveInspirationRoute(request('GET', '/plugins/dsh-image-gen/inspiration/catalog?category=portrait'), ok, { cache, now: () => 123 })
+      await serveInspirationRoute(request('GET', '/plugins/dsh-image-gen/inspiration/catalog?category=Charts%20%26%20Infographics'), ok, { cache, now: () => 123 })
       expect(ok.statusCode).toBe(200)
-      expect(JSON.parse(ok.body().toString()).cases.every((item: { category: string }) => item.category === 'portrait')).toBe(true)
+      const catalog = JSON.parse(ok.body().toString()) as { totalCases: number; cases: Array<{ category: string }> }
+      expect(catalog.totalCases).toBe(541)
+      expect(catalog.cases.every((item) => item.category === 'Charts & Infographics')).toBe(true)
 
       const denied = response()
       const crossOrigin = request('GET', '/plugins/dsh-image-gen/inspiration/catalog')
@@ -170,11 +208,11 @@ describe('same-origin Inspiration routes', () => {
         return new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', { headers: { 'content-type': 'image/svg+xml' } })
       }
       const served = response()
-      await serveInspirationRoute(request('GET', '/plugins/dsh-image-gen/inspiration/image/golden-hour-portrait'), served, { cache, fetch })
+      await serveInspirationRoute(request('GET', '/plugins/dsh-image-gen/inspiration/image/544'), served, { cache, fetch })
       expect(served.statusCode).toBe(200)
       expect(served.headers['content-type']).toBe('image/svg+xml')
-      expect(seen[0]).toBe(`${INSPIRATION_SOURCE_URLS.mirror}/images/golden-hour-portrait.svg`)
-      expect(seen[1]).toBe(`${INSPIRATION_SOURCE_URLS.jsdelivr}/images/golden-hour-portrait.svg`)
+      expect(seen[0]).toBe(`${INSPIRATION_SOURCE_URLS.mirror}/images/case544.jpg`)
+      expect(seen[1]).toBe(`${INSPIRATION_SOURCE_URLS.jsdelivr}/images/case544.jpg`)
 
       const rejected = response()
       await serveInspirationRoute(request('GET', '/plugins/dsh-image-gen/inspiration/image?url=https://evil.test/image.png'), rejected, { cache, fetch })
@@ -185,11 +223,11 @@ describe('same-origin Inspiration routes', () => {
     }
   })
 
-  it('refreshes through mirror → jsDelivr → GitHub and clears cache', async () => {
+  it('refreshes through mirror → jsDelivr → GitHub and falls back to bundled data', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-inspiration-refresh-test-'))
-    let calls = 0
     try {
       const cache = new InspirationDiskCache({ directory })
+      let calls = 0
       const fetch = async (): Promise<Response> => {
         calls += 1
         if (calls < 3) return new Response('not-json', { status: 503 })
@@ -202,6 +240,15 @@ describe('same-origin Inspiration routes', () => {
       expect(refreshed.statusCode).toBe(200)
       expect(calls).toBe(3)
       expect(JSON.parse(refreshed.body().toString()).updatedAt).toBe(456)
+
+      const offline = response()
+      await serveInspirationRoute(request('POST', '/plugins/dsh-image-gen/inspiration/refresh'), offline, {
+        cache: new InspirationDiskCache({ directory: join(directory, 'offline') }),
+        fetch: async () => { throw new Error('offline') },
+        now: () => 789,
+      })
+      expect(offline.statusCode).toBe(200)
+      expect(JSON.parse(offline.body().toString()).cases).toHaveLength(541)
 
       const cleared = response()
       await serveInspirationRoute(request('POST', '/plugins/dsh-image-gen/inspiration/cache-clear'), cleared, { cache })

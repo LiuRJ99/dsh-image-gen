@@ -1,5 +1,6 @@
 /** Bounded, failure-tolerant IndexedDB cache for Inspiration images. */
 import { INSPIRATION_CACHE_NAMESPACE } from '../shared.js'
+import { INSPIRATION_KNOWN_CASE_IDS } from './inspiration-known-data.js'
 
 /** Browser image bytes are capped independently of the catalog metadata. */
 export const MAX_INSPIRATION_IMAGE_CACHE_BYTES = 8 * 1024 * 1024
@@ -353,13 +354,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
-const KNOWN_CASE_IDS = new Set([
-  'golden-hour-portrait',
-  'neon-city-rain',
-  'quiet-coastal-house',
-  'ceramic-still-life',
-  'misty-pine-forest',
-  'editorial-sneaker',
-  'watercolor-market',
-  'fantasy-library',
-])
+const KNOWN_CASE_IDS: ReadonlySet<string> = new Set<string>(INSPIRATION_KNOWN_CASE_IDS)

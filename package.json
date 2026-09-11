@@ -39,6 +39,9 @@
     "README.en.md",
     "CHANGELOG.md",
     "docs/CPA-ONLY-OPTION-A.md",
+    "docs/inspiration-data-mapping.md",
+    "src/inspiration/data/awesome-gpt-image-2.json",
+    "src/inspiration/data/awesome-gpt-image-2.version.txt",
     "LICENSE"
   ],
   "dsh": {

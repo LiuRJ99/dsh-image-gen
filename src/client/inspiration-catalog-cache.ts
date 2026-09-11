@@ -1,9 +1,15 @@
 /** Small, failure-tolerant IndexedDB cache for the Inspiration catalog. */
 import type { InspirationCatalog } from '../inspiration.js'
 import { INSPIRATION_CACHE_NAMESPACE } from '../shared.js'
+import {
+  INSPIRATION_KNOWN_CATEGORIES,
+  INSPIRATION_KNOWN_CASE_IDS,
+  INSPIRATION_KNOWN_SCENES,
+  INSPIRATION_KNOWN_STYLES,
+} from './inspiration-known-data.js'
 
 /** Catalog metadata is intentionally capped well below browser quota limits. */
-export const MAX_INSPIRATION_CATALOG_CACHE_BYTES = 512 * 1024
+export const MAX_INSPIRATION_CATALOG_CACHE_BYTES = 4 * 1024 * 1024
 export const DEFAULT_INSPIRATION_CATALOG_CACHE_MAX_BYTES = MAX_INSPIRATION_CATALOG_CACHE_BYTES
 export const INSPIRATION_CATALOG_CACHE_DB = `dsh_image_gen_inspiration_${INSPIRATION_CACHE_NAMESPACE}`
 export const INSPIRATION_CATALOG_CACHE_STORE = 'catalog'
@@ -268,41 +274,43 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
-const KNOWN_CASE_IDS = new Set([
-  'golden-hour-portrait',
-  'neon-city-rain',
-  'quiet-coastal-house',
-  'ceramic-still-life',
-  'misty-pine-forest',
-  'editorial-sneaker',
-  'watercolor-market',
-  'fantasy-library',
-])
-const KNOWN_CATEGORIES = new Set(['portrait', 'landscape', 'product', 'architecture', 'nature', 'illustration'])
-const KNOWN_STYLES = new Set(['photorealistic', 'cinematic', 'editorial', 'minimal', 'watercolor', 'anime'])
-const KNOWN_SCENES = new Set(['studio', 'urban', 'coastal', 'interior', 'forest', 'fantasy'])
-const KNOWN_SOURCES = new Set(['builtin', 'mirror', 'jsdelivr', 'github'])
+const KNOWN_CASE_IDS: ReadonlySet<string> = new Set<string>(INSPIRATION_KNOWN_CASE_IDS)
+const KNOWN_CATEGORIES: ReadonlySet<string> = new Set<string>(INSPIRATION_KNOWN_CATEGORIES)
+const KNOWN_STYLES: ReadonlySet<string> = new Set<string>(INSPIRATION_KNOWN_STYLES)
+/** Keep this explicit: it is the fork's client-side scene allowlist. */
+const KNOWN_SCENES: ReadonlySet<string> = new Set<string>(INSPIRATION_KNOWN_SCENES)
+const KNOWN_SOURCES: ReadonlySet<string> = new Set(['builtin', 'mirror', 'jsdelivr', 'github'])
+const SAFE_CASE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
+const SAFE_IMAGE_PATH = /^images\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.(?:svg|webp|png|jpe?g|gif)$/u
+
+function validDimensionList(value: unknown, known: ReadonlySet<string>, max: number): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= max && value.every((entry) => typeof entry === 'string' && known.has(entry))
+}
 
 /** Defensive browser-side validation prevents poisoned cache records. */
 function validCatalog(value: unknown): value is InspirationCatalog {
   const root = asRecord(value)
-  if (!root || root.version !== 1 || !Array.isArray(root.cases) || root.cases.length === 0 || root.cases.length > 8) return false
-  if (!Array.isArray(root.categories) || !root.categories.every((entry) => typeof entry === 'string' && KNOWN_CATEGORIES.has(entry))) return false
-  if (!Array.isArray(root.styles) || !root.styles.every((entry) => typeof entry === 'string' && KNOWN_STYLES.has(entry))) return false
-  if (!Array.isArray(root.scenes) || !root.scenes.every((entry) => typeof entry === 'string' && KNOWN_SCENES.has(entry))) return false
-  if (root.categories.length > 6 || root.styles.length > 6 || root.scenes.length > 6) return false
+  if (!root || root.version !== 1 || !Array.isArray(root.cases) || root.cases.length === 0 || root.cases.length > 2_000) return false
+  if (!validDimensionList(root.categories, KNOWN_CATEGORIES, 64)) return false
+  if (!validDimensionList(root.styles, KNOWN_STYLES, 64)) return false
+  if (!validDimensionList(root.scenes, KNOWN_SCENES, 64)) return false
+  if (typeof root.sourceId !== 'string' || root.sourceId.length === 0 || root.sourceId.length > 120 || typeof root.repository !== 'string' || root.repository.length > 2048 || typeof root.sourceVersion !== 'string' || root.sourceVersion.length > 128) return false
+  if (typeof root.totalCases !== 'number' || !Number.isSafeInteger(root.totalCases) || root.totalCases < root.cases.length) return false
   const ids = new Set<string>()
   for (const raw of root.cases) {
     const item = asRecord(raw)
-    if (!item || typeof item.id !== 'string' || !KNOWN_CASE_IDS.has(item.id) || ids.has(item.id)) return false
-    if (typeof item.title !== 'string' || item.title.length > 256 || typeof item.description !== 'string' || item.description.length > 1024 || typeof item.prompt !== 'string' || item.prompt.length > 32_000) return false
+    if (!item || typeof item.id !== 'string' || !SAFE_CASE_ID.test(item.id) || !KNOWN_CASE_IDS.has(item.id) || ids.has(item.id)) return false
+    if (typeof item.upstreamId !== 'number' || !Number.isSafeInteger(item.upstreamId) || item.upstreamId <= 0) return false
+    if (typeof item.title !== 'string' || item.title.length > 256 || typeof item.description !== 'string' || item.description.length > 2_000 || typeof item.imageAlt !== 'string' || item.imageAlt.length > 512 || typeof item.promptPreview !== 'string' || item.promptPreview.length > 1_000 || typeof item.prompt !== 'string' || item.prompt.length > 16_000) return false
     if (typeof item.category !== 'string' || !KNOWN_CATEGORIES.has(item.category)) return false
-    if (typeof item.style !== 'string' || !KNOWN_STYLES.has(item.style)) return false
-    if (typeof item.scene !== 'string' || !KNOWN_SCENES.has(item.scene)) return false
-    if (typeof item.imagePath !== 'string' || item.imagePath.length > 128 || !/^images\/[a-z0-9-]+\.(?:svg|webp|png|jpe?g)$/u.test(item.imagePath)) return false
-    if (item.imageMediaType !== undefined && item.imageMediaType !== 'image/svg+xml' && item.imageMediaType !== 'image/webp' && item.imageMediaType !== 'image/png' && item.imageMediaType !== 'image/jpeg' && item.imageMediaType !== 'image/gif') return false
+    if (!validDimensionList(item.styles, KNOWN_STYLES, 64) || !validDimensionList(item.scenes, KNOWN_SCENES, 64)) return false
+    if (typeof item.style !== 'string' || !KNOWN_STYLES.has(item.style) || typeof item.scene !== 'string' || !KNOWN_SCENES.has(item.scene)) return false
+    if (typeof item.imagePath !== 'string' || item.imagePath.length > 256 || !SAFE_IMAGE_PATH.test(item.imagePath)) return false
+    if (item.imageMediaType !== 'image/svg+xml' && item.imageMediaType !== 'image/webp' && item.imageMediaType !== 'image/png' && item.imageMediaType !== 'image/jpeg' && item.imageMediaType !== 'image/gif') return false
     if (item.source !== undefined && (typeof item.source !== 'string' || !KNOWN_SOURCES.has(item.source))) return false
-    if (item.sourceUrl !== undefined && (typeof item.sourceUrl !== 'string' || item.sourceUrl.length > 2048)) return false
+    for (const key of ['sourceLabel', 'attributionUrl', 'githubUrl', 'sourceUrl'] as const) {
+      if (item[key] !== undefined && (typeof item[key] !== 'string' || item[key].length > 2048)) return false
+    }
     ids.add(item.id)
   }
   return typeof root.updatedAt === 'number' && Number.isFinite(root.updatedAt)

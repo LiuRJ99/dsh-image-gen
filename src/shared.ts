@@ -17,7 +17,7 @@ export const DELETE_ROUTE = '/plugins/dsh-image-gen/delete'
 /** Same-origin prefix for the provider-neutral Inspiration Library. */
 export const INSPIRATION_ROUTE = '/plugins/dsh-image-gen/inspiration'
 /** Full immutable snapshot ref used by remote Inspiration refresh and cache keys. */
-export const INSPIRATION_SOURCE_REF = 'ff0a9d45e2f2903fe987cf476cda95d38d500e05'
+export const INSPIRATION_SOURCE_REF = 'c7d293963b21c60bf338003915438cc5c39dd3ca'
 export const INSPIRATION_CACHE_NAMESPACE = `v1-${INSPIRATION_SOURCE_REF}`
 /** Namespace persisted through DSH Settings. */
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'

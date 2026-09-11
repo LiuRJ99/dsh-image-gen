@@ -104,10 +104,10 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
     return source.filter((item) => {
       if (onlyFavorites && !favorites.has(item.id)) return false
       if (category && item.category !== category) return false
-      if (style && item.style !== style) return false
-      if (scene && item.scene !== scene) return false
+      if (style && !item.styles.includes(style) && item.style !== style) return false
+      if (scene && !item.scenes.includes(scene) && item.scene !== scene) return false
       if (!needle) return true
-      return [item.title, item.description, item.prompt, item.category, item.style, item.scene].some((value) => value.toLowerCase().includes(needle))
+      return [item.title, item.description, item.prompt, item.category, item.style, item.scene, ...item.styles, ...item.scenes].some((value) => value.toLowerCase().includes(needle))
     })
   }, [catalog, query, category, style, scene, onlyFavorites, favorites])
 
@@ -192,11 +192,11 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
           </div>
           <aside className="dsh-ig-inspiration-inspector">
             {selected ? <>
-              <InspirationImage id={selected.id} alt={selected.title} />
+              <InspirationImage id={selected.id} alt={selected.title} eager />
               <div className="dsh-ig-inspiration-inspector-copy">
                 <div className="dsh-ig-inspiration-inspector-title"><h3>{selected.title}</h3><button type="button" onClick={() => toggleFavorite(selected.id)} aria-label={t('favorites')}>{favorites.has(selected.id) ? '★' : '☆'}</button></div>
                 <p>{selected.description}</p>
-                <div className="dsh-ig-inspiration-tags"><span>{selected.category}</span><span>{selected.style}</span><span>{selected.scene}</span></div>
+                <div className="dsh-ig-inspiration-tags"><span>{selected.category}</span>{selected.styles.map((value) => <span key={`style-${value}`}>{value}</span>)}{selected.scenes.map((value) => <span key={`scene-${value}`}>{value}</span>)}</div>
                 <label className="dsh-ig-inspiration-prompt-label">{t('prompt')}<textarea readOnly value={selected.prompt} /></label>
                 <div className="dsh-ig-inspiration-actions"><button type="button" onClick={() => void copyPrompt(selected)}>{t('copy')}</button><button type="button" disabled={busy} onClick={() => void generate(defaultEngine)}>{defaultEngine === 'gemini' ? t('useGemini') : t('useGpt')}</button><button type="button" disabled={busy} onClick={() => void generate(defaultEngine === 'gemini' ? 'gpt' : 'gemini')}>{defaultEngine === 'gemini' ? t('useGpt') : t('useGemini')}</button></div>
               </div>
@@ -211,16 +211,37 @@ export const InspirationView: FC<InspirationViewProps> = ({ locale, defaultEngin
 
 const InspirationCard: FC<{ item: InspirationCase; selected: boolean; favorite: boolean; featured: string; onSelect(): void; onFavorite(): void }> = ({ item, selected, favorite, featured, onSelect, onFavorite }) => (
   <button type="button" className={`dsh-ig-inspiration-card ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
-    <div className="dsh-ig-inspiration-card-media"><InspirationImage id={item.id} alt={item.title} /><span className="dsh-ig-inspiration-card-favorite" role="button" onClick={(event) => { event.stopPropagation(); onFavorite() }}>{favorite ? '★' : '☆'}</span>{item.id === 'golden-hour-portrait' ? <span className="dsh-ig-inspiration-featured">✦ {featured}</span> : null}</div>
-    <strong>{item.title}</strong><small>{item.category} · {item.style}</small>
+    <div className="dsh-ig-inspiration-card-media"><InspirationImage id={item.id} alt={item.title} /><span className="dsh-ig-inspiration-card-favorite" role="button" onClick={(event) => { event.stopPropagation(); onFavorite() }}>{favorite ? '★' : '☆'}</span>{item.featured ? <span className="dsh-ig-inspiration-featured">✦ {featured}</span> : null}</div>
+    <strong>{item.title}</strong><small>{item.category} · {item.styles.join(', ')}</small>
   </button>
 )
 
-const InspirationImage: FC<{ id: string; alt: string }> = ({ id, alt }) => {
+const InspirationImage: FC<{ id: string; alt: string; eager?: boolean }> = ({ id, alt, eager = false }) => {
+  const [shouldLoad, setShouldLoad] = useState(eager)
   const [url, setUrl] = useState<string | undefined>()
   const [failed, setFailed] = useState(false)
+  const placeholderRef = useRef<HTMLDivElement | null>(null)
   const urlRef = useRef<string | undefined>()
+
   useEffect(() => {
+    if (eager || shouldLoad) return
+    const node = placeholderRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true)
+      return
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setShouldLoad(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '240px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [eager, shouldLoad])
+
+  useEffect(() => {
+    if (!shouldLoad) return
     let active = true
     const controller = new AbortController()
     setFailed(false)
@@ -252,7 +273,9 @@ const InspirationImage: FC<{ id: string; alt: string }> = ({ id, alt }) => {
         urlRef.current = undefined
       }
     }
-  }, [id])
+  }, [id, shouldLoad])
+
+  if (!shouldLoad) return <div ref={placeholderRef} className="dsh-ig-inspiration-placeholder">…</div>
   return url && !failed ? <img src={url} alt={alt} loading="lazy" /> : <div className="dsh-ig-inspiration-placeholder">{failed ? '⚠️' : '…'}</div>
 }
 
