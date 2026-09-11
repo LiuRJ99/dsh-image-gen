@@ -115,7 +115,7 @@ export const STUDIO_STYLE = `
 /* tldraw infinite canvas surface (P0 spike) */
 .dsh-ig-tl-canvas{position:relative;flex:1 1 0;height:0;min-height:0;overflow:hidden;isolation:isolate}
 
-/* ---- Right-sidebar seat variant (DSH 0.1.5 `sidebar.right.pane.tab`) ----
+/* ---- Right-sidebar seat variant (DSH 0.1.5 'sidebar.right.pane.tab') ----
    The seat is a narrow panel beside the conversation column, not a full
    conversation tab. Specificity (0,2,0) outranks every viewport media query
    above, so these apply regardless of window size: tabs scroll instead of

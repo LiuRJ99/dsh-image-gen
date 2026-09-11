@@ -326,7 +326,7 @@ function formatCardMeta(item: GalleryItem): string {
 }
 
 export interface GalleryViewTabProps {
-  locale?: LocaleService
+  locale?: LocaleService | undefined
   sessionId?: string
   useSession?: (selector: (state: any) => any) => any
   useSessions?: (selector: (state: any) => any) => any
