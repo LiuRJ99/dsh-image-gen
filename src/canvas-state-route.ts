@@ -11,7 +11,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import { CANVAS_MAX_NODES, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_NODE_KINDS, type CanvasNodeKind, type CanvasNodeSummary, type CanvasStatePush } from './shared.js'
+import { CANVAS_MAX_NODES, CANVAS_MAX_PROMPT_CHARS, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_NODE_KINDS, type CanvasNodeKind, type CanvasNodeSummary, type CanvasStatePush } from './shared.js'
 import type { CanvasMirror } from './canvas-state.js'
 
 /** Dependencies required by the canvas-state route. */
@@ -26,6 +26,10 @@ export interface CanvasStateRouteDeps {
 const MAX_CLIENT_INSTANCE_CHARS = 64
 const MAX_NODE_TEXT_CHARS = 200
 const MAX_ID_CHARS = 256
+/** Provider ids come from the shared enum (longest is "openai-compat"). */
+const MAX_PROVIDER_CHARS = 32
+/** Model ids and ComfyUI workflow labels are user-facing strings. */
+const MAX_MODEL_CHARS = 128
 const MAX_NODE_COUNT = 100_000
 const MAX_SELECTION_COUNT = 1_000
 
@@ -168,6 +172,9 @@ function parseNodeSummary(value: unknown): CanvasNodeSummary | undefined {
   const attachmentId = optionalBoundedString(record.attachmentId, MAX_ID_CHARS)
   const name = optionalBoundedString(record.name, MAX_ID_CHARS)
   const text = optionalBoundedString(record.text, MAX_NODE_TEXT_CHARS)
+  const prompt = optionalBoundedString(record.prompt, CANVAS_MAX_PROMPT_CHARS)
+  const provider = optionalBoundedString(record.provider, MAX_PROVIDER_CHARS)
+  const model = optionalBoundedString(record.model, MAX_MODEL_CHARS)
   const width = optionalDimension(record.width)
   const height = optionalDimension(record.height)
   return {
@@ -178,6 +185,9 @@ function parseNodeSummary(value: unknown): CanvasNodeSummary | undefined {
     ...(width === undefined ? {} : { width }),
     ...(height === undefined ? {} : { height }),
     ...(text === undefined ? {} : { text }),
+    ...(prompt === undefined ? {} : { prompt }),
+    ...(provider === undefined ? {} : { provider }),
+    ...(model === undefined ? {} : { model }),
   }
 }
 

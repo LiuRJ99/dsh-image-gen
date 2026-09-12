@@ -646,7 +646,13 @@ export const StudioView: FC<{
         // only when the user was working there when the request started (see
         // the single-generation path).
         if (startedOnInfinite) {
-          pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
+          pushTlLandings(galleryEntries.map(entry => ({
+            galleryId: entry.id,
+            attachment: entry.attachment,
+            prompt: entry.prompt,
+            provider: entry.provider,
+            model: entry.model,
+          })))
         }
         if (failed > 0) flash(t('comparePartial', { success: String(successes.length), failed: String(failed) }))
         return
@@ -707,7 +713,13 @@ export const StudioView: FC<{
       // generations stay in the preview pane until saved: unsaved attempts
       // must not pile up on the canvas work surface.
       if (startedOnInfinite) {
-        pushTlLandings(galleryEntries.map(entry => ({ galleryId: entry.id, attachment: entry.attachment })))
+        pushTlLandings(galleryEntries.map(entry => ({
+          galleryId: entry.id,
+          attachment: entry.attachment,
+          prompt: entry.prompt,
+          provider: entry.provider,
+          model: entry.model,
+        })))
       }
 
       if (payload.failedCount && payload.failedCount > 0) {
@@ -806,7 +818,13 @@ export const StudioView: FC<{
     // Saving is the "keep this" signal: land the saved images on the infinite
     // canvas even if they were generated in preview mode (dedupe keeps
     // already-landed ones from duplicating).
-    pushTlLandings(saved.map(item => ({ galleryId: item.id, attachment: item.attachment })))
+    pushTlLandings(saved.map(item => ({
+      galleryId: item.id,
+      attachment: item.attachment,
+      prompt: item.prompt,
+      provider: item.provider,
+      model: item.model,
+    })))
     flash(saved.length > 1 ? t('savedSelected', { count: String(saved.length) }) : t('savedToGallery'))
   }
 

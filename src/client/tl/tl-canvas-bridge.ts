@@ -26,6 +26,15 @@ export interface TlLandingItem {
    * keep the screenshot fallback — the host has no other way to see them.
    */
   fromConversation?: boolean
+  /**
+   * Generation provenance copied onto the landed shape's meta: the canvas
+   * digest then tells the model how each image was made, so "regenerate this"
+   * or "vary this" reuses the original prompt and model instead of guessing.
+   * All optional; shapes landed from older paths simply carry none.
+   */
+  prompt?: string
+  provider?: string
+  model?: string
 }
 
 type TlLandingListener = () => void

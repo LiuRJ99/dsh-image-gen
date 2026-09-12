@@ -11,6 +11,7 @@ import {
 } from 'tldraw'
 import { blobToDataUrl } from '../browser-image-utils.js'
 import { fetchAttachmentBlob } from '../image-cache.js'
+import { CANVAS_MAX_PROMPT_CHARS } from '../../shared.js'
 import { startCanvasSync } from './canvas-sync.js'
 import { getTlLandings, subscribeTlLandings, type TlLandingItem } from './tl-canvas-bridge.js'
 
@@ -56,6 +57,13 @@ function landedIdsOf(editor: Editor): Set<string> {
   return landedIds
 }
 
+/** Truncate the prompt copied onto a shape: the canvas digest stays compact. */
+function metaPromptOf(prompt: string | undefined): string | undefined {
+  if (typeof prompt !== 'string') return undefined
+  const collapsed = prompt.replace(/\s+/g, ' ').trim()
+  return collapsed.length === 0 ? undefined : collapsed.slice(0, CANVAS_MAX_PROMPT_CHARS)
+}
+
 async function landTlItems(editor: Editor, items: readonly TlLandingItem[], failedIds: Set<string>): Promise<void> {
   // Dedupe against shapes already on the page (meta.galleryId); under
   // broadcast semantics this also makes a re-entrant reconcile a no-op.
@@ -64,7 +72,7 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
   if (pending.length === 0) return
 
   const assets: TLImageAsset[] = []
-  const landed: Array<{ galleryId: string; assetId: TLAssetId; w: number; h: number }> = []
+  const landed: Array<{ galleryId: string; assetId: TLAssetId; w: number; h: number; prompt?: string; provider?: string; model?: string }> = []
   for (const item of pending) {
     const assetId = tlAssetIdFor(item.galleryId)
     if (editor.getAsset(assetId) === undefined) {
@@ -95,7 +103,16 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
       }
     }
     const size = displaySizeOf(item.attachment)
-    landed.push({ galleryId: item.galleryId, assetId, w: size.w, h: size.h })
+    const prompt = metaPromptOf(item.prompt)
+    landed.push({
+      galleryId: item.galleryId,
+      assetId,
+      w: size.w,
+      h: size.h,
+      ...(prompt !== undefined ? { prompt } : {}),
+      ...(typeof item.provider === 'string' && item.provider.length > 0 ? { provider: item.provider } : {}),
+      ...(typeof item.model === 'string' && item.model.length > 0 ? { model: item.model } : {}),
+    })
   }
   if (landed.length === 0) return
   if (assets.length > 0) editor.createAssets(assets)
@@ -103,7 +120,7 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
   // Layout: rows of up to GRID_COLS images. The block prefers the viewport
   // center; when that spot is already occupied it drops below all existing
   // content, so consecutive batches never stack on top of each other.
-  const rows: Array<Array<{ galleryId: string; assetId: TLAssetId; w: number; h: number }>> = []
+  const rows: Array<Array<{ galleryId: string; assetId: TLAssetId; w: number; h: number; prompt?: string; provider?: string; model?: string }>> = []
   for (let index = 0; index < landed.length; index += GRID_COLS) rows.push(landed.slice(index, index + GRID_COLS))
   const rowSizes = rows.map(row => ({
     width: row.reduce((sum, cell) => sum + cell.w, 0) + GRID_GAP * (row.length - 1),
@@ -150,7 +167,14 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], fail
         x: Math.round(cursorX),
         y: Math.round(cursorY),
         props: { assetId: cell.assetId, w: cell.w, h: cell.h },
-        meta: { galleryId: cell.galleryId },
+        // Generation provenance rides on meta: canvas-sync surfaces it in the
+        // model-facing digest so "regenerate this" reuses the original params.
+        meta: {
+          galleryId: cell.galleryId,
+          ...(cell.prompt !== undefined ? { prompt: cell.prompt } : {}),
+          ...(cell.provider !== undefined ? { provider: cell.provider } : {}),
+          ...(cell.model !== undefined ? { model: cell.model } : {}),
+        },
       })
       cursorX += cell.w + GRID_GAP
     }

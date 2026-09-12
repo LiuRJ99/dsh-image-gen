@@ -39,6 +39,14 @@ export const CANVAS_MAX_NODES = 48
 /** Same shared-cap contract as CANVAS_MAX_NODES, for the selection kind list. */
 export const CANVAS_MAX_SELECTION_KINDS = 8
 
+/**
+ * Cap on the generation prompt copied onto canvas image shapes and into the
+ * model-facing summaries. The landing path truncates to this and the
+ * canvas-state route rejects longer values, so the two ends can never drift.
+ * The gallery keeps the full prompt; this is only the canvas-side digest view.
+ */
+export const CANVAS_MAX_PROMPT_CHARS = 120
+
 /** One shape on the workbench infinite canvas, summarized for the model. */
 export interface CanvasNodeSummary {
   kind: CanvasNodeKind
@@ -52,6 +60,15 @@ export interface CanvasNodeSummary {
   height?: number
   /** Short text preview for text-bearing shapes. */
   text?: string
+  /**
+   * Truncated generation prompt for landed generated images: the model can
+   * reproduce or precisely vary a canvas image instead of guessing from pixels.
+   */
+  prompt?: string
+  /** Provider id (e.g. "google") the landed image was generated with. */
+  provider?: string
+  /** Model (or ComfyUI workflow label) the landed image was generated with. */
+  model?: string
 }
 
 /** What is currently selected on the canvas. */

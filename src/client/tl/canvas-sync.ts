@@ -15,7 +15,7 @@
  * in the summary) never hit the network.
  */
 import type { Editor, TLShape } from 'tldraw'
-import { CANVAS_MAX_NODES, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary } from '../../shared.js'
+import { CANVAS_MAX_NODES, CANVAS_MAX_PROMPT_CHARS, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary } from '../../shared.js'
 import { getTlLandings } from './tl-canvas-bridge.js'
 
 /** Debounce for ordinary document/session changes. */
@@ -73,12 +73,22 @@ function previewOf(text: string | undefined): string | undefined {
 function describeShape(editor: Editor, shape: TLShape, attachmentByGallery: ReadonlyMap<string, string>): CanvasNodeSummary {
   const node: CanvasNodeSummary = { kind: kindOf(shape.type) }
   if (shape.type === 'image') {
-    const galleryId = (shape.meta as { galleryId?: unknown } | undefined)?.galleryId
+    const meta = shape.meta as { galleryId?: unknown; prompt?: unknown; provider?: unknown; model?: unknown } | undefined
+    const galleryId = meta?.galleryId
     if (typeof galleryId === 'string' && galleryId.length > 0) {
       node.galleryId = galleryId
       const attachmentId = attachmentByGallery.get(galleryId)
       if (attachmentId !== undefined) node.attachmentId = attachmentId
     }
+    // Generation provenance written at landing time: lets the model reproduce
+    // or precisely vary this image instead of guessing from pixels. Prompt is
+    // truncated at landing; slice again defensively so a stale untruncated
+    // shape (hot reload during dev) cannot bloat the digest.
+    if (typeof meta?.prompt === 'string' && meta.prompt.trim().length > 0) {
+      node.prompt = meta.prompt.replace(/\s+/g, ' ').trim().slice(0, CANVAS_MAX_PROMPT_CHARS)
+    }
+    if (typeof meta?.provider === 'string' && meta.provider.length > 0) node.provider = meta.provider
+    if (typeof meta?.model === 'string' && meta.model.length > 0) node.model = meta.model
     const asset = shape.props.assetId === null ? undefined : editor.getAsset(shape.props.assetId)
     const assetName = asset !== undefined && asset.type === 'image' ? asset.props.name : undefined
     if (typeof assetName === 'string' && assetName.length > 0) node.name = assetName.slice(0, 128)
