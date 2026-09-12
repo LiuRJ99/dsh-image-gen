@@ -62,10 +62,11 @@ describe('legacy dsh-settings (<= 0.1.1-rc.2) compatibility', () => {
     expect(ns).toBe('ns:image-generation')
     expect((schema as { toJSON?(): unknown }).toJSON).toBeTypeOf('function')
     expect(entry).toMatchObject({ provider: 'google', saveToWorkspace: false })
-    // The legacy host keeps working: the studio chat's optional service
-    // injection is declared (services this host never provides, so the
-    // callback never fires) but never breaks the legacy settings relay.
-    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry', 'agentDefaultModel'], expect.any(Function))
+    // The legacy host keeps working: the canvas context registration's
+    // optional service injection is declared (a service this host never
+    // provides, so the callback never fires) but never breaks the legacy
+    // settings relay.
+    expect(ctx.inject).toHaveBeenCalledWith(['systemPrompt'], expect.any(Function))
   })
 
   it('never throws when the install relay itself rejects', () => {

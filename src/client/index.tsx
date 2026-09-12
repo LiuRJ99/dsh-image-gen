@@ -1674,7 +1674,7 @@ function ImageResultCard({
   useEffect(() => {
     if (result === undefined) return
 
-    pushTlLandings([{ galleryId: result.attachment.attachmentId, attachment: result.attachment }])
+    pushTlLandings([{ galleryId: result.attachment.attachmentId, attachment: result.attachment, fromConversation: true }])
 
     void saveGalleryItem({
       id: result.attachment.attachmentId,

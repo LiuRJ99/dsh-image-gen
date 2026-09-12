@@ -5,19 +5,18 @@
  * The browser owns the tldraw canvas; this route is the only door that state
  * enters the host process through. Every push is validated end to end
  * (origin, method, body size, field shapes, embedded image bytes) before it
- * reaches the mirror, and a pushed selection screenshot is turned into a
- * durable attachment so the model can view it like any conversation image.
+ * reaches the mirror. Selection screenshots stay in memory: the mirror holds
+ * the decoded bytes and a tool persists them only when the model actually
+ * consumes them (view_canvas), so dead screenshots never hit the disk.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import { CANVAS_MAX_SELECTION_ITEMS, CANVAS_NODE_KINDS, type CanvasNodeKind, type CanvasNodeSummary, type CanvasStatePush } from './shared.js'
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import { CANVAS_MAX_NODES, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_NODE_KINDS, type CanvasNodeKind, type CanvasNodeSummary, type CanvasStatePush } from './shared.js'
 import type { CanvasMirror } from './canvas-state.js'
 
 /** Dependencies required by the canvas-state route. */
 export interface CanvasStateRouteDeps {
   mirror: CanvasMirror
-  /** Saves the decoded selection screenshot as a durable image attachment. */
-  saveSelectionImage(data: Uint8Array, mediaType: ImageMediaType, name: string): Promise<ImageAttachmentRef>
   /** Hard cap for the JSON body; sized by the caller from the attachment limits. */
   maxBodyBytes: number
   /** Largest accepted selection screenshot in bytes. */
@@ -25,8 +24,6 @@ export interface CanvasStateRouteDeps {
 }
 
 const MAX_CLIENT_INSTANCE_CHARS = 64
-const MAX_NODES = 64
-const MAX_SELECTION_KINDS = 16
 const MAX_NODE_TEXT_CHARS = 200
 const MAX_ID_CHARS = 256
 const MAX_NODE_COUNT = 100_000
@@ -50,24 +47,17 @@ export async function serveCanvasState(req: IncomingMessage, res: ServerResponse
   const push = parseCanvasStatePush(body)
   if (push === undefined) return jsonError(res, 400, 'invalid-canvas-state')
 
-  let attachment: ImageAttachmentRef | undefined
+  let selectionImage: { data: Uint8Array; mediaType: ImageMediaType } | undefined
   if (push.selectionImage !== undefined) {
     const decoded = decodeSelectionImage(push.selectionImage)
     if (decoded === undefined) return jsonError(res, 400, 'invalid-selection-image')
     if (decoded.data.byteLength > deps.maxImageBytes) return jsonError(res, 413, 'selection-image-too-large')
-    try {
-      attachment = await deps.saveSelectionImage(decoded.data, decoded.mediaType, 'canvas-selection')
-    } catch {
-      return jsonError(res, 415, 'selection-image-rejected')
-    }
+    selectionImage = decoded
   }
 
-  deps.mirror.apply(push, attachment)
+  deps.mirror.apply(push, selectionImage)
   res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
-  res.end(JSON.stringify({
-    ok: true,
-    ...(attachment === undefined ? {} : { selectionAttachmentId: String(attachment.attachmentId) }),
-  }))
+  res.end(JSON.stringify({ ok: true }))
 }
 
 /**
@@ -100,7 +90,7 @@ function parsePush(value: unknown): CanvasStatePush {
 
   let nodes: CanvasNodeSummary[] | undefined
   if (record.nodes !== undefined) {
-    if (!Array.isArray(record.nodes) || record.nodes.length > MAX_NODES) throw new InvalidPush()
+    if (!Array.isArray(record.nodes) || record.nodes.length > CANVAS_MAX_NODES) throw new InvalidPush()
     const parsed: CanvasNodeSummary[] = []
     for (const raw of record.nodes) {
       const node = parseNodeSummary(raw)
@@ -115,7 +105,7 @@ function parsePush(value: unknown): CanvasStatePush {
     const raw = plainRecord(record.selection)
     if (raw === undefined) throw new InvalidPush()
     if (!nonNegativeInteger(raw.count) || raw.count > MAX_SELECTION_COUNT) throw new InvalidPush()
-    if (!Array.isArray(raw.kinds) || raw.kinds.length > MAX_SELECTION_KINDS) throw new InvalidPush()
+    if (!Array.isArray(raw.kinds) || raw.kinds.length > CANVAS_MAX_SELECTION_KINDS) throw new InvalidPush()
     const kinds: CanvasNodeKind[] = []
     for (const kind of raw.kinds) {
       if (typeof kind !== 'string' || !(CANVAS_NODE_KINDS as readonly string[]).includes(kind)) throw new InvalidPush()

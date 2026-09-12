@@ -48,9 +48,10 @@ describe('unsupported dsh-settings degradation', () => {
     expect(tools.map(tool => tool.name)).toEqual(['canvas_state', 'view_canvas', 'generate_image', 'edit_image'])
     expect(ctx.logger.warn).toHaveBeenCalledTimes(1)
     expect(vi.mocked(ctx.logger.warn).mock.calls[0]?.[0]).toContain('neither settings API generation')
-    // Optional service injection for the studio chat: declaring a dependency
-    // that this bare host never provides is safe (the callback never fires),
-    // which is exactly the graceful degradation this test guards.
-    expect(ctx.inject).toHaveBeenCalledWith(['agents', 'workspaceRegistry', 'agentDefaultModel'], expect.any(Function))
+    // Optional service injection for the canvas system-prompt context:
+    // declaring a dependency that this bare host never provides is safe (the
+    // callback never fires), which is exactly the graceful degradation this
+    // test guards.
+    expect(ctx.inject).toHaveBeenCalledWith(['systemPrompt'], expect.any(Function))
   })
 })

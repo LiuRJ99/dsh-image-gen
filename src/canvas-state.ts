@@ -9,8 +9,20 @@
  * persisted: the mirror dies with the host process, matching the canvas's
  * own session-scratch semantics.
  */
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { CanvasNodeSummary, CanvasStatePush } from './shared.js'
+
+/**
+ * Decoded selection screenshot held in memory only. Nothing touches the
+ * durable attachment store until a tool actually consumes it: most
+ * screenshots are replaced within seconds (selection changed) or die with
+ * the canvas (closed), and the immutable content-addressed store has no
+ * deletion — persisting them eagerly would leak disk forever.
+ */
+export interface CanvasSelectionImage {
+  data: Uint8Array
+  mediaType: ImageMediaType
+}
 
 /** Server-side view of one client push after validation. */
 export interface CanvasMirrorEntry {
@@ -28,8 +40,8 @@ export interface CanvasMirrorEntry {
    * is never kept across a selection swap — even when count and kinds match.
    */
   selectionSignature: string
-  /** Durable screenshot attachment of the current selection, when one was pushed. */
-  selectionAttachment?: ImageAttachmentRef
+  /** In-memory screenshot of the current selection, when one was pushed. */
+  selectionImage?: CanvasSelectionImage
   /** Mirror receive time, used for the digest's "updated N ago" line. */
   receivedAt: number
   /** Monotonic apply counter; `latest()` prefers the most recently applied instance. */
@@ -96,10 +108,10 @@ export class CanvasMirror {
 
   /**
    * Apply one validated push. A disconnect removes the instance; an unchanged
-   * selection keeps the previously saved screenshot attachment so the model
-   * can still view it while unrelated canvas edits keep flowing in.
+   * selection keeps the previously received screenshot bytes so the model can
+   * still view them while unrelated canvas edits keep flowing in.
    */
-  apply(push: CanvasStatePush, attachment?: ImageAttachmentRef): void {
+  apply(push: CanvasStatePush, selectionImage?: CanvasSelectionImage): void {
     if (!push.connected) {
       this.entries.delete(push.clientInstance)
       return
@@ -109,8 +121,8 @@ export class CanvasMirror {
     const selectionKinds = [...(push.selection?.kinds ?? [])]
     const selectionItems = [...(push.selection?.items ?? [])]
     const selectionSignature = signatureOf(selectionCount, selectionKinds, selectionItems)
-    const keepAttachment = previous !== undefined && previous.selectionSignature === selectionSignature
-      ? previous.selectionAttachment
+    const keepImage = previous !== undefined && previous.selectionSignature === selectionSignature
+      ? previous.selectionImage
       : undefined
     this.entries.set(push.clientInstance, {
       clientInstance: push.clientInstance,
@@ -121,9 +133,9 @@ export class CanvasMirror {
       selectionKinds,
       selectionItems,
       selectionSignature,
-      ...(attachment !== undefined
-        ? { selectionAttachment: attachment }
-        : keepAttachment !== undefined ? { selectionAttachment: keepAttachment } : {}),
+      ...(selectionImage !== undefined
+        ? { selectionImage }
+        : keepImage !== undefined ? { selectionImage: keepImage } : {}),
       receivedAt: Date.now(),
       seq: ++this.nextSeq,
       updatedAt: push.updatedAt,
@@ -135,10 +147,10 @@ export class CanvasMirror {
     return freshestEntry(this.entries.values())
   }
 
-  /** The selection screenshot of the freshest canvas, if one is available. */
-  latestSelectionAttachment(): ImageAttachmentRef | undefined {
+  /** The in-memory selection screenshot of the freshest canvas, if present. */
+  latestSelectionImage(): CanvasSelectionImage | undefined {
     const entry = this.latest()
-    return entry?.selectionAttachment
+    return entry?.selectionImage
   }
 
   /** Whether any canvas instance is currently connected. */
@@ -193,7 +205,7 @@ export class CanvasMirror {
       if (unlistedSelection > 0) {
         lines.push(`- (${unlistedSelection} further selected shapes not itemized)`)
       }
-      const screenshot = entry.selectionAttachment !== undefined
+      const screenshot = entry.selectionImage !== undefined
         ? 'A screenshot of the selection is available; call view_canvas to see it. edit_image with source=canvas_selection sends the full-resolution originals of selected conversation images, plus the screenshot when the selection also contains other content (hand-drawn strokes, pasted images).'
         : 'No selection screenshot yet — the canvas pushes one about a second after the selection settles. edit_image with source=canvas_selection can still use the full-resolution originals of selected conversation images; for anything else ask the user to re-select the shapes.'
       lines.push(screenshot)

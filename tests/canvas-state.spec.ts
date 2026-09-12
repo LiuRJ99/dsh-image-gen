@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 
-import { CanvasMirror } from '../src/canvas-state.js'
+import { CanvasMirror, type CanvasSelectionImage } from '../src/canvas-state.js'
 import { decodeSelectionImage, parseCanvasStatePush, serveCanvasState, type CanvasStateRouteDeps } from '../src/canvas-state-route.js'
 import { resolveCanvasSelectionReferences, type CanvasSelectionImageStore } from '../src/canvas-tools.js'
 import type { ReferenceImageAgent } from '../src/reference-image.js'
@@ -14,6 +14,11 @@ const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 function attachmentRef(id: string): ImageAttachmentRef {
   return { attachmentId: id, mediaType: 'image/png', bytes: 70, width: 1, height: 1, name: 'canvas-selection' }
+}
+
+/** Distinct in-memory screenshot bytes, mirroring what the route decodes. */
+function selImage(tag = 9): CanvasSelectionImage {
+  return { data: new Uint8Array([tag, 9, 9]), mediaType: 'image/png' }
 }
 
 function validPush(overrides: Partial<CanvasStatePush> = {}): CanvasStatePush {
@@ -101,7 +106,7 @@ describe('canvas mirror digest', () => {
 
   it('inventories shapes, selections, and selection screenshots', () => {
     const mirror = new CanvasMirror()
-    mirror.apply(validPush(), attachmentRef('sha256:sel'))
+    mirror.apply(validPush(), selImage())
     const digest = mirror.digest()
     expect(digest).toContain('2 shapes')
     expect(digest).toContain('1 image')
@@ -110,19 +115,19 @@ describe('canvas mirror digest', () => {
     expect(digest).toContain('Selection: 1 shape (draw)')
     expect(digest).toContain('selected: draw (freehand stroke)')
     expect(digest).toContain('view_canvas')
-    expect(mirror.latestSelectionAttachment()?.attachmentId).toBe('sha256:sel')
+    expect(mirror.latestSelectionImage()?.data).toEqual(new Uint8Array([9, 9, 9]))
   })
 
   it('keeps the previous screenshot when an unchanged selection is re-pushed', () => {
     const mirror = new CanvasMirror()
-    mirror.apply(validPush(), attachmentRef('sha256:sel'))
+    mirror.apply(validPush(), selImage())
     // Same selection signature, no new image in the push.
     mirror.apply(validPush())
-    expect(mirror.latestSelectionAttachment()?.attachmentId).toBe('sha256:sel')
+    expect(mirror.latestSelectionImage()?.data).toEqual(new Uint8Array([9, 9, 9]))
     // A different selection without a new screenshot drops the stale one.
     const changed = validPush({ selection: { count: 2, kinds: ['draw', 'text'], items: [{ kind: 'draw' }, { kind: 'text', text: 'hi' }] } })
     mirror.apply(changed)
-    expect(mirror.latestSelectionAttachment()).toBeUndefined()
+    expect(mirror.latestSelectionImage()).toBeUndefined()
   })
 
   it('drops the stale screenshot when the selection swaps between same-kind shapes', () => {
@@ -130,11 +135,11 @@ describe('canvas mirror digest', () => {
     // The regression this guards: count and kinds match across the swap, so
     // only the item identity tells the two selections apart.
     const lion = validPush({ selection: { count: 1, kinds: ['image'], items: [{ kind: 'image', name: 'lion', width: 1024, height: 1024 }] } })
-    mirror.apply(lion, attachmentRef('sha256:lion'))
-    expect(mirror.latestSelectionAttachment()?.attachmentId).toBe('sha256:lion')
+    mirror.apply(lion, selImage(1))
+    expect(mirror.latestSelectionImage()?.data).toEqual(new Uint8Array([1, 9, 9]))
     const monster = validPush({ selection: { count: 1, kinds: ['image'], items: [{ kind: 'image', name: 'monster', width: 1024, height: 1024 }] } })
     mirror.apply(monster)
-    expect(mirror.latestSelectionAttachment()).toBeUndefined()
+    expect(mirror.latestSelectionImage()).toBeUndefined()
     expect(mirror.latest()?.selectionItems).toEqual([{ kind: 'image', name: 'monster', width: 1024, height: 1024 }])
   })
 
@@ -196,7 +201,7 @@ describe('canvas selection reference resolution', () => {
 
   it('resolves a pure conversation-image selection to full-resolution originals only', async () => {
     const mirror = new CanvasMirror()
-    mirror.apply(selectionPush(['sha256:abc', 'sha256:def']), attachmentRef('sha256:sel'))
+    mirror.apply(selectionPush(['sha256:abc', 'sha256:def']), selImage())
     const { store, reads } = tracingStore()
     const result = await resolveCanvasSelectionReferences({
       mirror,
@@ -208,13 +213,13 @@ describe('canvas selection reference resolution', () => {
       { data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' },
       { data: new Uint8Array([2, 2, 3]), mediaType: 'image/png' },
     ])
-    // The screenshot stays unread: originals alone cover a pure image selection.
+    // The screenshot stays out: originals alone cover a pure image selection.
     expect(reads).toEqual(['sha256:abc', 'sha256:def'])
   })
 
   it('appends the screenshot after originals for mixed selections', async () => {
     const mirror = new CanvasMirror()
-    mirror.apply(selectionPush(['sha256:abc'], [{ kind: 'draw' }]), attachmentRef('sha256:sel'))
+    mirror.apply(selectionPush(['sha256:abc'], [{ kind: 'draw' }]), selImage())
     const { store, reads } = tracingStore()
     const result = await resolveCanvasSelectionReferences({
       mirror,
@@ -224,14 +229,15 @@ describe('canvas selection reference resolution', () => {
     })
     expect(result).toEqual([
       { data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' },
-      { data: new Uint8Array([2, 2, 3]), mediaType: 'image/png' },
+      { data: new Uint8Array([9, 9, 9]), mediaType: 'image/png' },
     ])
-    expect(reads).toEqual(['sha256:abc', 'sha256:sel'])
+    // The screenshot comes from mirror memory; only the original is read.
+    expect(reads).toEqual(['sha256:abc'])
   })
 
   it('falls back to the screenshot when the attachment is not in the conversation', async () => {
     const mirror = new CanvasMirror()
-    mirror.apply(selectionPush(['sha256:ghost']), attachmentRef('sha256:sel'))
+    mirror.apply(selectionPush(['sha256:ghost']), selImage())
     const { store, reads } = tracingStore()
     const result = await resolveCanvasSelectionReferences({
       mirror,
@@ -239,17 +245,18 @@ describe('canvas selection reference resolution', () => {
       agent: conversationWithImages('sha256:abc'),
       signal,
     })
-    expect(result).toEqual([{ data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' }])
-    expect(reads).toEqual(['sha256:sel'])
+    expect(result).toEqual([{ data: new Uint8Array([9, 9, 9]), mediaType: 'image/png' }])
+    // The in-memory screenshot resolves without touching the store at all.
+    expect(reads).toEqual([])
   })
 
-  it('reads the mirrored selection screenshot when no agent session is available', async () => {
+  it('uses the mirrored selection screenshot when no agent session is available', async () => {
     const mirror = new CanvasMirror()
-    mirror.apply(selectionPush(['sha256:abc']), attachmentRef('sha256:sel'))
+    mirror.apply(selectionPush(['sha256:abc']), selImage())
     const { store, reads } = tracingStore()
     const result = await resolveCanvasSelectionReferences({ mirror, attachments: store, signal })
-    expect(result).toEqual([{ data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' }])
-    expect(reads).toEqual(['sha256:sel'])
+    expect(result).toEqual([{ data: new Uint8Array([9, 9, 9]), mediaType: 'image/png' }])
+    expect(reads).toEqual([])
   })
 
   it('fails with actionable guidance when no canvas is connected', async () => {
@@ -298,15 +305,10 @@ describe('canvas state route', () => {
   let server: Server
   let serverUrl: string
   let mirror: CanvasMirror
-  let saved: Array<{ bytes: number; mediaType: string; name: string }>
 
   function deps(): CanvasStateRouteDeps {
     return {
       mirror,
-      saveSelectionImage: async (data, mediaType, name) => {
-        saved.push({ bytes: data.byteLength, mediaType, name })
-        return attachmentRef(`sha256:saved-${saved.length}`)
-      },
       maxBodyBytes: 1024 * 1024,
       maxImageBytes: 1024 * 1024,
     }
@@ -319,7 +321,6 @@ describe('canvas state route', () => {
 
   function start(): Promise<void> {
     mirror = new CanvasMirror()
-    saved = []
     server = createServer((req, res) => {
       void serveCanvasState(req, res, deps()).catch(() => { res.statusCode = 500; res.end() })
     })
@@ -331,16 +332,19 @@ describe('canvas state route', () => {
     })
   }
 
-  it('stores a push with its selection screenshot as an attachment', async () => {
+  it('accepts a push with a screenshot into memory without persisting anything', async () => {
     await start()
     const response = await fetch(serverUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ...validPush(), selectionImage: `data:image/png;base64,${TINY_PNG_BASE64}` }),
     })
-    await expect(response.json()).resolves.toMatchObject({ ok: true, selectionAttachmentId: 'sha256:saved-1' })
-    expect(saved).toEqual([{ bytes: 70, mediaType: 'image/png', name: 'canvas-selection' }])
-    expect(mirror.latest()?.selectionAttachment?.attachmentId).toBe('sha256:saved-1')
+    await expect(response.json()).resolves.toMatchObject({ ok: true })
+    // The decoded bytes live in the mirror only — no durable store involved.
+    const image = mirror.latest()?.selectionImage
+    expect(image?.mediaType).toBe('image/png')
+    expect(image?.data.byteLength).toBeGreaterThan(0)
+    expect(mirror.latestSelectionImage()).toBe(image)
   })
 
   it('stores a push without a screenshot and disconnects cleanly', async () => {
@@ -352,6 +356,7 @@ describe('canvas state route', () => {
     })
     expect(ok.status).toBe(200)
     expect(mirror.connected()).toBe(true)
+    expect(mirror.latestSelectionImage()).toBeUndefined()
 
     await fetch(serverUrl, {
       method: 'POST',
@@ -380,6 +385,7 @@ describe('canvas state route', () => {
       body: JSON.stringify({ clientInstance: 'x' }),
     })
     expect(invalid.status).toBe(400)
+    expect(mirror.latest()).toBeUndefined()
 
     const huge = await fetch(serverUrl, {
       method: 'POST',
@@ -387,6 +393,6 @@ describe('canvas state route', () => {
       body: JSON.stringify({ ...validPush(), selectionImage: 'data:image/png;base64,not-base64' }),
     })
     expect(huge.status).toBe(400)
-    expect(saved).toHaveLength(0)
+    expect(mirror.latest()?.selectionImage).toBeUndefined()
   })
 })

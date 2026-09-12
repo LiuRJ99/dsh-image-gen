@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { CanvasMirror, CanvasMirrorEntry } from './canvas-state.js'
+import type { CanvasMirror, CanvasMirrorEntry, CanvasSelectionImage } from './canvas-state.js'
 import { findReferenceImages } from './reference-image.js'
 import type { ReferenceImageAgent, ResolvedReferenceImage } from './reference-image.js'
 
@@ -20,8 +20,19 @@ export type CanvasSelectionImageStore = {
   readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
 }
 
+/** Dependencies of the canvas tools beyond the mirror itself. */
+export interface CanvasToolsDeps {
+  /**
+   * Materializes an in-memory selection screenshot as a durable attachment.
+   * Called by view_canvas only, at the moment the image actually enters the
+   * conversation — the durable store is content-addressed, so repeated views
+   * of the same bytes reuse one object and dead screenshots never persist.
+   */
+  persistSelectionImage(image: CanvasSelectionImage): Promise<ImageAttachmentRef>
+}
+
 /** Register the canvas tools on a context that owns a canvas mirror. */
-export function registerCanvasTools(ctx: Context, mirror: CanvasMirror): void {
+export function registerCanvasTools(ctx: Context, mirror: CanvasMirror, deps: CanvasToolsDeps): void {
   ctx.tools.register(defineTool({
     name: 'canvas_state',
     description: 'Inspect the current state of the image-gen workbench infinite canvas: what shapes are on it (generated images, hand-drawn strokes, text notes) and what is currently selected. Use whenever the user refers to "the canvas", something they drew or placed there, or a selection, and before view_canvas or edit_image with source=canvas_selection.',
@@ -45,7 +56,7 @@ export function registerCanvasTools(ctx: Context, mirror: CanvasMirror): void {
         connected: entry !== undefined,
         nodeCount: entry?.nodeCount ?? 0,
         selectionCount: entry?.selectionCount ?? 0,
-        hasSelectionImage: mirror.latestSelectionAttachment() !== undefined,
+        hasSelectionImage: mirror.latestSelectionImage() !== undefined,
       }
     },
   }))
@@ -74,7 +85,12 @@ export function registerCanvasTools(ctx: Context, mirror: CanvasMirror): void {
       },
     },
     async execute(): Promise<ViewCanvasValue> {
-      const attachment = mirror.latestSelectionAttachment()
+      const image = mirror.latestSelectionImage()
+      // This is the materialization moment: only a screenshot the model
+      // actually views becomes a durable attachment. Everything the canvas
+      // pushed but nobody looked at stays memory-only and dies with the
+      // selection or the canvas itself.
+      const attachment = image === undefined ? undefined : await deps.persistSelectionImage(image)
       return {
         digest: mirror.digest(),
         ...(attachment === undefined ? {} : { attachment: attachmentMeta(attachment) }),
@@ -109,9 +125,10 @@ function attachmentMeta(ref: ImageAttachmentRef): ImageAttachmentRef {
 
 /**
  * Resolve the mirrored canvas selection as an edit reference image for
- * edit_image's `canvas_selection` source. Reads the durable screenshot
- * attachment the canvas pushed, so the bytes are identical to what
- * view_canvas showed the model.
+ * edit_image's `canvas_selection` source. The screenshot comes straight from
+ * the mirror's in-memory bytes — identical to what view_canvas shows the
+ * model — and is never persisted here: reference images go to the image
+ * provider, not the conversation.
  */
 export async function resolveCanvasSelectionReferences(input: {
   mirror: CanvasMirror
@@ -164,22 +181,20 @@ export async function resolveCanvasSelectionReferences(input: {
     return originals
   }
 
-  const screenshot = await readSelectionScreenshot(entry, input)
+  const screenshot = readSelectionScreenshot(entry, input)
   if (screenshot !== undefined) return [...originals, screenshot]
   if (originals.length > 0) return originals
   throw new Error('The image-gen workbench canvas selection has no usable reference image yet. Ask the user to keep the shapes selected for a moment longer (the canvas pushes a screenshot about a second after the selection settles), then retry.')
 }
 
-/** Read the mirrored selection screenshot, or undefined when none was pushed. */
-async function readSelectionScreenshot(entry: CanvasMirrorEntry, input: {
-  attachments: CanvasSelectionImageStore
+/** The mirrored selection screenshot bytes, or undefined when none was pushed. */
+function readSelectionScreenshot(entry: CanvasMirrorEntry, input: {
   maxBytes?: number
-  signal: AbortSignal
-}): Promise<ResolvedReferenceImage | undefined> {
-  if (entry.selectionAttachment === undefined) return undefined
-  const stored = await input.attachments.readImage(entry.selectionAttachment, input.signal)
-  if (input.maxBytes !== undefined && stored.data.byteLength > input.maxBytes) {
-    throw new Error(`edit_image canvas selection screenshot is too large (${stored.data.byteLength} bytes; maximum ${input.maxBytes})`)
+}): ResolvedReferenceImage | undefined {
+  const image = entry.selectionImage
+  if (image === undefined) return undefined
+  if (input.maxBytes !== undefined && image.data.byteLength > input.maxBytes) {
+    throw new Error(`edit_image canvas selection screenshot is too large (${image.data.byteLength} bytes; maximum ${input.maxBytes})`)
   }
-  return { data: stored.data, mediaType: stored.ref.mediaType }
+  return { data: image.data, mediaType: image.mediaType }
 }

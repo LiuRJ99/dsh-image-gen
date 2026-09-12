@@ -18,6 +18,14 @@ export interface TlLandingItem {
   /** Gallery item id; also used to dedupe shapes via shape.meta.galleryId. */
   galleryId: string
   attachment: ImageAttachmentRef
+  /**
+   * True when this attachment is part of the current conversation messages
+   * (chat tool results): the host can then resolve its full-resolution
+   * original directly, and a canvas screenshot of it would be redundant.
+   * Form generations never enter the conversation, so their selections must
+   * keep the screenshot fallback — the host has no other way to see them.
+   */
+  fromConversation?: boolean
 }
 
 type TlLandingListener = () => void

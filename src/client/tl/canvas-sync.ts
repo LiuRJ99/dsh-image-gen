@@ -15,7 +15,7 @@
  * in the summary) never hit the network.
  */
 import type { Editor, TLShape } from 'tldraw'
-import { CANVAS_MAX_SELECTION_ITEMS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary } from '../../shared.js'
+import { CANVAS_MAX_NODES, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary } from '../../shared.js'
 import { getTlLandings } from './tl-canvas-bridge.js'
 
 /** Debounce for ordinary document/session changes. */
@@ -24,10 +24,7 @@ const STATE_DEBOUNCE_MS = 600
 const SELECTION_EXPORT_DELAY_MS = 1200
 /** Minimum spacing between two HTTP pushes. */
 const MIN_PUSH_INTERVAL_MS = 400
-/** Node list cap; the digest collapses anything beyond this. */
-const MAX_NODES = 48
 const MAX_TEXT_CHARS = 96
-const MAX_SELECTION_KINDS = 8
 /** Hard cap on the exported screenshot payload (base64 chars, ~5MB binary). */
 const MAX_SCREENSHOT_DATAURL_CHARS = 7_000_000
 
@@ -114,6 +111,8 @@ interface CanvasSummary {
   selectionKinds: CanvasNodeKind[]
   /** Identity list of the selected shapes, capped at the selection-items limit. */
   selectionItems: CanvasNodeSummary[]
+  /** True when every selected shape is a conversation-backed image (see summarize). */
+  selectionAllConversationImages: boolean
   /** Stable key over the summarized state; unchanged key = no HTTP push. */
   stateKey: string
   /** Stable key over just the selection; a change re-arms the screenshot export. */
@@ -122,27 +121,44 @@ interface CanvasSummary {
 
 function summarize(editor: Editor): CanvasSummary {
   const attachmentByGallery = new Map<string, string>()
+  const conversationGallery = new Set<string>()
   for (const landing of getTlLandings()) {
     attachmentByGallery.set(landing.galleryId, String(landing.attachment.attachmentId))
+    if (landing.fromConversation) conversationGallery.add(landing.galleryId)
   }
 
   const shapes = editor.getCurrentPageShapes()
   const nodes: CanvasNodeSummary[] = []
-  for (const shape of shapes.slice(0, MAX_NODES)) {
+  for (const shape of shapes.slice(0, CANVAS_MAX_NODES)) {
     nodes.push(describeShape(editor, shape, attachmentByGallery))
   }
 
   const selected = editor.getSelectedShapes()
-  const selectionKinds = [...new Set(selected.map(shape => kindOf(shape.type)))].slice(0, MAX_SELECTION_KINDS)
+  const selectionKinds = [...new Set(selected.map(shape => kindOf(shape.type)))].slice(0, CANVAS_MAX_SELECTION_KINDS)
   const selectionItems = selected.slice(0, CANVAS_MAX_SELECTION_ITEMS).map(shape => describeShape(editor, shape, attachmentByGallery))
   const selectionKey = selectionKeyOf(editor)
+  // Screenshot skip gate: true only when EVERY selected shape is an image
+  // landed from a conversation tool result. Then the host resolves the
+  // full-resolution originals from the conversation itself, and pushing a
+  // screenshot would only duplicate them as a durable attachment nothing
+  // ever collects. Any other selection content (form-generated images,
+  // strokes, pasted images, annotations) needs the screenshot.
+  const selectionAllConversationImages = selected.length > 0 && selected.every(shape => {
+    if (shape.type !== 'image') return false
+    const galleryId = (shape.meta as { galleryId?: unknown } | undefined)?.galleryId
+    return typeof galleryId === 'string' && conversationGallery.has(galleryId)
+  })
   return {
     nodeCount: shapes.length,
     nodes,
     selectionCount: selected.length,
     selectionKinds,
     selectionItems,
-    stateKey: JSON.stringify([shapes.length, nodes, selectionKinds, selected.length, selectionKey]),
+    selectionAllConversationImages,
+    // selectionItems must join the key: a selected shape beyond the
+    // CANVAS_MAX_NODES truncation leaves no trace in `nodes`, so editing its
+    // content would otherwise change nothing here and the push never fires.
+    stateKey: JSON.stringify([shapes.length, nodes, selectionKinds, selected.length, selectionItems, selectionKey]),
     selectionKey,
   }
 }
@@ -210,10 +226,15 @@ export function startCanvasSync(editor: Editor): () => void {
     }
 
     let selectionImage: string | undefined
-    // Every settled selection gets a screenshot: it shows the selection as it
-    // looks on the canvas now (annotations included), which the conversation
-    // attachment of the original image cannot provide.
-    if (withScreenshot && summary.selectionCount > 0) {
+    // A settled selection gets a screenshot only when it holds content the
+    // conversation cannot already read back. Landing attachments pushed by
+    // chat tool results live in the conversation, so the host resolves their
+    // full-resolution originals directly (a screenshot would only duplicate
+    // them as a durable attachment nothing ever collects). Form-generated
+    // images are NOT conversation messages — for those, and for strokes,
+    // pasted images, or annotations, the screenshot is the only image the
+    // host can use, so it must be pushed.
+    if (withScreenshot && summary.selectionCount > 0 && !summary.selectionAllConversationImages) {
       try {
         const selectedBefore = editor.getSelectedShapes()
         const { url } = await editor.toImageDataUrl(selectedBefore, { background: true, padding: 16, scale: 1, pixelRatio: 2 })

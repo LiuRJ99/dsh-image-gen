@@ -29,6 +29,16 @@ export const CANVAS_NODE_KINDS: readonly CanvasNodeKind[] = ['image', 'draw', 't
  */
 export const CANVAS_MAX_SELECTION_ITEMS = 16
 
+/**
+ * Cap on the node inventory: the client trims `nodes` to this size and the
+ * canvas-state route rejects pushes carrying more, so the two ends can never
+ * drift apart. Sized to keep the model-facing digest compact.
+ */
+export const CANVAS_MAX_NODES = 48
+
+/** Same shared-cap contract as CANVAS_MAX_NODES, for the selection kind list. */
+export const CANVAS_MAX_SELECTION_KINDS = 8
+
 /** One shape on the workbench infinite canvas, summarized for the model. */
 export interface CanvasNodeSummary {
   kind: CanvasNodeKind

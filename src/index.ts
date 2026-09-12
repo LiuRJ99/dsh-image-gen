@@ -116,7 +116,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     kind: 'exact', path: CANVAS_STATE_ROUTE,
     handler: (req, res) => serveCanvasState(req, res, {
       mirror: canvasMirror,
-      saveSelectionImage: (data, mediaType, name) => ctx.attachments.saveImage({ data, mediaType, name }),
       // Base64 inflates the PNG by ~4/3; the slack covers the JSON envelope.
       maxBodyBytes: Math.ceil(ctx.attachments.imageLimits.maxImageBytes * 1.4) + 256 * 1024,
       maxImageBytes: ctx.attachments.imageLimits.maxImageBytes,
@@ -132,7 +131,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       text: () => canvasMirror.digest(),
     })
   })
-  registerCanvasTools(ctx, canvasMirror)
+  registerCanvasTools(ctx, canvasMirror, {
+    // Materialization hook: view_canvas persists a screenshot only when the
+    // model actually views it. The content-addressed store dedupes repeat
+    // views, and dead screenshots never reach the disk.
+    persistSelectionImage: image => ctx.attachments.saveImage({ data: image.data, mediaType: image.mediaType, name: 'canvas-selection' }),
+  })
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact', path: STUDIO_ROUTE,
     handler: (req, res) => serveStudio(req, res, {
