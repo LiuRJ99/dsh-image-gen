@@ -15,6 +15,7 @@ import {
   Frame,
   Heart,
   ImagePlus,
+  Info,
   LoaderCircle,
   PanelLeft,
   PanelLeftClose,
@@ -82,6 +83,7 @@ const COPY = {
     collapseSidebar: '折叠最近生成', expandSidebar: '展开最近生成',
     collapseGenerate: '折叠生成面板', expandGenerate: '展开生成面板', generatePanel: '生成面板',
     findInspiration: '找灵感',
+    infiniteCanvasHint: '无限画布与侧边栏会话联动，才是完整功能。打开 DSH 右侧边栏的「图像工作台」即可解锁。',
   },
   en: {
     title: 'Cloud Image Studio', configured: 'API configured', unconfigured: 'Not configured', recent: 'Recent generations', empty: 'No generated images yet',
@@ -110,10 +112,14 @@ const COPY = {
     collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand recent list',
     collapseGenerate: 'Collapse generate panel', expandGenerate: 'Expand generate panel', generatePanel: 'Generate',
     findInspiration: 'Find inspiration',
+    infiniteCanvasHint: 'The infinite canvas is at its best when linked with the sidebar conversation. Open Image Studio from the DSH right sidebar to unlock the full experience.',
   },
 } as const
 
 type CopyKey = keyof typeof COPY.zh
+
+/** localStorage flag remembering that the one-time infinite-canvas hint was dismissed. */
+const INFINITE_CANVAS_HINT_KEY = 'dsh-ig-infinite-canvas-hint-dismissed'
 
 export interface StudioWorkspaceProps {
   workspaceId?: string | undefined
@@ -133,9 +139,15 @@ export const StudioView: FC<{
    * native conversation runs beside it is the point of the split.
    */
   initialCanvasSurface?: 'preview' | 'infinite' | undefined
+  /**
+   * Show the one-time hint banner above the infinite canvas. Only the
+   * conversation-tab seat (no chat running beside the canvas) needs it - the
+   * right-sidebar variant IS the full experience, so the hint would be noise.
+   */
+  showInfiniteCanvasHint?: boolean
   onInitialPromptApplied?(): void
   onOpenInspiration?(): void
-}> = ({ locale, workspace, initialPrompt, initialCanvasSurface, onInitialPromptApplied, onOpenInspiration }) => {
+}> = ({ locale, workspace, initialPrompt, initialCanvasSurface, showInfiniteCanvasHint, onInitialPromptApplied, onOpenInspiration }) => {
   const [lang, setLang] = useState<'zh' | 'en'>(() => locale?.getSnapshot?.().active?.startsWith('en') ? 'en' : 'zh')
   const [config, setConfig] = useState<StudioConfigResponse | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
@@ -143,8 +155,9 @@ export const StudioView: FC<{
   const [items, setItems] = useState<GalleryItem[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   /** Manual-only collapse for the right generate form; the form stays put in
-   *  narrow seats because it is the primary generation surface. */
-  const [generateCollapsed, setGenerateCollapsed] = useState(false)
+   *  narrow seats because it is the primary generation surface. Starts folded
+   *  when the studio opens straight into the infinite canvas. */
+  const [generateCollapsed, setGenerateCollapsed] = useState(initialCanvasSurface === 'infinite')
   /** Workbench root, observed so a narrow column (right sidebar) can fold the recent rail. */
   const workbenchRootRef = useRef<HTMLElement | null>(null)
   /** Set once the user toggles the rail by hand; auto-folding then stands down for this mount. */
@@ -181,11 +194,29 @@ export const StudioView: FC<{
   // behaviour is untouched until the toggle is clicked; a caller may open the
   // infinite canvas directly (the right-sidebar studio variant does).
   const [canvasSurface, setCanvasSurface] = useState<'preview' | 'infinite'>(initialCanvasSurface ?? 'preview')
+  /** Generate-panel state from before the infinite canvas was opened, so the
+   *  panel is restored (not just forced open) when returning to preview. */
+  const generatePanelBeforeInfiniteRef = useRef(false)
   /** Mirrors `canvasSurface` for async reads: a generation started on the
    *  infinite canvas must land there even if the user flips back to preview
    *  while the request is in flight. */
   const canvasSurfaceRef = useRef(canvasSurface)
   canvasSurfaceRef.current = canvasSurface
+  /** One-time infinite-canvas entry hint, dismissed per-install (localStorage)
+   *  so it educates once instead of nagging on every visit. */
+  const [canvasHintDismissed, setCanvasHintDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(INFINITE_CANVAS_HINT_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
+  const dismissCanvasHint = useCallback(() => {
+    setCanvasHintDismissed(true)
+    try {
+      localStorage.setItem(INFINITE_CANVAS_HINT_KEY, 'true')
+    } catch {}
+  }, [])
 
   const [dragging, setDragging] = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -950,7 +981,7 @@ export const StudioView: FC<{
               </button>
             </div>
             <div className="dsh-ig-recent-scroll">
-              {items.length === 0 ? <div className="dsh-ig-recent-empty"><ImagePlus size={22} /><span>{t('empty')}</span></div> : displayItems.map(item => <RecentItem key={item.id} item={item} active={selected?.id === item.id} lang={lang} onClick={() => selectItem(item)} />)}
+              {items.length === 0 ? <div className="dsh-ig-recent-empty"><ImagePlus size={22} /><span>{t('empty')}</span></div> : displayItems.map(item => <RecentItem key={item.id} item={item} active={selected?.id === item.id} onClick={() => selectItem(item)} />)}
               {items.length > visibleLimit && (
                 <button type="button" className="dsh-ig-load-more" onClick={() => setVisibleLimit(l => l + 30)}>
                   {t('loadMore', { n: String(items.length - visibleLimit) })}
@@ -1001,29 +1032,52 @@ export const StudioView: FC<{
                 )}
               </div>
             </div>
-            <div className="dsh-ig-canvas-toolbar-right">
-              {selected !== null && (
-                <button type="button" onClick={startNew} title={t('newGeneration')}>
-                  <Plus size={13} />
-                  <span>{t('newGeneration')}</span>
-                </button>
-              )}
+            {/* Canvas-surface toggle sits centered so the entry point to the
+             * infinite canvas reads at a glance in both surfaces. */}
+            <div className="dsh-ig-canvas-toolbar-center">
               <button
                 type="button"
                 className={canvasSurface === 'infinite' ? 'is-active' : ''}
-                onClick={() => setCanvasSurface(surface => surface === 'infinite' ? 'preview' : 'infinite')}
+                onClick={() => {
+                  if (canvasSurface === 'infinite') {
+                    // Back to preview: restore the panel exactly as it was
+                    // before the canvas folded it.
+                    setGenerateCollapsed(generatePanelBeforeInfiniteRef.current)
+                    setCanvasSurface('preview')
+                    return
+                  }
+                  // Into the infinite canvas: fold the generate panel so the
+                  // surface gets the full width; reopening restores it.
+                  generatePanelBeforeInfiniteRef.current = generateCollapsed
+                  setGenerateCollapsed(true)
+                  setCanvasSurface('infinite')
+                }}
                 title={t('infiniteCanvas')}
               >
                 <Frame size={14} />
                 <span>{t('infiniteCanvas')}</span>
               </button>
+              {/* Preview-only view controls ride the center cluster too, so
+               * fit/zoom live beside the surface toggle instead of being
+               * buried among the right-side actions. */}
               {canvasSurface === 'preview' && (<>
+                <span className="dsh-ig-toolbar-divider" />
                 <button type="button" className={fit ? 'is-active' : ''} onClick={resetFit}>{t('fit')} <ChevronDown size={13} /></button>
                 <button type="button" onClick={() => { setFit(false); setZoom(value => Math.max(25, value - 25)) }} title="Zoom out"><ZoomOut size={16} /></button>
                 <span className="dsh-ig-zoom-display">{fit ? 'AUTO' : `${Math.round(zoom)}%`}</span>
                 <button type="button" onClick={() => { setFit(false); setZoom(value => Math.min(500, value + 25)) }} title="Zoom in"><ZoomIn size={16} /></button>
-                <button type="button" onClick={() => setLightboxOpen(true)} title={t('fullscreen')} disabled={selected === null}><Expand size={16} /></button>
               </>)}
+            </div>
+            <div className="dsh-ig-canvas-toolbar-right">
+              {canvasSurface === 'preview' && selected !== null && (
+                <button type="button" onClick={startNew} title={t('newGeneration')}>
+                  <Plus size={13} />
+                  <span>{t('newGeneration')}</span>
+                </button>
+              )}
+              {canvasSurface === 'preview' && (
+                <button type="button" onClick={() => setLightboxOpen(true)} title={t('fullscreen')} disabled={selected === null}><Expand size={16} /></button>
+              )}
               {generateCollapsed && (
                 <button
                   type="button"
@@ -1036,6 +1090,15 @@ export const StudioView: FC<{
               )}
             </div>
           </div>
+          {canvasSurface === 'infinite' && showInfiniteCanvasHint && !canvasHintDismissed && (
+            <div className="dsh-ig-canvas-hint">
+              <Info size={14} />
+              <span>{t('infiniteCanvasHint')}</span>
+              <button type="button" onClick={dismissCanvasHint} title={t('close')} aria-label={t('close')}>
+                <X size={13} />
+              </button>
+            </div>
+          )}
           {canvasSurface === 'infinite' ? (
             <StudioTlCanvas />
           ) : (
@@ -1547,18 +1610,18 @@ function comparisonQualityOptions(lang: 'zh' | 'en'): Array<{ value: string; lab
   ]
 }
 
-const RecentItem: FC<{ item: GalleryItem; active: boolean; lang: 'zh' | 'en'; onClick(): void }> = ({ item, active, lang, onClick }) => {
+const RecentItem: FC<{ item: GalleryItem; active: boolean; onClick(): void }> = ({ item, active, onClick }) => {
   const [setRef, inView] = useInView<HTMLButtonElement>()
   const image = useAttachmentImage(item.attachment, inView)
   return (
-    <button ref={setRef} type="button" className={`dsh-ig-recent-item ${active ? 'is-active' : ''}`} onClick={onClick}>
+    <button
+      ref={setRef}
+      type="button"
+      className={`dsh-ig-recent-item ${active ? 'is-active' : ''}`}
+      onClick={onClick}
+      title={item.prompt}
+    >
       <div className="dsh-ig-recent-thumb">{image.url !== null ? <img src={image.url} alt="" loading="lazy" /> : <ImagePlus size={18} />}</div>
-      <div>
-        <strong>{item.prompt}</strong>
-        <span>{formatRelativeTime(item.createdAt, lang)}</span>
-        <small>{item.provider} · {item.model}</small>
-        <small>{item.attachment.width && item.attachment.height ? `${item.attachment.width} × ${item.attachment.height}` : '—'}</small>
-      </div>
     </button>
   )
 }

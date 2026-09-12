@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, type FC } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
+  DefaultToolbar,
   Tldraw,
   createShapeId,
   type Editor,
@@ -12,6 +13,7 @@ import {
 import { blobToDataUrl } from '../browser-image-utils.js'
 import { fetchAttachmentBlob } from '../image-cache.js'
 import { CANVAS_MAX_PROMPT_CHARS } from '../../shared.js'
+import { applyBrandTheme } from './tl-brand-theme.js'
 import { startCanvasSync } from './canvas-sync.js'
 import { getTlLandings, subscribeTlLandings, type TlLandingItem } from './tl-canvas-bridge.js'
 
@@ -34,6 +36,16 @@ import { getTlLandings, subscribeTlLandings, type TlLandingItem } from './tl-can
 const MAX_DISPLAY_SIDE = 380
 const GRID_GAP = 40
 const GRID_COLS = 3
+
+/**
+ * Dock the stock toolbar vertically along the left edge (Figma-style) instead
+ * of tldraw's signature bottom-center pill. It is still the same
+ * DefaultToolbar with the same tools and overflow handling — only the
+ * orientation changes, which is what makes the whole composition read as our
+ * own surface rather than stock tldraw. TL_THEME_CSS offsets it from the
+ * screen edge like the other floating cards.
+ */
+const StudioToolbar = () => <DefaultToolbar orientation="vertical" />
 
 function tlAssetIdFor(galleryId: string): TLAssetId {
   return `asset:ig-${galleryId.replace(/[^A-Za-z0-9_-]/g, '_')}` as TLAssetId
@@ -229,8 +241,16 @@ export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
           generations must vanish on restart (save-first philosophy, same as
           the previous preview pane); saved images remain in the gallery. */}
       <Tldraw
+        components={{ Toolbar: StudioToolbar }}
         onMount={editor => {
           editorRef.current = editor
+          // Re-tint canvas-rendered colors (selection, marquee, "blue"
+          // palette) to the plugin brand; UI chrome comes from TL_THEME_CSS.
+          applyBrandTheme(editor)
+          // Dot-grid backdrop: tldraw's built-in zoom-aware grid, re-tinted to
+          // the workbench blue-grey. Gives the empty canvas spatial rhythm and
+          // alignment reference without the graph-paper feel of line grids.
+          editor.updateInstanceState({ isGridMode: true })
           // One console line proves the editor booted inside the webview;
           // useful when the host page swallows render errors.
           console.info(`[dsh-image-gen] tldraw mounted (instance ${editor.id})`)
