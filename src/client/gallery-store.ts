@@ -30,6 +30,8 @@ export interface GalleryItem {
   workspaceId?: string | undefined
   /** Conversation session ID where the image was generated */
   sessionId?: string | undefined
+  /** Attachment ids of the source images this image was edited from; used by the canvas to rebuild edit chains. Optional so records written by older versions stay readable. */
+  sourceAttachmentIds?: string[] | undefined
 }
 
 const DB_NAME = 'dsh_image_gen_db'

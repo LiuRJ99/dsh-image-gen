@@ -38,10 +38,12 @@ import {
 } from '../shared.js'
 import { validateComfyUIWorkflowJson } from '../comfyui-workflow.js'
 import { saveGalleryItem } from './gallery-store.js'
-import { GalleryViewTab, copyImageBlob, type LocaleService } from './gallery-view.js'
+import { GalleryViewTab, copyImageBlob, type GalleryViewTabProps, type LocaleService } from './gallery-view.js'
 import { fetchAttachmentBlob } from './image-cache.js'
 import { imageRef, type ToolCallBlock } from './image-ref.js'
+import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 import { STUDIO_STYLE } from './studio-style.js'
+import { TL_CSS } from './tl/tl-css.js'
 import { INSPIRATION_STYLE } from './inspiration-style.js'
 import {
   IMAGE_RESULT_NODE_KIND,
@@ -57,6 +59,16 @@ import {
 } from './conversation-image-revisions.js'
 import { conversationRegenerateRequest } from './conversation-regenerate.js'
 import { ImageProviderPill, PROVIDER_PILL_STYLE, type ProviderPillFace } from './provider-pill.js'
+
+/** Build timestamp injected by tsdown at bundle time. */
+declare const __CANVAS_BUILD_TS__: string
+
+// Convention: the canvas bundle announces its build timestamp on load, so a
+// stale host webview cache is provable from the browser console. The typeof
+// guard keeps the module importable where the define is absent (vitest).
+if (typeof __CANVAS_BUILD_TS__ !== 'undefined') {
+  console.info(`[dsh-image-gen] canvas bundle ${__CANVAS_BUILD_TS__}`)
+}
 
 type Provider = ImageProvider
 interface ImageSettings {
@@ -124,6 +136,25 @@ interface ImageResultNodeProps {
 }
 interface ModernUiConversation {
   events: { register(definition: ReturnType<typeof createImageResultDefinition>): () => void }
+}
+
+/** Right-sidebar tab-type registration id (DSH 0.1.5 `sidebarRightTabs`). */
+const SIDEBAR_STUDIO_TAB_ID = 'dsh-image-gen/studio'
+/** The tab kind: a page type opened by kind, recognizing no resource address. */
+const SIDEBAR_STUDIO_TAB_KIND = 'dsh-image-gen-studio'
+/**
+ * Runtime face of DSH 0.1.5's `sidebarRightTabs` service (stage one of a
+ * right-sidebar tab type's registration). Kept local and duck-typed: hosts
+ * without the service never reach this code (deferred inject).
+ */
+interface SidebarRightTabsFace {
+  register(definition: {
+    id: string
+    kind: string
+    priority?: string
+    title: (address: string) => string
+    guide?: ReadonlyArray<{ order: number; title: () => string; description?: () => string }>
+  }): () => void
 }
 
 const DICT = {
@@ -608,11 +639,14 @@ const STYLE = `
 .dsh-ig-lightbox-abort-btn{appearance:none;background:transparent;border:0;color:#fca5a5;font-size:11.5px;cursor:pointer;padding:0 4px;margin-left:4px;text-decoration:underline;text-underline-offset:2px}
 .dsh-ig-lightbox-abort-btn:hover{color:#ef4444}
 
-/* Hide floating chat composer and width handles when gallery page is active */
-[data-conversation-scroll]:has(.dsh-ig-gallery-page) [data-composer-seat]{display:none!important}
-:has(> [data-conversation-scroll]:has(.dsh-ig-gallery-page)) > [class*="widthHandle"],
-:has(.dsh-ig-gallery-page) [class*="widthHandle"],
-.root:has(.dsh-ig-gallery-page) [class*="widthHandle"]{display:none!important}
+/* Hide floating chat composer and width handles when the conversation-view
+   gallery page is active. The right-sidebar variant (dsh-ig-page-in-sidebar)
+   is excluded: the native conversation runs beside it and needs its composer
+   and the column handles untouched. */
+[data-conversation-scroll]:has(.dsh-ig-gallery-page:not(.dsh-ig-page-in-sidebar)) [data-composer-seat]{display:none!important}
+:has(> [data-conversation-scroll]:has(.dsh-ig-gallery-page:not(.dsh-ig-page-in-sidebar))) > [class*="widthHandle"],
+:has(.dsh-ig-gallery-page:not(.dsh-ig-page-in-sidebar)) [class*="widthHandle"],
+.root:has(.dsh-ig-gallery-page:not(.dsh-ig-page-in-sidebar)) [class*="widthHandle"]{display:none!important}
 `
 
 
@@ -633,12 +667,21 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.plugin = 'dsh-image-gen'
-    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}`
+    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${TL_CSS}`
     document.head.appendChild(style)
     return () => {
       style.remove()
     }
   }, 'dsh-image-gen: styles')
+
+  // One-time cleanup: the workflow canvas tab was removed; drop its orphaned
+  // IndexedDB database. Best-effort only: a missing database succeeds
+  // immediately, and failures (locked/blocked) are ignored.
+  if (typeof indexedDB !== 'undefined') {
+    const request = indexedDB.deleteDatabase('dsh_image_gen_canvas')
+    request.onerror = () => {}
+    request.onblocked = () => {}
+  }
 
   const register = ctx.slots.register.bind(ctx.slots) as unknown as (options: object, component: unknown) => () => void
 
@@ -761,6 +804,47 @@ export function apply(ctx: Context): void {
     },
     inject: () => ({ locale }),
   }, GalleryViewTab))
+
+  // 4. Right-sidebar studio tab (DSH 0.1.5 official `sidebar.right.pane.tab`
+  // seat): the native conversation keeps the main column while the workbench -
+  // tldraw infinite canvas + generate form + recent list - docks beside it in
+  // the old image-details seat. Two-stage registration, exactly as
+  // ui-sidebar-documentpreview does it: the type into `sidebarRightTabs`, the
+  // body into the keyed seat under the definition's id. Deferred injection
+  // keeps pre-0.1.5 hosts booting: without the service the seat simply never
+  // appears and the conversation-view gallery tab remains the only surface.
+  ;(ctx.inject as unknown as (services: string[], callback: (owner: Context) => void) => void)(
+    ['sidebarRightTabs'],
+    (owner) => {
+      const sidebarTabs = owner.get('sidebarRightTabs') as SidebarRightTabsFace
+      const sidebarTitle = (): string => {
+        const active = locale?.getSnapshot?.()?.active
+        return active?.startsWith('en') ? 'Image Studio' : '图像工作台'
+      }
+      // Stage one - the page type. The guide entry is the only one registered
+      // (the shipped guide declares none), so `defaultSeed` lands every new
+      // sidebar straight onto the studio tab.
+      owner.effect(() => sidebarTabs.register({
+        id: SIDEBAR_STUDIO_TAB_ID,
+        kind: SIDEBAR_STUDIO_TAB_KIND,
+        priority: 'extension',
+        title: () => sidebarTitle(),
+        guide: [{ order: 100, title: () => sidebarTitle() }],
+      }), 'dsh-image-gen: sidebar studio tab type')
+      // Stage two - the body, keyed by the definition id.
+      const ownerRegister = owner.slots.register.bind(owner.slots) as unknown as (options: object, component: unknown) => () => void
+      ;(owner.slots.inject as (key: string, factory: () => () => void) => void)('sidebar.right.pane.tab', () => ownerRegister({
+        name: 'sidebar.right.pane.tab',
+        key: SIDEBAR_STUDIO_TAB_ID,
+        inject: (): GalleryViewTabProps => ({
+          locale,
+          inSidebar: true,
+          defaultTab: 'studio',
+          initialCanvasSurface: 'infinite',
+        }),
+      }, GalleryViewTab))
+    },
+  )
 }
 
 function asModernUiConversation(value: unknown): ModernUiConversation | undefined {
@@ -1553,6 +1637,9 @@ function ImageResultCard({
     model: selectedRevision.model,
     output: selectedRevision.output,
     createdAt: selectedRevision.createdAt,
+    ...(result?.sourceAttachmentIds !== undefined && result.sourceAttachmentIds.length > 0
+      ? { sourceAttachmentIds: result.sourceAttachmentIds }
+      : {}),
   } : result
   const savedTo = result?.savedTo
   const [url, setUrl] = useState<string>()
@@ -1579,9 +1666,22 @@ function ImageResultCard({
     return text
   }
 
-  // Auto-collect into gallery IndexedDB
+  // Auto-collect into gallery IndexedDB and queue the image for the tldraw
+  // infinite canvas. Native conversations drive image generation through our
+  // tools; this card mounting in the chat view is the moment a result exists,
+  // so both mirrors start here. Both paths are idempotent (upsert + queue and
+  // page-level galleryId dedupe), so re-mounts and window re-opens are safe.
   useEffect(() => {
     if (result === undefined) return
+
+    pushTlLandings([{
+      galleryId: result.attachment.attachmentId,
+      attachment: result.attachment,
+      fromConversation: true,
+      prompt: result.prompt,
+      provider: result.provider,
+      model: result.model,
+    }])
 
     void saveGalleryItem({
       id: result.attachment.attachmentId,
@@ -1592,6 +1692,9 @@ function ImageResultCard({
       output: result.output,
       ...(result.savedTo ? { savedTo: result.savedTo } : {}),
       ...(result.seed !== undefined ? { seed: result.seed } : {}),
+      ...(result.sourceAttachmentIds !== undefined && result.sourceAttachmentIds.length > 0
+        ? { sourceAttachmentIds: [...result.sourceAttachmentIds] }
+        : {}),
       ...(sessionId ? { sessionId } : {}),
     })
   }, [result?.attachment.attachmentId])
@@ -1885,9 +1988,14 @@ function imageResultFromBlock(block: ToolCallBlock): ImageResultPresentation | u
   const blockValue = block as unknown as {
     meta?: Record<string, unknown>
     resultView?: { meta?: Record<string, unknown> }
-    call?: { args?: { prompt?: string } }
+    call?: { args?: { prompt?: string; source_attachment_id?: string; source_attachment_ids?: string[] } }
   }
   const meta = blockValue.meta ?? blockValue.resultView?.meta
+  const sourceIds = Array.isArray(blockValue.call?.args?.source_attachment_ids)
+    ? blockValue.call?.args?.source_attachment_ids
+    : typeof blockValue.call?.args?.source_attachment_id === 'string'
+      ? [blockValue.call?.args?.source_attachment_id]
+      : undefined
   return {
     attachment,
     prompt: typeof meta?.prompt === 'string' ? meta.prompt : blockValue.call?.args?.prompt ?? 'Generated Image',
@@ -1896,6 +2004,7 @@ function imageResultFromBlock(block: ToolCallBlock): ImageResultPresentation | u
     output: typeof meta?.output === 'string' ? meta.output : '',
     ...(typeof meta?.savedTo === 'string' ? { savedTo: meta.savedTo } : {}),
     ...(typeof meta?.seed === 'number' ? { seed: meta.seed } : {}),
+    ...(sourceIds !== undefined && sourceIds.length > 0 ? { sourceAttachmentIds: sourceIds } : {}),
   }
 }
 

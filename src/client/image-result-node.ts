@@ -12,6 +12,8 @@ export interface ImageResultPresentation {
   readonly savedTo?: string
   /** Workflow seed reported by the ComfyUI provider, when available. */
   readonly seed?: number
+  /** Attachment ids of the edit sources when this image came from edit_image; used to rebuild canvas edit chains. */
+  readonly sourceAttachmentIds?: readonly string[]
 }
 
 interface ImageResultState {

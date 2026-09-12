@@ -3,6 +3,18 @@
  * Completely decoupled from gallery-view and studio-view to prevent circular dependencies.
  */
 
+/** Convert a Blob to a data URL. Used for tldraw image assets, which need a
+ *  self-contained src; the session canvas keeps them in memory only (no
+ *  persistenceKey, nothing touches disk). */
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('blobToDataUrl failed'))
+    reader.readAsDataURL(blob)
+  })
+}
+
 /** Copy an image Blob to the OS clipboard, converting to PNG if required by the browser. */
 export async function copyImageBlob(blob: Blob): Promise<boolean> {
   try {

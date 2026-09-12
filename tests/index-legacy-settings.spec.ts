@@ -55,14 +55,18 @@ describe('legacy dsh-settings (<= 0.1.1-rc.2) compatibility', () => {
     const { ctx, tools } = legacyHarness()
     apply(ctx, { provider: 'google', saveToWorkspace: false })
 
-    expect(tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image'])
+    expect(tools.map(tool => tool.name)).toEqual(['canvas_state', 'view_canvas', 'generate_image', 'edit_image'])
     expect(installSettingsSection).toHaveBeenCalledTimes(1)
     const [relayCtx, ns, schema, entry] = vi.mocked(installSettingsSection).mock.calls[0] as unknown as [Context, string, unknown, unknown]
     expect(relayCtx).toBe(ctx)
     expect(ns).toBe('ns:image-generation')
     expect((schema as { toJSON?(): unknown }).toJSON).toBeTypeOf('function')
     expect(entry).toMatchObject({ provider: 'google', saveToWorkspace: false })
-    expect(ctx.inject).not.toHaveBeenCalled()
+    // The legacy host keeps working: the canvas context registration's
+    // optional service injection is declared (a service this host never
+    // provides, so the callback never fires) but never breaks the legacy
+    // settings relay.
+    expect(ctx.inject).toHaveBeenCalledWith(['systemPrompt'], expect.any(Function))
   })
 
   it('never throws when the install relay itself rejects', () => {

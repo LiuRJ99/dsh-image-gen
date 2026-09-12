@@ -77,7 +77,7 @@ describe('image tool registration', () => {
   it('installs the settings section through the modern service API', () => {
     const { ctx, tools, installSection } = harnessContext()
     apply(ctx, { provider: 'google', saveToWorkspace: false })
-    expect(tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image'])
+    expect(tools.map(tool => tool.name)).toEqual(['canvas_state', 'view_canvas', 'generate_image', 'edit_image'])
     expect(installSection).toHaveBeenCalledTimes(1)
     const [owner, ns, schema, entry, hooks] = installSection.mock.calls[0] as unknown as [Context, string, unknown, unknown, { setSource(): void; onChange(): void }]
     expect(owner).toBe(ctx)
@@ -91,10 +91,10 @@ describe('image tool registration', () => {
     expect(ctx.logger.warn).not.toHaveBeenCalled()
   })
 
-  it('registers generate_image and edit_image', () => {
+  it('registers canvas tools, generate_image, and edit_image', () => {
     const { ctx, tools } = harnessContext()
     apply(ctx, { provider: 'google', saveToWorkspace: false })
-    expect(tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image'])
+    expect(tools.map(tool => tool.name)).toEqual(['canvas_state', 'view_canvas', 'generate_image', 'edit_image'])
   })
 
   it('declares the ComfyUI seed in both tool output schemas', () => {

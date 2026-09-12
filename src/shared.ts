@@ -13,6 +13,102 @@ export const INSPIRATION_ROUTE = '/plugins/dsh-image-gen/inspiration'
 export const SAVE_WORKSPACE_ROUTE = '/plugins/dsh-image-gen/save-workspace'
 /** Browser route the settings card probes provider connectivity through. */
 export const TEST_CONNECTION_ROUTE = '/plugins/dsh-image-gen/test'
+/** Browser route the workbench infinite canvas pushes live state through. */
+export const CANVAS_STATE_ROUTE = '/plugins/dsh-image-gen/canvas-state'
+
+/** Coarse model-facing kind of one shape on the workbench infinite canvas. */
+export type CanvasNodeKind = 'image' | 'draw' | 'text' | 'note' | 'geo' | 'arrow' | 'frame' | 'other'
+
+/** Every accepted canvas node kind, for validating untrusted pushes. */
+export const CANVAS_NODE_KINDS: readonly CanvasNodeKind[] = ['image', 'draw', 'text', 'note', 'geo', 'arrow', 'frame', 'other']
+
+/**
+ * Cap on the selection identity list: the client trims `selection.items` to
+ * this size and the canvas-state route rejects pushes carrying more, so the
+ * two ends can never drift apart.
+ */
+export const CANVAS_MAX_SELECTION_ITEMS = 16
+
+/**
+ * Cap on the node inventory: the client trims `nodes` to this size and the
+ * canvas-state route rejects pushes carrying more, so the two ends can never
+ * drift apart. Sized to keep the model-facing digest compact.
+ */
+export const CANVAS_MAX_NODES = 48
+
+/** Same shared-cap contract as CANVAS_MAX_NODES, for the selection kind list. */
+export const CANVAS_MAX_SELECTION_KINDS = 8
+
+/**
+ * Cap on the generation prompt copied onto canvas image shapes and into the
+ * model-facing summaries. The landing path truncates to this and the
+ * canvas-state route rejects longer values, so the two ends can never drift.
+ * The gallery keeps the full prompt; this is only the canvas-side digest view.
+ */
+export const CANVAS_MAX_PROMPT_CHARS = 120
+
+/** One shape on the workbench infinite canvas, summarized for the model. */
+export interface CanvasNodeSummary {
+  kind: CanvasNodeKind
+  /** Gallery id when the shape is a generated image landed from the bus. */
+  galleryId?: string
+  /** Conversation attachment id for generated images; edit_image can target it directly. */
+  attachmentId?: string
+  /** Human-facing label: image name, geo variant, or similar. */
+  name?: string
+  width?: number
+  height?: number
+  /** Short text preview for text-bearing shapes. */
+  text?: string
+  /**
+   * Truncated generation prompt for landed generated images: the model can
+   * reproduce or precisely vary a canvas image instead of guessing from pixels.
+   */
+  prompt?: string
+  /** Provider id (e.g. "google") the landed image was generated with. */
+  provider?: string
+  /** Model (or ComfyUI workflow label) the landed image was generated with. */
+  model?: string
+}
+
+/** What is currently selected on the canvas. */
+export interface CanvasSelectionSummary {
+  count: number
+  kinds: readonly CanvasNodeKind[]
+  /**
+   * Capped identity list of the selected shapes, using the same summary shape
+   * as canvas nodes: the model learns WHICH images or strokes are selected
+   * (name, attachment id, dimensions), not just how many. Without this, two
+   * selections of the same size and kind are indistinguishable.
+   */
+  items?: readonly CanvasNodeSummary[]
+}
+
+/**
+ * One live state push from a browser tldraw instance of the workbench canvas.
+ * The browser owns the canvas; the host keeps only this compact mirror, so
+ * the conversation agent can reason about (and look at) what the user sees.
+ */
+export interface CanvasStatePush {
+  /** Tldraw editor id; distinguishes simultaneously mounted canvases. */
+  clientInstance: string
+  /** False on the final push right before a canvas unmounts. */
+  connected: boolean
+  /** Total shape count on the current page (the node list may be capped). */
+  nodeCount: number
+  /** Capped shape inventory, capped client-side before transport. */
+  nodes?: readonly CanvasNodeSummary[]
+  selection?: CanvasSelectionSummary
+  /**
+   * PNG data-URL screenshot of the current selection, pushed whenever a
+   * selection settles. It shows the selection as it looks on the canvas —
+   * including annotations drawn over generated images — so the model sees the
+   * live canvas state, not just the original conversation attachment.
+   */
+  selectionImage?: string
+  updatedAt: number
+}
+
 /** Namespace persisted through DSH Settings. */
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'
 

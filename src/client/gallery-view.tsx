@@ -40,8 +40,9 @@ import { copyImageBlob } from './browser-image-utils.js'
 import { conversationRegenerateRequest } from './conversation-regenerate.js'
 import { STUDIO_ROUTE, type StudioWorkspaceInfo, type StudioGenerateResponse } from '../shared.js'
 
+/** Host-provided locale service; `active` may be missing before the locale loads. */
 export interface LocaleService {
-  getSnapshot(): { active: string }
+  getSnapshot(): { active?: string }
   subscribe(fn: () => void): () => void
 }
 
@@ -322,16 +323,26 @@ function formatCardMeta(item: GalleryItem): string {
 }
 
 export interface GalleryViewTabProps {
-  locale?: LocaleService
+  locale?: LocaleService | undefined
   sessionId?: string
   useSession?: (selector: (state: any) => any) => any
   useSessions?: (selector: (state: any) => any) => any
   useWorkspaces?: (selector: (state: any) => any) => any
+  /**
+   * Right-sidebar variant (DSH official `sidebar.right.pane.tab` seat). The
+   * native conversation stays in the main area, so the composer must NOT be
+   * hidden and the page-level CSS must not scope to the conversation column.
+   */
+  inSidebar?: boolean
+  /** Sub-tab opened first; the sidebar variant starts on the studio workbench. */
+  defaultTab?: TabKey
+  /** Canvas surface the studio opens with; the sidebar variant shows the tldraw infinite canvas directly. */
+  initialCanvasSurface?: 'preview' | 'infinite'
 }
 
 export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
-  const { locale, sessionId, useSessions, useWorkspaces } = props
-  const [activeTab, setActiveTab] = useState<TabKey>('gallery')
+  const { locale, sessionId, useSessions, useWorkspaces, inSidebar, defaultTab, initialCanvasSurface } = props
+  const [activeTab, setActiveTab] = useState<TabKey>(defaultTab ?? 'gallery')
   const [studioDraft, setStudioDraft] = useState<string | undefined>(undefined)
   const [items, setItems] = useState<GalleryItem[]>([])
   const [search, setSearch] = useState('')
@@ -472,8 +483,11 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
 
   const clearStudioDraft = useCallback(() => setStudioDraft(undefined), [])
 
-  // Hide chat input composer while browsing gallery/studio
+  // Hide chat input composer while browsing gallery/studio. Only in the
+  // conversation-view variant: the sidebar variant shares the screen with the
+  // native conversation, whose composer is the whole point of the split.
   useEffect(() => {
+    if (inSidebar) return undefined
     const seat = document.querySelector('[data-composer-seat]') as HTMLElement | null
     if (seat) {
       const prevDisplay = seat.style.display
@@ -482,7 +496,8 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
         seat.style.display = prevDisplay
       }
     }
-  }, [])
+    return undefined
+  }, [inSidebar])
 
   // Load items from IndexedDB
   useEffect(() => {
@@ -990,7 +1005,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
   }
 
   return (
-    <div className="dsh-ig-gallery-page" data-conversation-composer-overlay="">
+    <div className={`dsh-ig-gallery-page${inSidebar ? ' dsh-ig-page-in-sidebar' : ''}`} data-conversation-composer-overlay="">
       {/* 1. Top Navigation Tabs */}
       <header className="dsh-ig-studio-tabs-bar">
         <button
@@ -1169,7 +1184,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
         ) : activeTab === 'inspiration' ? (
           <InspirationView locale={locale} onUsePrompt={useInspirationPrompt} />
         ) : (
-          <StudioView locale={locale} workspace={activeWorkspace} initialPrompt={studioDraft} onInitialPromptApplied={clearStudioDraft} onOpenInspiration={() => setActiveTab('inspiration')} />
+          <StudioView locale={locale} workspace={activeWorkspace} initialPrompt={studioDraft} initialCanvasSurface={initialCanvasSurface} onInitialPromptApplied={clearStudioDraft} onOpenInspiration={() => setActiveTab('inspiration')} />
         )}
       </div>
 
