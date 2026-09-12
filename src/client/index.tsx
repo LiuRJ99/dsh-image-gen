@@ -1,3 +1,6 @@
+// Must stay the first import: it shims CSS.supports before tldraw's
+// module-scope environment probe runs (#40); see css-supports-shim.ts.
+import './tl/css-supports-shim.js'
 import { useEffect, useState, useRef, type ChangeEvent, type FormEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
