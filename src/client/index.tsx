@@ -1,3 +1,6 @@
+// Must stay the first import: it shims CSS.supports before tldraw's
+// module-scope environment probe runs (#40); see css-supports-shim.ts.
+import './tl/css-supports-shim.js'
 import { useEffect, useState, useRef, type ChangeEvent, type FormEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -44,6 +47,7 @@ import { imageRef, type ToolCallBlock } from './image-ref.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 import { STUDIO_STYLE } from './studio-style.js'
 import { TL_CSS } from './tl/tl-css.js'
+import { TL_THEME_CSS } from './tl/tl-theme-css.js'
 import { INSPIRATION_STYLE } from './inspiration-style.js'
 import {
   IMAGE_RESULT_NODE_KIND,
@@ -667,7 +671,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.plugin = 'dsh-image-gen'
-    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${TL_CSS}`
+    style.textContent = `${STYLE}\n${STUDIO_STYLE}\n${INSPIRATION_STYLE}\n${PROVIDER_PILL_STYLE}\n${TL_CSS}\n${TL_THEME_CSS}`
     document.head.appendChild(style)
     return () => {
       style.remove()

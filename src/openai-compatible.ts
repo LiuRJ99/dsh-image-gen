@@ -109,10 +109,19 @@ async function downloadImage(
     if (parsed === undefined) throw new Error(`${provider} image request returned invalid data URL`)
     return { data: decodeBase64(parsed.base64, provider), mediaType: imageMediaType(parsed.mediaType) ?? 'image/png' }
   }
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     redirect: 'follow', signal: input.signal,
     ...(input.apiKey === undefined ? {} : { headers: { authorization: `Bearer ${input.apiKey}` } }),
   })
+  // Some relay CDNs (e.g. Agnes AI) reject image downloads that carry an
+  // Authorization header (WAF rule on UA + auth combo), even though the URL
+  // itself is public. A 401/403 while authenticated means either an invalid
+  // key or such a CDN - retrying without the header is safe (downgraded
+  // request, no secret sent) and only ever turns a guaranteed failure into a
+  // possible success: URLs that need auth would have failed anyway.
+  if (response.status === 401 || response.status === 403) {
+    response = await fetch(url, { redirect: 'follow', signal: input.signal })
+  }
   if (!response.ok) throw new Error(`${provider} image download failed (${response.status})`)
   const data = await readBoundedBytes(response, input.maxBytes)
   const mediaType = detectImageMediaType(data) ?? imageMediaType(response.headers.get('content-type'))

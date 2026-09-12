@@ -164,3 +164,133 @@ describe('promoted image result conversation node', () => {
     expect(createImageResultDefinition().match(unrelated)).toBeNull()
   })
 })
+
+describe('ptc dispatch image results (#38)', () => {
+  const dispatchEvent = {
+    type: 'tool/ptc-dispatch',
+    seq: 19,
+    time: 19000,
+    data: {
+      rootCallId: 'run-1',
+      parentCallId: 'run-1',
+      subCallId: 'sub-1',
+      name: 'edit_image',
+      arguments: {
+        prompt: 'a q-version comic',
+        aspect_ratio: '2:3',
+        source_attachment_id: 'sha256:source-image',
+      },
+      isError: false,
+      content: [
+        {
+          type: 'text',
+          text: 'Edited one image with openai-compat/gpt-image-2 (2:3). Attachment ID: sha256:ptc-image. The edited image is attached to the conversation. It was also saved to the workspace as image/image-1.png. Respond to the user without reading or searching for the image.',
+        },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: 'sha256:ptc-image',
+            mediaType: 'image/png',
+            bytes: 2476872,
+            width: 1024,
+            height: 1536,
+          },
+        },
+      ],
+    },
+  }
+
+  function ptcMatch(event: Record<string, unknown>, role: 'start' | 'update' = 'start') {
+    return { event, role, location: location(1), view: undefined }
+  }
+
+  function ptcContext(state: unknown, matches: readonly ReturnType<typeof ptcMatch>[]) {
+    return {
+      key: 'dsh-image-result:ptc:sub-1',
+      kind: 'dsh-image-result',
+      id: 'ptc:sub-1',
+      matches,
+      start: matches[0],
+      state,
+      current: new Map(),
+      location: location(1),
+    }
+  }
+
+  const reader = { previous: () => undefined }
+
+  it('matches a successful plugin image dispatch and keys the node by sub-call', () => {
+    expect(createImageResultDefinition().match(dispatchEvent)).toEqual({ id: 'ptc:sub-1', role: 'start' })
+  })
+
+  it('ignores dispatches from other tools, failed dispatches, and dispatches without a valid image', () => {
+    const definition = createImageResultDefinition()
+    expect(definition.match({ ...dispatchEvent, data: { ...dispatchEvent.data, name: 'read_file' } })).toBeNull()
+    expect(definition.match({ ...dispatchEvent, data: { ...dispatchEvent.data, isError: true } })).toBeNull()
+    expect(definition.match({ ...dispatchEvent, data: { ...dispatchEvent.data, content: [{ type: 'text', text: 'no image here' }] } })).toBeNull()
+    expect(definition.match({ ...dispatchEvent, data: { ...dispatchEvent.data, content: [{ type: 'image', attachment: { attachmentId: 'sha256:x' } }] } })).toBeNull()
+    expect(definition.match({ ...dispatchEvent, data: { ...dispatchEvent.data, subCallId: '' } })).toBeNull()
+    // Turn-less non-dispatch events stay ignored exactly as before.
+    expect(definition.match({ type: 'tool/result', seq: 20, data: { meta: { kind: 'dsh-image-gen' } } })).toBeNull()
+  })
+
+  it('builds a card node from the dispatch alone, recovering fields from the fixed summary text', () => {
+    const definition = createImageResultDefinition()
+    const match = ptcMatch(dispatchEvent)
+    const state = definition.start(ptcContext(undefined, [match]), match, reader)
+
+    const node = definition.buildViewNode?.(ptcContext(state, [match]))
+
+    expect(node).toMatchObject({
+      kind: 'dsh-image-result',
+      anchorSeq: 19,
+      data: {
+        results: [{
+          attachment: { attachmentId: 'sha256:ptc-image', mediaType: 'image/png' },
+          prompt: 'a q-version comic',
+          provider: 'openai-compat',
+          model: 'gpt-image-2',
+          output: '2:3',
+          savedTo: 'image/image-1.png',
+          sourceAttachmentIds: ['sha256:source-image'],
+        }],
+      },
+    })
+  })
+
+  it('merges a re-dispatch of the same sub-call without duplicating the image', () => {
+    const definition = createImageResultDefinition()
+    const match = ptcMatch(dispatchEvent, 'update')
+    const state = definition.start(
+      ptcContext(undefined, [ptcMatch(dispatchEvent)]),
+      ptcMatch(dispatchEvent),
+      reader,
+    )
+
+    const merged = definition.update(ptcContext(state, [match]), match)
+
+    expect(merged.results).toHaveLength(1)
+    expect(merged.results[0]).toMatchObject({ attachment: { attachmentId: 'sha256:ptc-image' } })
+  })
+
+  it('falls back to neutral provider/model when the summary text cannot be parsed', () => {
+    const definition = createImageResultDefinition()
+    const event = {
+      ...dispatchEvent,
+      data: {
+        ...dispatchEvent.data,
+        content: [
+          { type: 'text', text: 'something unexpected happened' },
+          ...dispatchEvent.data.content.filter(block => block.type === 'image'),
+        ],
+      },
+    }
+    const match = ptcMatch(event)
+    const state = definition.start(ptcContext(undefined, [match]), match, reader)
+    const node = definition.buildViewNode?.(ptcContext(state, [match]))
+
+    expect(node).toMatchObject({
+      data: { results: [{ prompt: 'a q-version comic', provider: '', model: '', output: '' }] },
+    })
+  })
+})
