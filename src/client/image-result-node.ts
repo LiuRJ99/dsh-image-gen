@@ -17,7 +17,8 @@ export interface ImageResultPresentation {
 }
 
 interface ImageResultState {
-  readonly turn: number
+  /** Owning conversation turn; PTC (run_code) sub-call results carry no turn. */
+  readonly turn?: number
   readonly results: readonly (ImageResultPresentation & { readonly seq: number })[]
   readonly answerSeq?: number
   readonly endSeq?: number
@@ -77,6 +78,16 @@ export function createImageResultDefinition(
     kind: IMAGE_RESULT_NODE_KIND,
     target: 'chat',
     match: (event) => {
+      // PTC (run_code) sub-calls carry neither a turn nor presentationMeta, so
+      // they cannot join the turn-keyed flow. A successful dispatch of our own
+      // image tools becomes its own node keyed by the sub-call (#38).
+      if (event.type === 'tool/ptc-dispatch') {
+        const subCallId = event.data.subCallId
+        if (typeof subCallId !== 'string' || subCallId === '') return null
+        return imageResultFromPtcDispatch(event) === undefined
+          ? null
+          : { id: `ptc:${subCallId}`, role: 'start' }
+      }
       const turn = eventTurn(event)
       if (turn === undefined) return null
       if (event.type === 'turn/start') return { id: String(turn), role: 'start' }
@@ -88,6 +99,11 @@ export function createImageResultDefinition(
       return null
     },
     start: (_context, match) => {
+      if (match.event.type === 'tool/ptc-dispatch') {
+        const result = imageResultFromPtcDispatch(match.event)
+        if (result === undefined) throw new Error('dsh-image-result start requires a plugin image dispatch')
+        return { results: [{ ...result, seq: match.event.seq }] }
+      }
       const turn = eventTurn(match.event)
       if (match.event.type !== 'turn/start' || turn === undefined) {
         throw new Error('dsh-image-result start requires turn/start')
@@ -97,13 +113,15 @@ export function createImageResultDefinition(
     update: (context, match) => {
       if (match.event.type === 'turn/end') return { ...context.state, endSeq: match.event.seq }
       if (match.event.type === 'assistant/message') return { ...context.state, answerSeq: match.event.seq }
+      if (match.event.type === 'tool/ptc-dispatch') {
+        // Defensive merge: a re-dispatch of the same sub-call must not duplicate.
+        const result = imageResultFromPtcDispatch(match.event)
+        return result === undefined ? context.state : appendResult(context.state, result, match.event.seq)
+      }
       if (match.event.type !== 'tool/result') return context.state
       const result = imageResultFromMeta(match.event.data.meta)
       if (result === undefined) return context.state
-      if (context.state.results.some(candidate => candidate.attachment.attachmentId === result.attachment.attachmentId)) {
-        return context.state
-      }
-      return { ...context.state, results: [...context.state.results, { ...result, seq: match.event.seq }] }
+      return appendResult(context.state, result, match.event.seq)
     },
     buildViewNode: (context) => {
       const state = context.state
@@ -127,12 +145,24 @@ export function createImageResultDefinition(
         location,
         visibility: 'visible',
         data: {
-          turn: state.turn,
+          ...(state.turn !== undefined ? { turn: state.turn } : {}),
           results: state.results.map(({ seq: _seq, ...result }) => result),
         },
       }
     },
   }
+}
+
+/** Append a parsed result unless its attachment is already collected. */
+function appendResult(
+  state: ImageResultState,
+  result: ImageResultPresentation,
+  seq: number,
+): ImageResultState {
+  if (state.results.some(candidate => candidate.attachment.attachmentId === result.attachment.attachmentId)) {
+    return state
+  }
+  return { ...state, results: [...state.results, { ...result, seq }] }
 }
 
 function compactTranscript(options: ImageResultNodeOptions): boolean {
@@ -163,6 +193,69 @@ export function imageResultFromMeta(value: unknown): ImageResultPresentation | u
 function eventTurn(event: EventLike): number | undefined {
   const turn = event.data.turn
   return typeof turn === 'number' && Number.isSafeInteger(turn) && turn >= 0 ? turn : undefined
+}
+
+/** Plugin tools whose PTC (run_code) dispatch results are image results. */
+const PTC_IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set(['generate_image', 'edit_image'])
+
+/**
+ * Fixed summary text rendered by the tools' imageOutput(). PTC dispatch events
+ * carry no presentationMeta, so provider/model/output are recovered from this
+ * template rather than parsed out of natural language.
+ */
+const PTC_SUMMARY_PATTERN = /^(?:Generated|Edited) one image with ([^/\s]+)\/(\S+) \((.+)\)\. Attachment ID: /
+const PTC_SAVED_TO_PATTERN = / It was also saved to the workspace as (.+)\. (?:(?:Saving it to the workspace failed)|(?:It has no local file path)|(?:Respond to the user))/
+
+/**
+ * Parse a plugin image result from a tool/ptc-dispatch event (#38). PTC
+ * run_code sub-calls carry neither a turn nor presentationMeta, so the result
+ * is rebuilt from the dispatch payload itself: the image content block for the
+ * attachment, arguments for the prompt (and edit source ids), and the tool's
+ * fixed-format summary text for provider/model/output. Returns undefined for
+ * anything that is not a successful image result from our own image tools.
+ */
+export function imageResultFromPtcDispatch(event: EventLike): ImageResultPresentation | undefined {
+  if (event.type !== 'tool/ptc-dispatch') return undefined
+  const data = event.data
+  if (data.isError === true) return undefined
+  if (typeof data.name !== 'string' || !PTC_IMAGE_TOOL_NAMES.has(data.name)) return undefined
+  const content = Array.isArray(data.content) ? data.content : []
+  let attachment: ImageAttachmentRef | undefined
+  let summaryText = ''
+  for (const block of content) {
+    const candidate = record(block)
+    if (candidate === undefined) continue
+    if (candidate.type === 'image' && attachment === undefined) {
+      attachment = imageAttachment(candidate.attachment)
+    } else if (candidate.type === 'text' && summaryText === '' && typeof candidate.text === 'string') {
+      summaryText = candidate.text
+    }
+  }
+  if (attachment === undefined) return undefined
+  const summary = PTC_SUMMARY_PATTERN.exec(summaryText)
+  const savedTo = PTC_SAVED_TO_PATTERN.exec(summaryText)?.[1]
+  const args = record(data.arguments)
+  const sourceIds = sourceAttachmentIds(args)
+  return {
+    attachment,
+    prompt: stringValue(args?.prompt, 'Generated Image'),
+    provider: summary?.[1] ?? '',
+    model: summary?.[2] ?? '',
+    output: summary?.[3] ?? '',
+    ...(savedTo !== undefined ? { savedTo } : {}),
+    ...(sourceIds !== undefined ? { sourceAttachmentIds: sourceIds } : {}),
+  }
+}
+
+/** Collect edit_image source attachment ids (single or list form) from dispatch arguments. */
+function sourceAttachmentIds(args: Record<string, unknown> | undefined): readonly string[] | undefined {
+  if (args === undefined) return undefined
+  const single = typeof args.source_attachment_id === 'string' ? [args.source_attachment_id] : undefined
+  const list = Array.isArray(args.source_attachment_ids)
+    ? args.source_attachment_ids.filter((id): id is string => typeof id === 'string')
+    : undefined
+  const ids = single ?? list
+  return ids !== undefined && ids.length > 0 ? ids : undefined
 }
 
 function imageAttachment(value: unknown): ImageAttachmentRef | undefined {
