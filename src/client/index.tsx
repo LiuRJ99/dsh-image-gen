@@ -83,6 +83,10 @@ interface ImageSettings {
   openaiModel?: string
   openaiCompatBaseURL?: string
   openaiCompatModel?: string
+  /** Edit-request shape for the openai-compat relay (#41); see src/config.ts. */
+  openaiCompatEditFormat?: 'multipart' | 'jsonImageUrlArray'
+  /** Extra JSON fields merged into the JSON edit body; ignored in multipart mode. */
+  openaiCompatEditExtra?: Record<string, unknown>
   seedreamBaseURL?: string
   seedreamModel?: string
   dashscopeEndpoint?: string
@@ -203,6 +207,14 @@ const DICT = {
     endpointHintGoogle: 'Google 官方地址或反代端点（全路径）。',
     endpointHintOpenAI: '官方 api.openai.com 的 /v1 地址；中转站请使用下方「OpenAI 兼容」行。',
     endpointHintOpenAICompat: '中转站/自建服务的 OpenAI 兼容 /v1 地址（必填），例如 https://your-relay.example.com/v1。',
+    editFormat: '图生图请求形态',
+    editFormatMultipart: '标准 multipart（OpenAI 官方）',
+    editFormatJsonImageUrlArray: 'JSON images 数组（商汤等中转）',
+    editFormatHint: '文生图不受影响。仅当中转站的图生图接口使用自有 JSON 契约（如商汤 SenseNova）时才需要切换。',
+    editExtra: '附加 JSON 字段',
+    editExtraPlaceholder: '{"watermark": false, "prompt_extend": true}',
+    editExtraHint: '仅 JSON 形态生效；会合并到请求体末尾，可覆盖默认字段。留空表示不附加。',
+    editExtraInvalid: '附加 JSON 字段必须是合法的 JSON 对象。',
     endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
     endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
     endpointHintXAI: 'xAI 官方 api.x.ai 的 /v1 地址。',
@@ -303,6 +315,14 @@ const DICT = {
     endpointHintGoogle: 'Official Google endpoint or reverse proxy (full path).',
     endpointHintOpenAI: 'Official api.openai.com /v1 base URL; for relays use the "OpenAI-compatible" row below.',
     endpointHintOpenAICompat: 'OpenAI-compatible /v1 base URL of your relay or self-hosted service (required), e.g. https://your-relay.example.com/v1.',
+    editFormat: 'Edit request format',
+    editFormatMultipart: 'Standard multipart (official OpenAI)',
+    editFormatJsonImageUrlArray: 'JSON images array (SenseNova etc.)',
+    editFormatHint: 'Text-to-image is unaffected. Only switch when the relay runs image edits on its own JSON contract (e.g. SenseNova); size is pinned to "auto" in this format (the only value SenseNova\'s edits endpoint accepts) and can be overridden via extra fields.',
+    editExtra: 'Extra JSON fields',
+    editExtraPlaceholder: '{"watermark": false, "prompt_extend": true}',
+    editExtraHint: 'Only used with the JSON format; merged into the request body last and may override defaults. Leave empty for none.',
+    editExtraInvalid: 'Extra JSON fields must be a valid JSON object.',
     endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
     endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
     endpointHintXAI: 'Official xAI api.x.ai /v1 base URL.',
@@ -382,6 +402,7 @@ const STYLE = `
 .dsh-ig-label{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary,inherit)}
 .dsh-ig-input{box-sizing:border-box;width:100%;padding:8px 12px;font-size:13px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-3,transparent);color:inherit;outline:none;transition:border-color .15s}
 .dsh-ig-input:focus{border-color:var(--dsw-alias-brand-primary,#4c78ff)}
+.dsh-ig-textarea{resize:vertical;min-height:56px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.5}
 .dsh-ig-input-group{display:flex;gap:8px;align-items:center}
 .dsh-ig-file-row{display:flex;align-items:center;gap:10px;min-width:0}
 .dsh-ig-file-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;clip-path:inset(50%)}
@@ -919,6 +940,10 @@ interface ProviderRowState {
   workflows: ComfyUIWorkflowEntry[]
   activeWorkflow: string
   timeoutSeconds: number
+  /** openai-compat only: edits request shape (#41). Other rows keep the default. */
+  editFormat: 'multipart' | 'jsonImageUrlArray'
+  /** openai-compat only: extra JSON fields for the JSON edit body, as user text. */
+  editExtraText: string
 }
 
 function emptyProviderRow(): ProviderRowState {
@@ -941,6 +966,8 @@ function emptyProviderRow(): ProviderRowState {
     workflows: [],
     activeWorkflow: '',
     timeoutSeconds: DEFAULT_COMFYUI_TIMEOUT_MS / 1000,
+    editFormat: 'multipart',
+    editExtraText: '',
   }
 }
 
@@ -993,6 +1020,12 @@ function modelPullSupported(_provider: CloudImageProvider): boolean {
   return true
 }
 
+/** Serialize the extra-fields record into editor text; empty record becomes ''. */
+function editExtraTextOf(value: Record<string, unknown> | undefined): string {
+  if (value === undefined || Object.keys(value).length === 0) return ''
+  try { return JSON.stringify(value) } catch { return '' }
+}
+
 /** Build one row per provider from persisted settings, including ComfyUI extras. */
 function rowsFromSettings(value: ImageSettings | undefined): Record<Provider, ProviderRowState> {
   const rows = {} as Record<Provider, ProviderRowState>
@@ -1005,6 +1038,10 @@ function rowsFromSettings(value: ImageSettings | undefined): Record<Provider, Pr
         workflows: resolveComfyUIWorkflows(value ?? {}),
         activeWorkflow: activeComfyUIWorkflow(value ?? {})?.name ?? '',
         timeoutSeconds: Math.max(1, Math.round((value?.comfyuiTimeoutMs ?? DEFAULT_COMFYUI_TIMEOUT_MS) / 1000)),
+      } : {}),
+      ...(provider === 'openai-compat' ? {
+        editFormat: value?.openaiCompatEditFormat === 'jsonImageUrlArray' ? 'jsonImageUrlArray' : 'multipart',
+        editExtraText: editExtraTextOf(value?.openaiCompatEditExtra),
       } : {}),
     }
   }
@@ -1154,8 +1191,24 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
         await props.scope.set('comfyuiWorkflowName', activeEntry === undefined ? '' : activeEntry.name)
         await props.scope.set('comfyuiTimeoutMs', Math.max(1, Math.round(row.timeoutSeconds)) * 1000)
       } else {
+        // Validate the compat edit extras BEFORE any write: a broken JSON
+        // object must not half-save (model/baseURL persisted, extras rejected).
+        let editExtra: Record<string, unknown> = {}
+        if (provider === 'openai-compat') {
+          const extraText = row.editExtraText.trim()
+          if (extraText.length > 0) {
+            let parsed: unknown
+            try { parsed = JSON.parse(extraText) } catch { throw new Error(t('editExtraInvalid')) }
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error(t('editExtraInvalid'))
+            editExtra = parsed as Record<string, unknown>
+          }
+        }
         await props.scope.set(modelFieldOf(provider), row.model)
         await props.scope.set(baseURLFieldOf(provider), row.baseURL)
+        if (provider === 'openai-compat') {
+          await props.scope.set('openaiCompatEditFormat', row.editFormat)
+          await props.scope.set('openaiCompatEditExtra', editExtra)
+        }
         if (row.keyInput.trim().length > 0) {
           const keyRef = cloudCredentialRef(provider)
           if (keyRef === undefined) throw new Error(t('comfyuiNoKey'))
@@ -1409,6 +1462,35 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               )
             ) : null}
           </label>
+          {provider === 'openai-compat' ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('editFormat')}</span>
+              <select
+                className="dsh-ig-input"
+                value={row.editFormat}
+                onChange={event => { updateRow(provider, { editFormat: event.target.value === 'jsonImageUrlArray' ? 'jsonImageUrlArray' : 'multipart' }) }}
+                disabled={!snapshot.writable}
+              >
+                <option value="multipart">{t('editFormatMultipart')}</option>
+                <option value="jsonImageUrlArray">{t('editFormatJsonImageUrlArray')}</option>
+              </select>
+              <span className="dsh-ig-hint">{t('editFormatHint')}</span>
+            </label>
+          ) : null}
+          {provider === 'openai-compat' && row.editFormat === 'jsonImageUrlArray' ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('editExtra')}</span>
+              <textarea
+                className="dsh-ig-input dsh-ig-textarea"
+                value={row.editExtraText}
+                onChange={event => { updateRow(provider, { editExtraText: event.target.value }) }}
+                placeholder={t('editExtraPlaceholder')}
+                rows={2}
+                disabled={!snapshot.writable}
+              />
+              <span className="dsh-ig-hint">{t('editExtraHint')}</span>
+            </label>
+          ) : null}
           <div className="dsh-ig-row-actions">
             <p className={`dsh-ig-status${row.messageIsError ? ' dsh-ig-status-error' : ''}`} role="status">{row.message || testResultText(row.testResult)}</p>
             <span className="dsh-ig-row-buttons">

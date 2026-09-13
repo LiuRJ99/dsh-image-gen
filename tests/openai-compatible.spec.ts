@@ -89,13 +89,115 @@ describe('OpenAI-compatible images', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
-  it('does not retry download failures other than 401/403', async () => {
+  // Since #41 the retry is broader: any failed authenticated download retries
+  // once without the header (some CDNs reject it with 400/500, not just 401/403).
+  // A still-failing retry surfaces the same error as before.
+  it('retries a 500 download once without the auth header before failing', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/result' }] }), { headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
     vi.stubGlobal('fetch', fetchMock)
     await expect(generateOpenAICompatibleImage({ provider: 'openai-compat', apiKey: 'key', baseURL: 'https://relay.example/v1', model: 'agnes-image', prompt: 'a cat', size: '1024x1024', maxBytes: 1024, signal })).rejects.toThrow('image download failed (500)')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const retryCall = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
+    expect(retryCall[1]?.headers).toBeUndefined()
+  })
+
+  // SenseNova's OSS answers 400 when the public CDN URL is fetched with an
+  // Authorization header attached (#41).
+  it('retries image download without the auth header after 400', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ url: 'https://sensenova-cdn.example/result' }] }), { headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 400 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([9]), { headers: { 'content-type': 'image/png' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(generateOpenAICompatibleImage({ provider: 'openai-compat', apiKey: 'key', baseURL: 'https://token.sensenova.cn/v1', model: 'sensenova-u1.5-lite', prompt: 'a cat', size: '1024x1024', maxBytes: 1024, signal })).resolves.toEqual({ data: new Uint8Array([9]), mediaType: 'image/png' })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  // Some channels (e.g. SenseNova) run edits on their own JSON contract with
+  // `images: [{ image_url }]` objects instead of OpenAI's multipart form (#41).
+  it('posts a JSON images-array edit body in jsonImageUrlArray mode', async () => {
+    const image = Buffer.from('edited image').toString('base64')
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: image }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(editOpenAICompatibleImage({
+      apiKey: 'key', baseURL: 'https://token.sensenova.cn/v1', model: 'sensenova-u1.5-lite', prompt: 'add sunglasses',
+      sourceImages: [{ data: new Uint8Array(Buffer.from('source 1')), mediaType: 'image/png' }],
+      maxBytes: 1024, signal,
+      editFormat: 'jsonImageUrlArray',
+    })).resolves.toEqual({ data: new Uint8Array(Buffer.from('edited image')), mediaType: 'image/png' })
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://token.sensenova.cn/v1/images/edits')
+    expect(init.headers).toMatchObject({ authorization: 'Bearer key', 'content-type': 'application/json' })
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
+    expect(body.model).toBe('sensenova-u1.5-lite')
+    expect(body.prompt).toBe('add sunglasses')
+    expect(body.n).toBe(1)
+    expect(body.size).toBe('auto')
+    expect(body.response_format).toBe('url')
+    expect(body.images).toEqual([{ image_url: 'data:image/png;base64,' + Buffer.from('source 1').toString('base64') }])
+  })
+
+  it('merges editExtra into the JSON edit body last so it can override defaults', async () => {
+    const image = Buffer.from('edited image').toString('base64')
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: image }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await editOpenAICompatibleImage({
+      apiKey: 'key', baseURL: 'https://token.sensenova.cn/v1', model: 'sensenova-u1.5-lite', prompt: 'edit',
+      sourceImages: [{ data: new Uint8Array([1]), mediaType: 'image/png' }],
+      maxBytes: 1024, signal,
+      editFormat: 'jsonImageUrlArray',
+      editExtra: { size: '2048x2048', watermark: false, prompt_extend: true },
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
+    // The built-in "auto" default is overridden by editExtra...
+    expect(body.size).toBe('2048x2048')
+    expect(body.watermark).toBe(false)
+    expect(body.prompt_extend).toBe(true)
+    // ...while untouched defaults survive.
+    expect(body.response_format).toBe('url')
+  })
+
+  // SenseNova documents "auto" as the only accepted size on the edits
+  // endpoint (#41), so the caller's generation size must not be forwarded
+  // in this format - not even the tool path's default 1024x1024.
+  it('forces size to auto in jsonImageUrlArray mode even when a size is passed', async () => {
+    const image = Buffer.from('edited image').toString('base64')
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: image }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await editOpenAICompatibleImage({
+      apiKey: 'key', baseURL: 'https://token.sensenova.cn/v1', model: 'sensenova-u1.5-lite', prompt: 'edit',
+      sourceImages: [{ data: new Uint8Array([1]), mediaType: 'image/png' }],
+      size: '1024x1024', maxBytes: 1024, signal,
+      editFormat: 'jsonImageUrlArray',
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
+    expect(body.size).toBe('auto')
+  })
+
+  // Empty-string fields must not shadow a usable sibling value (#41 note).
+  it('falls back to url when b64_json is an empty string', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: '', url: 'https://cdn.example/fallback' }] }), { headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([7, 7]), { headers: { 'content-type': 'image/png' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(generateOpenAICompatibleImage({ provider: 'openai-compat', apiKey: 'key', baseURL: 'https://relay.example/v1', model: 'model', prompt: 'a cat', size: '1024x1024', maxBytes: 1024, signal })).resolves.toEqual({ data: new Uint8Array([7, 7]), mediaType: 'image/png' })
+  })
+
+  it('reports no image when both b64_json and url are empty strings', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: '', url: '' }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(generateOpenAICompatibleImage({ provider: 'openai-compat', apiKey: 'key', baseURL: 'https://relay.example/v1', model: 'model', prompt: 'a cat', size: '1024x1024', maxBytes: 1024, signal })).rejects.toThrow('returned no image')
   })
 
   it('gives up when the unauthenticated retry also fails', async () => {

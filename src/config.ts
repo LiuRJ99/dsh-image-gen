@@ -80,6 +80,19 @@ export interface Config {
   /** OpenAI-compatible relay settings; independent from the official OpenAI row. */
   openaiCompatBaseURL?: string
   openaiCompatModel?: string
+  /**
+   * Request shape the relay's images/edits endpoint expects (#41). Most
+   * relays take OpenAI's multipart form; some (e.g. SenseNova) accept the
+   * generations endpoint but run edits on their own JSON contract with
+   * `images: [{ image_url }]` objects. Defaults to `multipart`.
+   */
+  openaiCompatEditFormat?: 'multipart' | 'jsonImageUrlArray'
+  /**
+   * Extra JSON fields merged into the JSON edit body last (can override the
+   * built-in defaults), e.g. SenseNova's `watermark`/`prompt_extend`.
+   * Ignored unless `openaiCompatEditFormat` is `jsonImageUrlArray`.
+   */
+  openaiCompatEditExtra?: Record<string, unknown>
   seedreamBaseURL?: string
   seedreamModel?: string
   dashscopeEndpoint?: string
@@ -113,6 +126,8 @@ export const Config: z<Config> = z.object({
   openaiModel: z.string().default(DEFAULT_OPENAI_MODEL),
   openaiCompatBaseURL: z.string().default(''),
   openaiCompatModel: z.string().default(''),
+  openaiCompatEditFormat: z.union([z.const('multipart'), z.const('jsonImageUrlArray')]).default('multipart'),
+  openaiCompatEditExtra: z.dict(z.any()).default({}),
   seedreamBaseURL: z.string().default(DEFAULT_SEEDREAM_BASE_URL),
   seedreamModel: z.string().default(DEFAULT_SEEDREAM_MODEL),
   dashscopeEndpoint: z.string().default(DEFAULT_DASHSCOPE_ENDPOINT),
@@ -135,7 +150,7 @@ export const Config: z<Config> = z.object({
 export function resolveProvider(config: Config):
   | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
   | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
-  | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; editFormat: 'multipart' | 'jsonImageUrlArray'; editExtra: Record<string, unknown> }
   | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
   | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
@@ -152,7 +167,7 @@ export function resolveProvider(config: Config):
       if (model === undefined || model.length === 0) {
         throw new Error('OpenAI 兼容 provider requires a model name; set it in Settings > Plugins > Image generation.')
       }
-      return { provider: 'openai-compat', apiKeyEnv: OPENAI_COMPAT_API_KEY_ENV, model, baseURL, imageSize: '1024x1024' }
+      return { provider: 'openai-compat', apiKeyEnv: OPENAI_COMPAT_API_KEY_ENV, model, baseURL, imageSize: '1024x1024', editFormat: config.openaiCompatEditFormat ?? 'multipart', editExtra: config.openaiCompatEditExtra ?? {} }
     }
     case 'seedream': return { provider: 'seedream', apiKeyEnv: SEEDREAM_API_KEY_ENV, model: config.seedreamModel ?? DEFAULT_SEEDREAM_MODEL, baseURL: config.seedreamBaseURL ?? DEFAULT_SEEDREAM_BASE_URL, imageSize: '2K' }
     case 'dashscope': return { provider: 'dashscope', apiKeyEnv: DASHSCOPE_API_KEY_ENV, model: config.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL, endpoint: config.dashscopeEndpoint ?? DEFAULT_DASHSCOPE_ENDPOINT, imageSize: '1024*1024' }
