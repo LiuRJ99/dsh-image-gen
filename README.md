@@ -31,6 +31,18 @@
 
 <br />
 
+<img src="docs/assets/readme/canvas-generate.webp" alt="在无限画布中绘制草稿，并通过对话生成成图" width="46%" />
+<img src="docs/assets/readme/canvas-edit.webp" alt="基于已有结果继续对话修改，在画布中持续迭代创作" width="46%" />
+<br />
+<sub>左：在画布中绘制草稿、摆放参考图，并通过对话生成成图。 · 右：基于已有结果继续对话修改，在画布中持续迭代创作。</sub>
+
+<br />
+
+<img src="docs/assets/readme/chat-generate.webp" alt="在对话中直接描述并生成图片" width="46%" />
+<img src="docs/assets/readme/other-features.webp" alt="工作台批量创作、灵感库与图库等更多功能" width="46%" />
+<br />
+<sub>左：在对话中直接描述并生成图片。 · 右：工作台批量创作、灵感库与图库等更多功能。</sub>
+
 </div>
 
 **为 DeepSeek Harness 带来完整的 AI 图像创作工作流。**

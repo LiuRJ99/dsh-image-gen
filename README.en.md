@@ -31,6 +31,18 @@
 
 <br />
 
+<img src="docs/assets/readme/canvas-generate.webp" alt="Sketching on the infinite canvas and generating a final image through conversation" width="46%" />
+<img src="docs/assets/readme/canvas-edit.webp" alt="Continuing to edit and iterate through conversation based on existing results" width="46%" />
+<br />
+<sub>Left: Sketch and place reference images on the canvas, then generate through conversation. · Right: Keep iterating on existing results through conversation.</sub>
+
+<br />
+
+<img src="docs/assets/readme/chat-generate.webp" alt="Generating images directly in conversation" width="46%" />
+<img src="docs/assets/readme/other-features.webp" alt="Studio batch creation, inspiration library, gallery and more" width="46%" />
+<br />
+<sub>Left: Describe and generate images right in the conversation. · Right: Studio batch creation, inspiration library, gallery, and more.</sub>
+
 </div>
 
 **A complete AI image creation workflow for DeepSeek Harness.**
