@@ -1,16 +1,7 @@
 /**
- * Landing bus between studio generation results and the tldraw canvases.
- *
- * Generation paths (single, multi-image, multi-model comparison, chat tool
- * cards) push items here; every mounted tldraw surface reconciles against the
- * full list. More than one canvas can be mounted at once (the conversation-view
- * gallery tab and the right-sidebar studio tab), so the bus broadcasts instead
- * of draining: each canvas lands the items its own page does not carry yet
- * (per-canvas galleryId dedupe) and re-reads on every push. If no canvas is
- * mounted, items wait in memory and land on the next mount. Nothing here or on
- * any canvas survives a restart: the tldraw surfaces run without
- * persistenceKey, so unsaved generations vanish on reload - the gallery
- * remains the only durable store (save-first philosophy).
+ * One-shot delivery into the persistent canvas document. The first mounted
+ * editor handles a batch; tldraw synchronizes the document to other editors.
+ * Delivered items are removed, so deleting a shape never triggers a replay.
  */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
@@ -18,13 +9,7 @@ export interface TlLandingItem {
   /** Gallery item id; also used to dedupe shapes via shape.meta.galleryId. */
   galleryId: string
   attachment: ImageAttachmentRef
-  /**
-   * True when this attachment is part of the current conversation messages
-   * (chat tool results): the host can then resolve its full-resolution
-   * original directly, and a canvas screenshot of it would be redundant.
-   * Form generations never enter the conversation, so their selections must
-   * keep the screenshot fallback — the host has no other way to see them.
-   */
+  /** Live conversation delivery; discard unfinished delivery when all canvases close. */
   fromConversation?: boolean
   /**
    * Generation provenance copied onto the landed shape's meta: the canvas
@@ -37,47 +22,69 @@ export interface TlLandingItem {
   model?: string
 }
 
-type TlLandingListener = () => void
+type TlLandingConsumer = (items: readonly TlLandingItem[]) => Promise<boolean>
+const pending = new Map<string, TlLandingItem>()
+const consumers = new Set<TlLandingConsumer>()
+let delivering = false
+let generation = 0
 
-const items: TlLandingItem[] = []
-const listeners = new Set<TlLandingListener>()
+/** Invalidates async landings that started before the user cleared the canvas. */
+export function getTlLandingGeneration(): number { return generation }
+
+export function clearTlLandings(): void {
+  generation += 1
+  pending.clear()
+}
 
 /** Queue freshly generated images for the tldraw canvases. Safe to call anywhere. */
 export function pushTlLandings(newItems: readonly TlLandingItem[]): void {
-  if (newItems.length === 0) return
-  // Enqueue dedupe: chat-panel remounts re-pull tool events, and re-pushing
-  // the same galleryId here would duplicate the reconcile work on every
-  // canvas (the landing filter also dedupes against shapes already on each
-  // page, but the bus list itself stays the session-scratch record).
-  const known = new Set(items.map(item => item.galleryId))
-  let pushed = 0
   for (const item of newItems) {
-    if (known.has(item.galleryId)) continue
-    items.push(item)
-    known.add(item.galleryId)
-    pushed += 1
+    if (!pending.has(item.galleryId)) pending.set(item.galleryId, item)
   }
-  if (pushed === 0) return
-  for (const listener of listeners) listener()
+  void deliver()
 }
 
-/**
- * Read every item landed so far in this browser session.
- *
- * The list is the in-memory session-scratch record shared by all canvases:
- * reading never removes items, so a canvas mounted later (or a second canvas
- * mounted beside the first) reconciles the same set. The list dies with the
- * page, which is exactly the "unsaved content does not survive a restart"
- * semantic the studio canvas keeps.
- */
-export function getTlLandings(): readonly TlLandingItem[] {
-  return items
+/** Conversation results are admitted only while a canvas is mounted. */
+export function pushTlLandingsLive(items: readonly TlLandingItem[]): void {
+  if (consumers.size > 0) pushTlLandings(items)
 }
 
-/** Subscribe to queue pushes. Returns an unsubscribe function. */
-export function subscribeTlLandings(listener: TlLandingListener): () => void {
-  listeners.add(listener)
+/** Register a ready editor. False means it unmounted before committing. */
+export function registerTlLandingConsumer(consumer: TlLandingConsumer): () => void {
+  consumers.add(consumer)
+  void deliver()
   return () => {
-    listeners.delete(listener)
+    consumers.delete(consumer)
+    if (consumers.size === 0) {
+      for (const [id, item] of pending) {
+        if (item.fromConversation) pending.delete(id)
+      }
+    }
+  }
+}
+
+async function deliver(): Promise<void> {
+  if (delivering) return
+  delivering = true
+  try {
+    while (pending.size > 0) {
+      const consumer = consumers.values().next().value
+      if (consumer === undefined) break
+      const batch = [...pending.values()]
+      let completed = true
+      try {
+        completed = await consumer(batch)
+      } catch (error) {
+        // A failed batch must not become an infinite retry/replay loop.
+        console.warn('[dsh-image-gen] canvas landing failed:', error)
+      }
+      if (completed) {
+        for (const item of batch) {
+          if (pending.get(item.galleryId) === item) pending.delete(item.galleryId)
+        }
+      }
+    }
+  } finally {
+    delivering = false
   }
 }

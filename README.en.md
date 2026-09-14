@@ -10,7 +10,7 @@
 
 ### Native AI image creation suite for DeepSeek Harness
 
-<p><b>In-chat generation and editing · Studio batch creation · Multi-model comparison · 500+ prompt inspirations · Gallery management · Local ComfyUI · Subscription no-key</b></p>
+<p><b>AI Creative Canvas · In-chat generation and editing · Studio batch creation · Multi-model comparison · 500+ prompt inspirations · Gallery management · Local ComfyUI · Subscription no-key</b></p>
 
 <p>
   <a href="https://www.npmjs.com/package/dsh-image-gen"><img src="https://img.shields.io/npm/v/dsh-image-gen?style=flat-square&color=4f6ef7" alt="npm version" /></a>
@@ -35,7 +35,13 @@
 
 **A complete AI image creation workflow for DeepSeek Harness.**
 
-`dsh-image-gen` goes far beyond basic in-chat image generation. It brings **continuous natural-language editing**, **Studio batch creation**, **side-by-side multi-model comparison**, a **500+ prompt inspiration library**, and **local ComfyUI** workflows into DSH. It supports **Google Gemini, OpenAI Images / Compatible, ByteDance Seedream, Aliyun DashScope, xAI Grok Imagine, Zhipu GLM-Image**, and private local workflows. It supports both BYOK (bring your own key) and **subscription accounts without any API key**, and can isolate generated assets by workspace. Already paying for ChatGPT, Grok, or Google? Just sign in and start generating—no separate API key purchase needed.
+`dsh-image-gen` goes far beyond basic in-chat image generation. It brings **in-chat generation with continuous editing**, an **AI creative canvas**, **Studio batch creation**, **side-by-side multi-model comparison**, a **prompt inspiration library**, and **local ComfyUI** workflows into DSH.
+
+It supports mainstream cloud image models and private local workflows, works with BYOK (bring your own key) or subscription accounts, and can isolate generated assets by workspace.
+
+> **Already paying for ChatGPT, Grok, or Google? Just sign in and start generating—no separate API key purchase needed.**
+
+Supports: Gemini · OpenAI / Compatible · Seedream · DashScope · Grok Imagine · GLM-Image · Local ComfyUI
 
 ```bash
 pnpm dsh plugin --profile web add dsh-image-gen@latest
@@ -43,18 +49,19 @@ pnpm dsh plugin --profile web add dsh-image-gen@latest
 
 > **Update notice:** This release includes major changes. Existing users should update to the latest version.
 
-<img src="docs/assets/readme/workflow-overview.webp" alt="dsh-image-gen complete AI image creation workflow" width="100%" />
+<img src="docs/assets/readme/workflow-overview-en.webp" alt="dsh-image-gen complete AI image creation workflow" width="100%" />
 
 ---
 
-## One plugin, four creative workflows
+## One plugin, the complete AI image creation workflow
 
 | Entry | Best for | What you can do |
 | :--- | :--- | :--- |
-| 💬 **Chat** | Letting the Agent understand natural-language requests | Text-to-image, image-to-image, multi-image reference, continuous editing, and in-place regeneration |
-| 🎛️ **Studio** | Precise control over creation parameters | Batch generation, multiple reference images, and advanced canvas |
-| ✨ **Inspiration** | Finding compositions, styles, and prompts | Browse 500+ examples, search and filter, favorite, copy, or send a prompt to Studio |
-| 🖼️ **Gallery** | Organizing and reusing generated results | Search, filter, favorite, regenerate, download, batch-manage, and isolate by workspace |
+| 💬 **Chat** | Expressing ideas quickly | Text-to-image, image-to-image, continuous editing, and revision iteration |
+| ✏️ **Canvas** | Expressing visual creativity | Sketch-to-image, reference composition, spatial creation, and continuous refinement |
+| 🎛️ **Studio** | Fine-grained control over creation parameters | Batch generation, multi-image reference, and advanced parameter tuning |
+| ✨ **Inspiration** | Finding creative direction | Prompt examples, style exploration, and one-click reuse |
+| 🖼️ **Gallery** | Managing generated results | Search, favorite, download, and reuse |
 
 ---
 
@@ -143,6 +150,25 @@ For more precise parameter control, open **Gallery** from the conversation heade
   <img src="docs/assets/readme/revision-switcher.webp" alt="Switching between generated revisions on the same image card" width="46%" />
   <br />
   <sub>Regenerate in place after editing the prompt, then switch between previous results on the same image card.</sub>
+</div>
+
+<br />
+
+### ✏️ From sketch to image: AI creative canvas
+
+Express your ideas on an infinite canvas and turn drafts, compositions, and thoughts into real images through conversation.
+
+- Freely sketch, add reference materials, and organize your ideas on the canvas.
+- Talk to the AI in natural language to turn a draft into a finished piece.
+- Keep editing, refining, and exploring new directions from existing results—your creative process is preserved so every exploration stays iterable.
+
+<br />
+
+<div align="center">
+  <img src="docs/assets/readme/canvas-generate.webp" alt="Sketching on the infinite canvas and generating a final image through conversation" width="46%" />
+  <img src="docs/assets/readme/canvas-edit.webp" alt="Continuing to edit and iterate through conversation based on existing results" width="46%" />
+  <br />
+  <sub>Left: Sketch and place reference images on the canvas, then generate through conversation. · Right: Keep iterating on existing results through conversation.</sub>
 </div>
 
 <br />

@@ -10,7 +10,7 @@
 
 ### DeepSeek Harness 的原生 AI 图像创作套件
 
-<p><b>对话生图与编辑 · Studio 批量创作 · 多模型对比 · 500+ Prompt 灵感 · 图库管理 · 本地 ComfyUI · 订阅免 Key</b></p>
+<p><b>AI 创作画布 · 对话生图与编辑 · Studio 批量创作 · 多模型对比 · 500+ Prompt 灵感 · 图库管理 · 本地 ComfyUI · 订阅免 Key</b></p>
 
 <p>
   <a href="https://www.npmjs.com/package/dsh-image-gen"><img src="https://img.shields.io/npm/v/dsh-image-gen?style=flat-square&color=4f6ef7" alt="npm version" /></a>
@@ -35,7 +35,13 @@
 
 **为 DeepSeek Harness 带来完整的 AI 图像创作工作流。**
 
-`dsh-image-gen` 不只是简单的对话生图，而是为 DSH 补齐了从**自然语言连续修图**、**Studio 批量创作**、**多模型横向对比**，到 **500+ Prompt 灵感库**与**本地 ComfyUI** 的全流程能力。支持 **Google Gemini、OpenAI Images / Compatible、ByteDance Seedream、Aliyun DashScope、xAI Grok Imagine、智谱 GLM-Image** 及本地私有化工作流，支持 BYOK（自带 Key）与**订阅账号免 Key** 两种方式，生成结果支持按工作区隔离存储。已有 ChatGPT、Grok 或 Google 订阅？登录账号即可直接生图，无需单独购买 API Key。
+`dsh-image-gen` 不只是简单的对话生图，而是为 DSH 补齐从 **对话生成与连续修图**、**AI 创作画布**、**Studio 批量创作**、**多模型横向对比**，到 **Prompt 灵感库** 与 **本地 ComfyUI** 的完整图像创作能力。
+
+支持主流云端图像模型与本地私有化工作流，既可使用 BYOK（自带 Key），也支持通过订阅账号直接使用，生成结果支持按工作区隔离存储。
+
+> **已有 ChatGPT、Grok 或 Google 订阅？直接登录即可生图，无需额外购买 API Key。**
+
+支持：Gemini · OpenAI / Compatible · Seedream · DashScope · Grok Imagine · GLM-Image · 本地 ComfyUI
 
 ```bash
 pnpm dsh plugin --profile web add dsh-image-gen@latest
@@ -47,14 +53,15 @@ pnpm dsh plugin --profile web add dsh-image-gen@latest
 
 ---
 
-## 一个插件，四种创作方式
+## 一个插件，覆盖完整 AI 图像创作流程
 
-| 入口          | 最适合                    | 你可以做什么                                           |
-| :------------ | :------------------------ | :----------------------------------------------------- |
-| 💬 **对话**   | 让 Agent 理解自然语言需求 | 文生图、图生图、多图参考、连续编辑、原位重新生成       |
-| 🎛️ **工作台** | 精确控制创作参数          | 批量生成、多张参考图、高级画布                         |
-| ✨ **灵感**   | 找构图、风格与 Prompt     | 500+ 案例、搜索筛选、收藏、复制、一键带入工作台        |
-| 🖼️ **图库**   | 整理与复用生成结果        | 搜索、筛选、收藏、重新生成、下载、批量管理、工作区隔离 |
+| 入口          | 最适合           | 你可以做什么                             |
+| :------------ | :--------------- | :--------------------------------------- |
+| 💬 **对话**   | 快速表达想法     | 文生图、图生图、连续编辑、版本迭代       |
+| ✏️ **画布**   | 表达视觉创意     | 草稿生成、参考图组合、空间创作、持续修改 |
+| 🎛️ **工作台** | 精细控制创作参数 | 批量生成、多图参考、高级参数调整         |
+| ✨ **灵感**   | 寻找创作方向     | Prompt 案例、风格探索、一键复用          |
+| 🖼️ **图库**   | 管理生成结果     | 搜索、收藏、下载、重新使用               |
 
 ---
 
@@ -143,6 +150,25 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
   <img src="docs/assets/readme/revision-switcher.webp" alt="在同一图片卡片中切换生成版本" width="46%" />
   <br />
   <sub>修改 Prompt 后原位重新生成，并在同一张图片卡片中切换历史版本。</sub>
+</div>
+
+<br />
+
+### ✏️ 从草稿到成图：AI 创作画布
+
+在无限画布中表达你的创意，通过对话将草稿、构图和想法转化为真实图片。
+
+- 在画布中自由绘制草稿、添加参考素材并组织创意。
+- 通过自然语言与 AI 对话，让草稿快速变成完整作品。
+- 基于已有结果持续编辑、修改和生成新的方向，保留创作过程，让每一次探索都可以继续迭代。
+
+<br />
+
+<div align="center">
+  <img src="docs/assets/readme/canvas-generate.webp" alt="在无限画布中绘制草稿，并通过对话生成成图" width="46%" />
+  <img src="docs/assets/readme/canvas-edit.webp" alt="基于已有结果继续对话修改，在画布中持续迭代创作" width="46%" />
+  <br />
+  <sub>左：在画布中绘制草稿、摆放参考图，并通过对话生成成图。 · 右：基于已有结果继续对话修改，在画布中持续迭代创作。</sub>
 </div>
 
 <br />

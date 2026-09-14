@@ -49,7 +49,7 @@ import { saveGalleryItem } from './gallery-store.js'
 import { GalleryViewTab, copyImageBlob, type GalleryViewTabProps, type LocaleService } from './gallery-view.js'
 import { fetchAttachmentBlob } from './image-cache.js'
 import { imageRef, type ToolCallBlock } from './image-ref.js'
-import { pushTlLandings } from './tl/tl-canvas-bridge.js'
+import { startConversationLandings, type CanvasSessions } from './tl/conversation-landings.js'
 import { STUDIO_STYLE } from './studio-style.js'
 import { TL_CSS } from './tl/tl-css.js'
 import { TL_THEME_CSS } from './tl/tl-theme-css.js'
@@ -735,6 +735,15 @@ export function apply(ctx: Context): void {
   const isCompactTranscript = (): boolean => chatScope.getSnapshot().value?.transcriptView !== 'normal'
   const locale = ctx.get('locale') as LocaleService | undefined
   const promotion = { enabled: false }
+
+  ;(ctx.inject as unknown as (services: string[], callback: (owner: Context) => void) => void)(
+    ['sessions'],
+    owner => {
+      const sessions = owner.get('sessions') as CanvasSessions | undefined
+      if (typeof sessions?.binding !== 'function' || typeof sessions.list?.subscribe !== 'function') return
+      owner.effect(() => startConversationLandings(sessions), 'dsh-image-gen: live canvas images')
+    },
+  )
 
   ctx.effect(() => {
     const style = document.createElement('style')
@@ -1972,22 +1981,10 @@ function ImageResultCard({
     return text
   }
 
-  // Auto-collect into gallery IndexedDB and queue the image for the tldraw
-  // infinite canvas. Native conversations drive image generation through our
-  // tools; this card mounting in the chat view is the moment a result exists,
-  // so both mirrors start here. Both paths are idempotent (upsert + queue and
-  // page-level galleryId dedupe), so re-mounts and window re-opens are safe.
+  // Historical cards still populate the gallery. Canvas delivery subscribes
+  // to live session events instead, so mounting old cards cannot replay images.
   useEffect(() => {
     if (result === undefined) return
-
-    pushTlLandings([{
-      galleryId: result.attachment.attachmentId,
-      attachment: result.attachment,
-      fromConversation: true,
-      prompt: result.prompt,
-      provider: result.provider,
-      model: result.model,
-    }])
 
     void saveGalleryItem({
       id: result.attachment.attachmentId,

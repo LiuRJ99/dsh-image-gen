@@ -36,7 +36,7 @@ import { deleteGalleryItem, getGalleryItems, saveGalleryItem, subscribeGallery, 
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
 import { buildComparisonTargets, initialComparisonProviders } from './multi-model-compare.js'
-import { StudioTlCanvas } from './tl/studio-tl-canvas.js'
+import { clearStudioTlCanvases, StudioTlCanvas } from './tl/studio-tl-canvas.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 import type { LocaleService } from './gallery-view.js'
 
@@ -84,6 +84,7 @@ const COPY = {
     collapseGenerate: '折叠生成面板', expandGenerate: '展开生成面板', generatePanel: '生成面板',
     findInspiration: '找灵感',
     infiniteCanvasHint: '无限画布与侧边栏会话联动，才是完整功能。打开 DSH 右侧边栏的「图像工作台」即可解锁。',
+    clearCanvas: '清空画布', clearCanvasDescription: '将永久清空所有画布页面的内容、图片资产和撤销历史。画廊已保存的卡片及原图不受影响，此操作无法撤销。', canvasCleared: '画布已清空，画廊不受影响',
   },
   en: {
     title: 'Cloud Image Studio', configured: 'API configured', unconfigured: 'Not configured', recent: 'Recent generations', empty: 'No generated images yet',
@@ -113,6 +114,7 @@ const COPY = {
     collapseGenerate: 'Collapse generate panel', expandGenerate: 'Expand generate panel', generatePanel: 'Generate',
     findInspiration: 'Find inspiration',
     infiniteCanvasHint: 'The infinite canvas is at its best when linked with the sidebar conversation. Open Image Studio from the DSH right sidebar to unlock the full experience.',
+    clearCanvas: 'Clear canvas', clearCanvasDescription: 'Permanently clear all canvas pages, image assets, and undo history. Saved gallery cards and original images are unaffected. This cannot be undone.', canvasCleared: 'Canvas cleared. Gallery unchanged.',
   },
 } as const
 
@@ -194,6 +196,15 @@ export const StudioView: FC<{
   // behaviour is untouched until the toggle is clicked; a caller may open the
   // infinite canvas directly (the right-sidebar studio variant does).
   const [canvasSurface, setCanvasSurface] = useState<'preview' | 'infinite'>(initialCanvasSurface ?? 'preview')
+  const [showClearCanvasModal, setShowClearCanvasModal] = useState(false)
+  useEffect(() => {
+    if (!showClearCanvasModal) return
+    const close = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setShowClearCanvasModal(false)
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [showClearCanvasModal])
   /** Generate-panel state from before the infinite canvas was opened, so the
    *  panel is restored (not just forced open) when returning to preview. */
   const generatePanelBeforeInfiniteRef = useRef(false)
@@ -1069,6 +1080,11 @@ export const StudioView: FC<{
               </>)}
             </div>
             <div className="dsh-ig-canvas-toolbar-right">
+              {canvasSurface === 'infinite' && (
+                <button type="button" onClick={() => setShowClearCanvasModal(true)} title={t('clearCanvas')}>
+                  <Trash2 size={14} /><span>{t('clearCanvas')}</span>
+                </button>
+              )}
               {canvasSurface === 'preview' && selected !== null && (
                 <button type="button" onClick={startNew} title={t('newGeneration')}>
                   <Plus size={13} />
@@ -1493,6 +1509,30 @@ export const StudioView: FC<{
                 <Heart size={14} fill={selected.isFavorite ? '#ef4444' : 'none'} color={selected.isFavorite ? '#ef4444' : 'currentColor'} />
                 <span>{selected.isFavorite ? t('favorited') : t('favorite')}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClearCanvasModal && (
+        <div className="dsh-ig-workbench-modal-backdrop" onClick={() => setShowClearCanvasModal(false)}>
+          <div className="dsh-ig-workbench-modal-box" role="dialog" aria-modal="true" aria-label={t('clearCanvas')} onClick={event => event.stopPropagation()}>
+            <div className="dsh-ig-workbench-modal-header">
+              <AlertTriangle size={20} color="#dc2626" /><strong>{t('clearCanvas')}</strong>
+            </div>
+            <p className="dsh-ig-workbench-modal-desc">{t('clearCanvasDescription')}</p>
+            <div className="dsh-ig-workbench-modal-actions">
+              <button autoFocus type="button" className="dsh-ig-workbench-modal-cancel" onClick={() => setShowClearCanvasModal(false)}>{t('cancel')}</button>
+              <button type="button" className="dsh-ig-workbench-modal-danger" onClick={() => {
+                try {
+                  if (!clearStudioTlCanvases()) { flash(t('loading')); return }
+                  setShowClearCanvasModal(false)
+                  flash(t('canvasCleared'))
+                } catch (error) {
+                  setError(messageOf(error))
+                  setShowClearCanvasModal(false)
+                }
+              }}>{t('clearCanvas')}</button>
             </div>
           </div>
         </div>

@@ -4,9 +4,9 @@
  * The conversation agent runs in the host process and cannot see the browser
  * canvas, so this module is the canvas's voice: it watches the editor store,
  * summarizes the page (shape inventory + selection) and pushes a compact
- * snapshot to the canvas-state route. When the selection settles on content
- * the conversation cannot already see — hand-drawn strokes, text, pasted
- * images — it also exports a PNG screenshot of the selection, which the host
+ * snapshot to the canvas-state route. When the selection settles, it also
+ * exports a fallback PNG screenshot (persistent images may come from a
+ * different conversation), which the host
  * turns into a durable attachment (view_canvas / edit_image
  * source=canvas_selection read exactly that).
  *
@@ -16,7 +16,6 @@
  */
 import type { Editor, TLShape } from 'tldraw'
 import { CANVAS_MAX_NODES, CANVAS_MAX_PROMPT_CHARS, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary } from '../../shared.js'
-import { getTlLandings } from './tl-canvas-bridge.js'
 
 /** Debounce for ordinary document/session changes. */
 const STATE_DEBOUNCE_MS = 600
@@ -70,16 +69,15 @@ function previewOf(text: string | undefined): string | undefined {
  * the selection identity list, so a selected node reads exactly like its
  * canvas node twin (same name, attachment id, dimensions).
  */
-function describeShape(editor: Editor, shape: TLShape, attachmentByGallery: ReadonlyMap<string, string>): CanvasNodeSummary {
+function describeShape(editor: Editor, shape: TLShape): CanvasNodeSummary {
   const node: CanvasNodeSummary = { kind: kindOf(shape.type) }
   if (shape.type === 'image') {
-    const meta = shape.meta as { galleryId?: unknown; prompt?: unknown; provider?: unknown; model?: unknown } | undefined
+    const meta = shape.meta as { galleryId?: unknown; attachmentId?: unknown; name?: unknown; prompt?: unknown; provider?: unknown; model?: unknown } | undefined
     const galleryId = meta?.galleryId
     if (typeof galleryId === 'string' && galleryId.length > 0) {
       node.galleryId = galleryId
-      const attachmentId = attachmentByGallery.get(galleryId)
-      if (attachmentId !== undefined) node.attachmentId = attachmentId
     }
+    if (typeof meta?.attachmentId === 'string' && meta.attachmentId.length > 0) node.attachmentId = meta.attachmentId
     // Generation provenance written at landing time: lets the model reproduce
     // or precisely vary this image instead of guessing from pixels. Prompt is
     // truncated at landing; slice again defensively so a stale untruncated
@@ -90,7 +88,8 @@ function describeShape(editor: Editor, shape: TLShape, attachmentByGallery: Read
     if (typeof meta?.provider === 'string' && meta.provider.length > 0) node.provider = meta.provider
     if (typeof meta?.model === 'string' && meta.model.length > 0) node.model = meta.model
     const asset = shape.props.assetId === null ? undefined : editor.getAsset(shape.props.assetId)
-    const assetName = asset !== undefined && asset.type === 'image' ? asset.props.name : undefined
+    const assetName = typeof meta?.name === 'string' && meta.name.length > 0
+      ? meta.name : asset !== undefined && asset.type === 'image' ? asset.props.name : undefined
     if (typeof assetName === 'string' && assetName.length > 0) node.name = assetName.slice(0, 128)
     if (asset !== undefined && asset.type === 'image') {
       node.width = Math.round(asset.props.w)
@@ -121,8 +120,6 @@ interface CanvasSummary {
   selectionKinds: CanvasNodeKind[]
   /** Identity list of the selected shapes, capped at the selection-items limit. */
   selectionItems: CanvasNodeSummary[]
-  /** True when every selected shape is a conversation-backed image (see summarize). */
-  selectionAllConversationImages: boolean
   /** Stable key over the summarized state; unchanged key = no HTTP push. */
   stateKey: string
   /** Stable key over just the selection; a change re-arms the screenshot export. */
@@ -130,41 +127,22 @@ interface CanvasSummary {
 }
 
 function summarize(editor: Editor): CanvasSummary {
-  const attachmentByGallery = new Map<string, string>()
-  const conversationGallery = new Set<string>()
-  for (const landing of getTlLandings()) {
-    attachmentByGallery.set(landing.galleryId, String(landing.attachment.attachmentId))
-    if (landing.fromConversation) conversationGallery.add(landing.galleryId)
-  }
-
   const shapes = editor.getCurrentPageShapes()
   const nodes: CanvasNodeSummary[] = []
   for (const shape of shapes.slice(0, CANVAS_MAX_NODES)) {
-    nodes.push(describeShape(editor, shape, attachmentByGallery))
+    nodes.push(describeShape(editor, shape))
   }
 
   const selected = editor.getSelectedShapes()
   const selectionKinds = [...new Set(selected.map(shape => kindOf(shape.type)))].slice(0, CANVAS_MAX_SELECTION_KINDS)
-  const selectionItems = selected.slice(0, CANVAS_MAX_SELECTION_ITEMS).map(shape => describeShape(editor, shape, attachmentByGallery))
+  const selectionItems = selected.slice(0, CANVAS_MAX_SELECTION_ITEMS).map(shape => describeShape(editor, shape))
   const selectionKey = selectionKeyOf(editor)
-  // Screenshot skip gate: true only when EVERY selected shape is an image
-  // landed from a conversation tool result. Then the host resolves the
-  // full-resolution originals from the conversation itself, and pushing a
-  // screenshot would only duplicate them as a durable attachment nothing
-  // ever collects. Any other selection content (form-generated images,
-  // strokes, pasted images, annotations) needs the screenshot.
-  const selectionAllConversationImages = selected.length > 0 && selected.every(shape => {
-    if (shape.type !== 'image') return false
-    const galleryId = (shape.meta as { galleryId?: unknown } | undefined)?.galleryId
-    return typeof galleryId === 'string' && conversationGallery.has(galleryId)
-  })
   return {
     nodeCount: shapes.length,
     nodes,
     selectionCount: selected.length,
     selectionKinds,
     selectionItems,
-    selectionAllConversationImages,
     // selectionItems must join the key: a selected shape beyond the
     // CANVAS_MAX_NODES truncation leaves no trace in `nodes`, so editing its
     // content would otherwise change nothing here and the push never fires.
@@ -236,18 +214,13 @@ export function startCanvasSync(editor: Editor): () => void {
     }
 
     let selectionImage: string | undefined
-    // A settled selection gets a screenshot only when it holds content the
-    // conversation cannot already read back. Landing attachments pushed by
-    // chat tool results live in the conversation, so the host resolves their
-    // full-resolution originals directly (a screenshot would only duplicate
-    // them as a durable attachment nothing ever collects). Form-generated
-    // images are NOT conversation messages — for those, and for strokes,
-    // pasted images, or annotations, the screenshot is the only image the
-    // host can use, so it must be pushed.
-    if (withScreenshot && summary.selectionCount > 0 && !summary.selectionAllConversationImages) {
+    // Persistent images may belong to a different conversation. Keep a
+    // screenshot fallback; the host still prefers available original images.
+    if (withScreenshot && summary.selectionCount > 0) {
       try {
         const selectedBefore = editor.getSelectedShapes()
         const { url } = await editor.toImageDataUrl(selectedBefore, { background: true, padding: 16, scale: 1, pixelRatio: 2 })
+        if (disposed) return
         // Export is async: if the selection moved while it ran, this image no
         // longer matches what the user has selected — discard it and let the
         // listener's re-armed export timer produce a fresh one.
@@ -300,6 +273,14 @@ export function startCanvasSync(editor: Editor): () => void {
     stateTimer = undefined
     void flush(false)
   }, STATE_DEBOUNCE_MS)
+
+  // A persisted selection may already exist before our store listener starts.
+  if (editor.getSelectedShapeIds().length > 0) {
+    exportTimer = setTimeout(() => {
+      exportTimer = undefined
+      void flush(true)
+    }, SELECTION_EXPORT_DELAY_MS)
+  }
 
   return () => {
     if (disposed) return
