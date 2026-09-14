@@ -55,9 +55,12 @@ function firstImage(value: unknown): { b64_json?: string; url?: string; mime_typ
   if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
   const item = candidate as { b64_json?: unknown; url?: unknown; mime_type?: unknown; mime?: unknown }
   const mime = typeof item.mime_type === 'string' ? item.mime_type : typeof item.mime === 'string' ? item.mime : undefined
-  return typeof item.b64_json === 'string'
+  // Length checks matter: some channels send `b64_json: ""` (or an empty
+  // `url`) alongside the real field, and an empty string would shadow a
+  // usable sibling value and fail later as "no image / invalid base64".
+  return typeof item.b64_json === 'string' && item.b64_json.length > 0
     ? { b64_json: item.b64_json, ...(mime === undefined ? {} : { mime_type: mime }) }
-    : typeof item.url === 'string'
+    : typeof item.url === 'string' && item.url.length > 0
       ? { url: item.url, ...(mime === undefined ? {} : { mime_type: mime }) }
       : undefined
 }

@@ -2,6 +2,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config, ImageProvider } from './config.js'
 import { redactSecrets } from './redact.js'
+import type { SubscriptionManager } from './subscription.js'
 import {
   DEFAULT_COMFYUI_BASE_URL,
   DEFAULT_DASHSCOPE_ENDPOINT,
@@ -10,6 +11,7 @@ import {
   DEFAULT_XAI_BASE_URL,
   DEFAULT_ZHIPU_BASE_URL,
   IMAGE_PROVIDERS,
+  isSubscriptionProvider,
   TEST_CONNECTION_ROUTE,
   type CloudImageProvider,
 } from './shared.js'
@@ -37,6 +39,12 @@ export function probeTarget(
 ): ProbeTarget {
   if (provider === 'comfyui') {
     return { url: joinUrl(config.comfyuiBaseURL ?? DEFAULT_COMFYUI_BASE_URL, 'system_stats'), headers: {} }
+  }
+  // Subscription providers have no HTTP endpoint to probe: their "connection"
+  // is the internal manager plus a logged-in account, checked by
+  // probeSubscriptionConnection instead. Reaching here is a routing bug.
+  if (isSubscriptionProvider(provider)) {
+    throw new Error('Subscription providers are probed through the manager, not probeTarget')
   }
   if (provider === 'google') {
     return { url: googleModelsUrl(config), headers: { 'x-goog-api-key': apiKey ?? '' } }
@@ -314,12 +322,37 @@ export async function probeComfyUIConnection(
   return { ok: false, reason: 'error', message: `HTTP ${String(response.status)}` }
 }
 
+/**
+ * Probe a subscription provider: the internal manager's login state for the
+ * matching vendor. No network call and no token access; the probe reports
+ * signed-in (with the account email) or signed-out guidance.
+ */
+export async function probeSubscriptionConnection(
+  provider: 'chatgpt-sub' | 'grok-sub' | 'google-sub',
+  manager: SubscriptionManager,
+): Promise<ProbeResult> {
+  const vendor = provider === 'chatgpt-sub' ? 'codex' : provider === 'google-sub' ? 'antigravity' : 'grok'
+  const display = provider === 'chatgpt-sub' ? 'ChatGPT' : provider === 'google-sub' ? 'Google' : 'Grok'
+  const status = await manager.loginStatus(vendor)
+  if (status.state === 'logged-in') return { ok: true }
+  if (status.state === 'logged-out') {
+    return {
+      ok: false,
+      reason: 'missing-key',
+      message: `${display} 账号未登录：请在设置卡片中点击“登录”完成授权`,
+    }
+  }
+  return { ok: false, reason: 'error', message: '登录状态读取失败' }
+}
+
 /** Dependencies the test route needs from the plugin entry. */
 export interface TestRouteDeps {
   /** The credential each cloud provider probes with, when one is stored. */
   resolveKey(provider: CloudImageProvider): Promise<string | undefined>
   /** The currently authoritative config, including unsaved defaults. */
   config(): Config
+  /** The internal subscription account manager for the login-state probes. */
+  subscriptionManager: SubscriptionManager
 }
 
 /** Serve the settings card's per-provider connectivity probe. */
@@ -339,19 +372,21 @@ export async function serveTestConnection(req: IncomingMessage, res: ServerRespo
   if (typeof provider !== 'string' || !(IMAGE_PROVIDERS as readonly string[]).includes(provider)) {
     return jsonError(res, 400, 'invalid-provider')
   }
+  const active = provider as ImageProvider
   const action = record(body)?.action
 
   if (action === 'models') {
-    // Model pulling ships for every cloud provider; ComfyUI has no catalog.
-    if (provider === 'comfyui') return jsonError(res, 400, 'models-unsupported')
+    // Model pulling ships for every cloud provider; ComfyUI and the
+    // subscription channels have no catalog to list.
+    if (active === 'comfyui' || isSubscriptionProvider(active)) return jsonError(res, 400, 'models-unsupported')
     let result: ModelsResult
     try {
-      const apiKey = await deps.resolveKey(provider as CloudImageProvider)
-      result = provider === 'google'
+      const apiKey = await deps.resolveKey(active as CloudImageProvider)
+      result = active === 'google'
         ? await fetchGoogleImageModels(deps.config(), apiKey)
-        : provider === 'dashscope'
+        : active === 'dashscope'
           ? await fetchDashScopeImageModels(deps.config(), apiKey)
-          : await fetchOpenAIImageModels(provider as 'openai' | 'openai-compat' | 'seedream' | 'xai' | 'zhipu', deps.config(), apiKey)
+          : await fetchOpenAIImageModels(active as 'openai' | 'openai-compat' | 'seedream' | 'xai' | 'zhipu', deps.config(), apiKey)
     } catch (error) {
       result = { ok: false, reason: 'error', message: error instanceof Error ? error.message : String(error) }
     }
@@ -360,11 +395,13 @@ export async function serveTestConnection(req: IncomingMessage, res: ServerRespo
 
   let result: ProbeResult
   try {
-    if (provider === 'comfyui') {
+    if (active === 'comfyui') {
       result = await probeComfyUIConnection(deps.config())
+    } else if (isSubscriptionProvider(active)) {
+      result = await probeSubscriptionConnection(active, deps.subscriptionManager)
     } else {
-      const apiKey = await deps.resolveKey(provider as CloudImageProvider)
-      result = await probeProviderConnection(provider as CloudImageProvider, deps.config(), apiKey)
+      const apiKey = await deps.resolveKey(active as CloudImageProvider)
+      result = await probeProviderConnection(active as CloudImageProvider, deps.config(), apiKey)
     }
   } catch (error) {
     result = { ok: false, reason: 'error', message: error instanceof Error ? error.message : String(error) }

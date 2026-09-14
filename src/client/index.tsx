@@ -29,15 +29,20 @@ import {
   IMAGE_ROUTE,
   MAX_COMFYUI_WORKFLOW_BYTES,
   STUDIO_ROUTE,
+  SUBSCRIPTION_LOGIN_ROUTE,
+  SUBSCRIPTION_PROVIDERS,
+  SUBSCRIPTION_STATUS_ROUTE,
   TEST_CONNECTION_ROUTE,
   activeComfyUIWorkflow,
   cloudCredentialRef,
+  isSubscriptionProvider,
   resolveComfyUIWorkflows,
   uniqueComfyUIWorkflowName,
   type CloudImageProvider,
   type ComfyUIWorkflowEntry,
   type ImageProvider,
   type StudioGenerateResponse,
+  type SubscriptionProvider,
 } from '../shared.js'
 import { validateComfyUIWorkflowJson } from '../comfyui-workflow.js'
 import { saveGalleryItem } from './gallery-store.js'
@@ -83,6 +88,10 @@ interface ImageSettings {
   openaiModel?: string
   openaiCompatBaseURL?: string
   openaiCompatModel?: string
+  /** Edit-request shape for the openai-compat relay (#41); see src/config.ts. */
+  openaiCompatEditFormat?: 'multipart' | 'jsonImageUrlArray'
+  /** Extra JSON fields merged into the JSON edit body; ignored in multipart mode. */
+  openaiCompatEditExtra?: Record<string, unknown>
   seedreamBaseURL?: string
   seedreamModel?: string
   dashscopeEndpoint?: string
@@ -176,6 +185,27 @@ const DICT = {
     providerXAI: 'xAI Grok Imagine',
     providerZhipu: '智谱 GLM-Image',
     providerComfyUI: '本地 ComfyUI',
+    providerChatGPTSub: 'ChatGPT 订阅',
+    providerGrokSub: 'Grok 订阅',
+    providerGoogleSub: 'Google 订阅',
+    subBadgeLoggedIn: '已登录',
+    subBadgeLoggedOut: '未登录',
+    subBadgeUnknown: '状态未知',
+    subSectionTitle: '订阅生图',
+    subHint: '通过已登录的订阅账号生图，无需 API Key。登录在你的授权下进行，不会修改任何 API Key 或默认 Provider。',
+    subAccountLabel: '账号',
+    subAccountEmail: '已登录：{email}',
+    subAccountNone: '未登录',
+    subLogin: '登录',
+    subLoggingIn: '正在登录…',
+    subLogout: '退出登录',
+    subLoggingOut: '正在退出…',
+    subWaitingLogin: '已打开授权页面，请在浏览器中完成登录…',
+    subLoginOk: '登录成功',
+    subModelLabel: '订阅模型',
+    subModelHint: '由订阅通道固定，不可更改。',
+    subEditUnsupported: '订阅通道暂不支持图生图（编辑图片），仅支持文字生图。',
+    subDefaultHint: '订阅 Provider 只能生成，不能编辑图片；需要编辑时请切换到 API Key Provider。',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: '留空即可保留已配置的 Key',
     apiKeyHint: '安全保存为 {key}；页面不会读回明文。',
@@ -203,6 +233,14 @@ const DICT = {
     endpointHintGoogle: 'Google 官方地址或反代端点（全路径）。',
     endpointHintOpenAI: '官方 api.openai.com 的 /v1 地址；中转站请使用下方「OpenAI 兼容」行。',
     endpointHintOpenAICompat: '中转站/自建服务的 OpenAI 兼容 /v1 地址（必填），例如 https://your-relay.example.com/v1。',
+    editFormat: '图生图请求形态',
+    editFormatMultipart: '标准 multipart（OpenAI 官方）',
+    editFormatJsonImageUrlArray: 'JSON images 数组（商汤等中转）',
+    editFormatHint: '文生图不受影响。仅当中转站的图生图接口使用自有 JSON 契约（如商汤 SenseNova）时才需要切换。',
+    editExtra: '附加 JSON 字段',
+    editExtraPlaceholder: '{"watermark": false, "prompt_extend": true}',
+    editExtraHint: '仅 JSON 形态生效；会合并到请求体末尾，可覆盖默认字段。留空表示不附加。',
+    editExtraInvalid: '附加 JSON 字段必须是合法的 JSON 对象。',
     endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
     endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
     endpointHintXAI: 'xAI 官方 api.x.ai 的 /v1 地址。',
@@ -276,6 +314,27 @@ const DICT = {
     providerXAI: 'xAI Grok Imagine',
     providerZhipu: 'Zhipu GLM-Image',
     providerComfyUI: 'Local ComfyUI',
+    providerChatGPTSub: 'ChatGPT Subscription',
+    providerGrokSub: 'Grok Subscription',
+    providerGoogleSub: 'Google Subscription',
+    subBadgeLoggedIn: 'Signed in',
+    subBadgeLoggedOut: 'Signed out',
+    subBadgeUnknown: 'Unknown',
+    subSectionTitle: 'Subscription generation',
+    subHint: 'Generates through a logged-in subscription account; no API key needed. Signing in never changes any API key or the default provider.',
+    subAccountLabel: 'Account',
+    subAccountEmail: 'Signed in: {email}',
+    subAccountNone: 'Not signed in',
+    subLogin: 'Sign in',
+    subLoggingIn: 'Signing in…',
+    subLogout: 'Sign out',
+    subLoggingOut: 'Signing out…',
+    subWaitingLogin: 'Authorization page opened; complete sign-in in your browser…',
+    subLoginOk: 'Signed in',
+    subModelLabel: 'Subscription model',
+    subModelHint: 'Fixed by the subscription channel; not changeable.',
+    subEditUnsupported: 'The subscription channel does not support image editing yet; text-to-image only.',
+    subDefaultHint: 'Subscription providers can only generate; switch to an API-key provider for editing.',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: 'Leave empty to keep configured key',
     apiKeyHint: 'Securely saved as {key}; never read back in plaintext.',
@@ -303,6 +362,14 @@ const DICT = {
     endpointHintGoogle: 'Official Google endpoint or reverse proxy (full path).',
     endpointHintOpenAI: 'Official api.openai.com /v1 base URL; for relays use the "OpenAI-compatible" row below.',
     endpointHintOpenAICompat: 'OpenAI-compatible /v1 base URL of your relay or self-hosted service (required), e.g. https://your-relay.example.com/v1.',
+    editFormat: 'Edit request format',
+    editFormatMultipart: 'Standard multipart (official OpenAI)',
+    editFormatJsonImageUrlArray: 'JSON images array (SenseNova etc.)',
+    editFormatHint: 'Text-to-image is unaffected. Only switch when the relay runs image edits on its own JSON contract (e.g. SenseNova); size is pinned to "auto" in this format (the only value SenseNova\'s edits endpoint accepts) and can be overridden via extra fields.',
+    editExtra: 'Extra JSON fields',
+    editExtraPlaceholder: '{"watermark": false, "prompt_extend": true}',
+    editExtraHint: 'Only used with the JSON format; merged into the request body last and may override defaults. Leave empty for none.',
+    editExtraInvalid: 'Extra JSON fields must be a valid JSON object.',
     endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
     endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
     endpointHintXAI: 'Official xAI api.x.ai /v1 base URL.',
@@ -382,6 +449,7 @@ const STYLE = `
 .dsh-ig-label{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary,inherit)}
 .dsh-ig-input{box-sizing:border-box;width:100%;padding:8px 12px;font-size:13px;border:1px solid var(--dsw-alias-border-l2,#d7dbe0);border-radius:8px;background:var(--dsw-alias-bg-layer-3,transparent);color:inherit;outline:none;transition:border-color .15s}
 .dsh-ig-input:focus{border-color:var(--dsw-alias-brand-primary,#4c78ff)}
+.dsh-ig-textarea{resize:vertical;min-height:56px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.5}
 .dsh-ig-input-group{display:flex;gap:8px;align-items:center}
 .dsh-ig-file-row{display:flex;align-items:center;gap:10px;min-width:0}
 .dsh-ig-file-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;clip-path:inset(50%)}
@@ -919,6 +987,10 @@ interface ProviderRowState {
   workflows: ComfyUIWorkflowEntry[]
   activeWorkflow: string
   timeoutSeconds: number
+  /** openai-compat only: edits request shape (#41). Other rows keep the default. */
+  editFormat: 'multipart' | 'jsonImageUrlArray'
+  /** openai-compat only: extra JSON fields for the JSON edit body, as user text. */
+  editExtraText: string
 }
 
 function emptyProviderRow(): ProviderRowState {
@@ -941,6 +1013,8 @@ function emptyProviderRow(): ProviderRowState {
     workflows: [],
     activeWorkflow: '',
     timeoutSeconds: DEFAULT_COMFYUI_TIMEOUT_MS / 1000,
+    editFormat: 'multipart',
+    editExtraText: '',
   }
 }
 
@@ -993,6 +1067,12 @@ function modelPullSupported(_provider: CloudImageProvider): boolean {
   return true
 }
 
+/** Serialize the extra-fields record into editor text; empty record becomes ''. */
+function editExtraTextOf(value: Record<string, unknown> | undefined): string {
+  if (value === undefined || Object.keys(value).length === 0) return ''
+  try { return JSON.stringify(value) } catch { return '' }
+}
+
 /** Build one row per provider from persisted settings, including ComfyUI extras. */
 function rowsFromSettings(value: ImageSettings | undefined): Record<Provider, ProviderRowState> {
   const rows = {} as Record<Provider, ProviderRowState>
@@ -1005,6 +1085,10 @@ function rowsFromSettings(value: ImageSettings | undefined): Record<Provider, Pr
         workflows: resolveComfyUIWorkflows(value ?? {}),
         activeWorkflow: activeComfyUIWorkflow(value ?? {})?.name ?? '',
         timeoutSeconds: Math.max(1, Math.round((value?.comfyuiTimeoutMs ?? DEFAULT_COMFYUI_TIMEOUT_MS) / 1000)),
+      } : {}),
+      ...(provider === 'openai-compat' ? {
+        editFormat: value?.openaiCompatEditFormat === 'jsonImageUrlArray' ? 'jsonImageUrlArray' : 'multipart',
+        editExtraText: editExtraTextOf(value?.openaiCompatEditExtra),
       } : {}),
     }
   }
@@ -1029,6 +1113,16 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   const [rows, setRows] = useState<Record<Provider, ProviderRowState>>(() => rowsFromSettings(props.scope.getSnapshot().value))
   // Bumped by host credential events so every badge re-checks without remounting.
   const [keyTick, setKeyTick] = useState(0)
+  // Subscription login state per provider, read from the host login-status route.
+  const [subStatus, setSubStatus] = useState<Record<SubscriptionProvider, { state: 'logged-in' | 'logged-out' | 'unknown'; email?: string }>>(
+    () => ({ 'chatgpt-sub': { state: 'unknown' }, 'grok-sub': { state: 'unknown' }, 'google-sub': { state: 'unknown' } }),
+  )
+  const [subTick, setSubTick] = useState(0)
+  const [subBusy, setSubBusy] = useState<Partial<Record<SubscriptionProvider, 'login' | 'logout'>>>({})
+  // Providers whose browser login is still completing: the status probe keeps
+  // polling until each lands as logged-in (or the loopback window expires), so
+  // the badge flips without closing and reopening the settings card.
+  const [subPending, setSubPending] = useState<Array<{ provider: SubscriptionProvider; startedAt: number }>>([])
 
   useEffect(() => props.scope.subscribe(() => { setSnapshot(props.scope.getSnapshot()) }), [props.scope])
   useEffect(() => {
@@ -1038,6 +1132,111 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   }, [props.locale])
   const credentialEvents = props.credentialEvents
   useEffect(() => credentialEvents?.listen(() => { setKeyTick(tick => tick + 1) }), [credentialEvents])
+
+  // Subscription login badges: one status probe on card open, after every
+  // login/logout, on window focus (the user just returned from the authorize
+  // tab), and every 2s while a browser login is still completing. The browser
+  // never touches tokens; the host route reports only the state word and the
+  // account email.
+  const pending = subPending
+  useEffect(() => {
+    if (!open) return undefined
+    let active = true
+    const probe = async (): Promise<void> => {
+      try {
+        const response = await fetch(SUBSCRIPTION_STATUS_ROUTE, { method: 'POST', cache: 'no-store' })
+        if (!response.ok) return
+        const payload = await response.json() as { statuses?: Record<string, { state?: string; email?: string }> }
+        if (!active || payload.statuses === undefined) return
+        const next: Record<SubscriptionProvider, { state: 'logged-in' | 'logged-out' | 'unknown'; email?: string }> = { 'chatgpt-sub': { state: 'unknown' }, 'grok-sub': { state: 'unknown' }, 'google-sub': { state: 'unknown' } }
+        for (const provider of SUBSCRIPTION_PROVIDERS) {
+          const row = payload.statuses[provider]
+          if (row?.state === 'logged-in') next[provider] = { state: 'logged-in', ...(typeof row.email === 'string' ? { email: row.email } : {}) }
+          else if (row?.state === 'logged-out') next[provider] = { state: 'logged-out' }
+        }
+        setSubStatus(next)
+        // A pending login just landed: drop it from the poll set and surface
+        // the success message on that provider's row.
+        const landed = pending.filter(entry => next[entry.provider].state === 'logged-in')
+        if (landed.length > 0) {
+          setSubPending(current => current.filter(entry => next[entry.provider].state !== 'logged-in'))
+          for (const entry of landed) {
+            updateRow(entry.provider, { message: t('subLoginOk'), messageIsError: false })
+          }
+        }
+        // Bounded by the host's 10-minute loopback window: entries older than
+        // that stop polling instead of spinning forever.
+        const WINDOW_MS = 10.5 * 60_000
+        const stale = pending.filter(entry => Date.now() - entry.startedAt > WINDOW_MS)
+        if (stale.length > 0) {
+          setSubPending(current => current.filter(entry => Date.now() - entry.startedAt <= WINDOW_MS))
+        }
+      } catch { /* badges stay unknown */ }
+    }
+    void probe()
+    // While a browser login is in flight, keep polling; stop when none is.
+    let timer: ReturnType<typeof setInterval> | undefined
+    if (pending.length > 0) {
+      timer = setInterval(() => { void probe() }, 2000)
+    }
+    const onFocus = (): void => { void probe() }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      active = false
+      if (timer !== undefined) clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+    // pending is read fresh from the closure each render; its identity changes
+    // on setSubPending and restarts the interval with the updated set.
+  }, [open, subTick, pending])
+
+  /** Start a subscription login: the host registers PKCE and the loopback
+   * catch server, then the browser opens the vendor's authorize URL. The
+   * provider joins the pending set so the badge polls until login lands. */
+  const subscriptionLogin = async (provider: SubscriptionProvider): Promise<void> => {
+    updateRow(provider, { message: '', messageIsError: false })
+    setSubBusy(current => ({ ...current, [provider]: 'login' }))
+    try {
+      const response = await fetch(SUBSCRIPTION_LOGIN_ROUTE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; url?: string; error?: string | { message?: string } }
+      if (!response.ok || payload.ok !== true || typeof payload.url !== 'string') {
+        const detail = typeof payload.error === 'string' ? payload.error : payload.error?.message
+        throw new Error(detail ?? `HTTP ${String(response.status)}`)
+      }
+      // The loopback catch window is 10 minutes; the poll set drops the row
+      // earlier if it lands, and this expiry drops it if it never does.
+      setSubPending(current => [...current.filter(entry => entry.provider !== provider), { provider, startedAt: Date.now() }])
+      window.open(payload.url, '_blank', 'noopener')
+      updateRow(provider, { message: t('subWaitingLogin'), messageIsError: false })
+    } catch (cause) {
+      updateRow(provider, { message: cause instanceof Error ? cause.message : String(cause), messageIsError: true })
+    } finally {
+      setSubBusy(current => { const next = { ...current }; delete next[provider]; return next })
+    }
+  }
+
+  /** Sign out one subscription account; nothing else changes. */
+  const subscriptionLogout = async (provider: SubscriptionProvider): Promise<void> => {
+    setSubBusy(current => ({ ...current, [provider]: 'logout' }))
+    try {
+      const response = await fetch(SUBSCRIPTION_LOGIN_ROUTE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider, action: 'logout' }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
+      updateRow(provider, { message: '', messageIsError: false })
+    } catch (cause) {
+      updateRow(provider, { message: cause instanceof Error ? cause.message : String(cause), messageIsError: true })
+    } finally {
+      setSubBusy(current => { const next = { ...current }; delete next[provider]; return next })
+      setSubTick(tick => tick + 1)
+    }
+  }
 
   const t = (keyName: DictKey, params?: Record<string, string>): string => {
     const dict = lang === 'en' ? DICT.en : DICT.zh
@@ -1059,6 +1258,9 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     xai: t('providerXAI'),
     zhipu: t('providerZhipu'),
     comfyui: t('providerComfyUI'),
+    'chatgpt-sub': t('providerChatGPTSub'),
+    'grok-sub': t('providerGrokSub'),
+    'google-sub': t('providerGoogleSub'),
   }
 
   useEffect(() => {
@@ -1153,9 +1355,31 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
         await props.scope.set('comfyuiWorkflowJson', activeEntry === undefined ? '' : activeEntry.json)
         await props.scope.set('comfyuiWorkflowName', activeEntry === undefined ? '' : activeEntry.name)
         await props.scope.set('comfyuiTimeoutMs', Math.max(1, Math.round(row.timeoutSeconds)) * 1000)
+      } else if (isSubscriptionProvider(provider)) {
+        // Subscription rows persist nothing per-provider: the model is fixed
+        // by the channel and the login lives in the plugin's own credential
+        // store. Saving is a no-op acknowledgement so the button never feels
+        // broken.
+        await Promise.resolve()
       } else {
+        // Validate the compat edit extras BEFORE any write: a broken JSON
+        // object must not half-save (model/baseURL persisted, extras rejected).
+        let editExtra: Record<string, unknown> = {}
+        if (provider === 'openai-compat') {
+          const extraText = row.editExtraText.trim()
+          if (extraText.length > 0) {
+            let parsed: unknown
+            try { parsed = JSON.parse(extraText) } catch { throw new Error(t('editExtraInvalid')) }
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error(t('editExtraInvalid'))
+            editExtra = parsed as Record<string, unknown>
+          }
+        }
         await props.scope.set(modelFieldOf(provider), row.model)
         await props.scope.set(baseURLFieldOf(provider), row.baseURL)
+        if (provider === 'openai-compat') {
+          await props.scope.set('openaiCompatEditFormat', row.editFormat)
+          await props.scope.set('openaiCompatEditExtra', editExtra)
+        }
         if (row.keyInput.trim().length > 0) {
           const keyRef = cloudCredentialRef(provider)
           if (keyRef === undefined) throw new Error(t('comfyuiNoKey'))
@@ -1252,6 +1476,12 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 
   const badgeOf = (provider: Provider): { text: string; className: string } => {
     if (provider === 'comfyui') return { text: t('comfyuiNoKey'), className: 'dsh-ig-badge dsh-ig-badge-neutral' }
+    if (isSubscriptionProvider(provider)) {
+      const status = subStatus[provider].state
+      if (status === 'logged-in') return { text: t('subBadgeLoggedIn'), className: 'dsh-ig-badge dsh-ig-badge-ok' }
+      if (status === 'logged-out') return { text: t('subBadgeLoggedOut'), className: 'dsh-ig-badge dsh-ig-badge-missing' }
+      return { text: t('subBadgeUnknown'), className: 'dsh-ig-badge dsh-ig-badge-neutral' }
+    }
     const status = rows[provider].keyStatus
     if (status === 'checking') return { text: t('badgeChecking'), className: 'dsh-ig-badge dsh-ig-badge-neutral dsh-ig-badge-checking' }
     if (status === 'configured') return { text: t('badgeConfigured'), className: 'dsh-ig-badge dsh-ig-badge-ok' }
@@ -1409,6 +1639,35 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               )
             ) : null}
           </label>
+          {provider === 'openai-compat' ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('editFormat')}</span>
+              <select
+                className="dsh-ig-input"
+                value={row.editFormat}
+                onChange={event => { updateRow(provider, { editFormat: event.target.value === 'jsonImageUrlArray' ? 'jsonImageUrlArray' : 'multipart' }) }}
+                disabled={!snapshot.writable}
+              >
+                <option value="multipart">{t('editFormatMultipart')}</option>
+                <option value="jsonImageUrlArray">{t('editFormatJsonImageUrlArray')}</option>
+              </select>
+              <span className="dsh-ig-hint">{t('editFormatHint')}</span>
+            </label>
+          ) : null}
+          {provider === 'openai-compat' && row.editFormat === 'jsonImageUrlArray' ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('editExtra')}</span>
+              <textarea
+                className="dsh-ig-input dsh-ig-textarea"
+                value={row.editExtraText}
+                onChange={event => { updateRow(provider, { editExtraText: event.target.value }) }}
+                placeholder={t('editExtraPlaceholder')}
+                rows={2}
+                disabled={!snapshot.writable}
+              />
+              <span className="dsh-ig-hint">{t('editExtraHint')}</span>
+            </label>
+          ) : null}
           <div className="dsh-ig-row-actions">
             <p className={`dsh-ig-status${row.messageIsError ? ' dsh-ig-status-error' : ''}`} role="status">{row.message || testResultText(row.testResult)}</p>
             <span className="dsh-ig-row-buttons">
@@ -1498,6 +1757,49 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
     )
   }
 
+  /** Subscription rows: account login/logout, fixed model, edit limitation. */
+  const renderSubscriptionBody = (provider: SubscriptionProvider) => {
+    const row = rows[provider]
+    const status = subStatus[provider]
+    const busy = subBusy[provider]
+    return (
+      <div className="dsh-ig-provider-body">
+        <form onSubmit={(event) => { event.preventDefault(); void saveProviderRow(provider) }}>
+          <div className="dsh-ig-field">
+            <span className="dsh-ig-label">{t('subSectionTitle')}</span>
+            <p className="dsh-ig-hint">{t('subHint')}</p>
+          </div>
+          <div className="dsh-ig-field">
+            <span className="dsh-ig-label">{t('subAccountLabel')}</span>
+            <p className="dsh-ig-hint">{status.state === 'logged-in'
+              ? t('subAccountEmail', { email: status.email ?? '' })
+              : status.state === 'logged-out' ? t('subAccountNone') : t('subBadgeUnknown')}</p>
+            <span className="dsh-ig-row-buttons">
+              {status.state === 'logged-in'
+                ? <button type="button" className="dsh-ig-btn-secondary" disabled={busy !== undefined} onClick={() => { void subscriptionLogout(provider) }}>{busy === 'logout' ? t('subLoggingOut') : t('subLogout')}</button>
+                : <button type="button" className="dsh-ig-save" disabled={busy !== undefined} onClick={() => { void subscriptionLogin(provider); setSubTick(tick => tick + 1) }}>{busy === 'login' ? t('subLoggingIn') : t('subLogin')}</button>}
+            </span>
+          </div>
+          <label className="dsh-ig-field">
+            <span className="dsh-ig-label">{t('subModelLabel')}</span>
+            <input className="dsh-ig-input" type="text" value={row.model} readOnly disabled />
+            <span className="dsh-ig-hint">{t('subModelHint')}</span>
+          </label>
+          <div className="dsh-ig-field">
+            <span className="dsh-ig-label">{t('subEditUnsupported')}</span>
+          </div>
+          <div className="dsh-ig-row-actions">
+            <p className={`dsh-ig-status${row.messageIsError ? ' dsh-ig-status-error' : ''}`} role="status">{row.message || testResultText(row.testResult)}</p>
+            <span className="dsh-ig-row-buttons">
+              <button type="button" className="dsh-ig-btn-secondary" disabled={row.testing} onClick={() => { void testConnection(provider); setSubTick(tick => tick + 1) }}>{row.testing ? t('testing') : t('testConnection')}</button>
+              <button className="dsh-ig-save" type="submit" disabled={row.saving || !snapshot.writable}>{row.saving ? t('saving') : t('save')}</button>
+            </span>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
   const renderProviderRow = (provider: Provider) => {
     const row = rows[provider]
     const badge = badgeOf(provider)
@@ -1510,7 +1812,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l4 4 4-4"/></svg>
           </span>
         </button>
-        {row.expanded ? (provider === 'comfyui' ? renderComfyUIBody() : renderCloudBody(provider)) : null}
+        {row.expanded ? (provider === 'comfyui' ? renderComfyUIBody() : isSubscriptionProvider(provider) ? renderSubscriptionBody(provider) : renderCloudBody(provider)) : null}
       </div>
     )
   }
@@ -2015,13 +2317,17 @@ function imageResultFromBlock(block: ToolCallBlock): ImageResultPresentation | u
 function modelOf(provider: Provider, value: ImageSettings | undefined): string {
   const stored = provider === 'comfyui'
     ? activeComfyUIWorkflow(value ?? {})?.name
-    : value?.[CLOUD_MODEL_FIELDS[provider]]
+    : isSubscriptionProvider(provider)
+      ? DEFAULT_MODELS[provider]
+      : value?.[CLOUD_MODEL_FIELDS[provider as CloudImageProvider]]
   return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_MODELS[provider]
 }
 
 function baseURLOf(provider: Provider, value: ImageSettings | undefined): string {
   const stored = provider === 'comfyui'
     ? value?.comfyuiBaseURL
-    : value?.[CLOUD_URL_FIELDS[provider]]
+    : isSubscriptionProvider(provider)
+      ? ''
+      : value?.[CLOUD_URL_FIELDS[provider as CloudImageProvider]]
   return typeof stored === 'string' && stored.length > 0 ? stored : DEFAULT_BASE_URLS[provider]
 }

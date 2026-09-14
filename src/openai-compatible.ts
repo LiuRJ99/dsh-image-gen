@@ -33,6 +33,9 @@ export async function generateOpenAICompatibleImage(input: {
   return parseImageResponse(response, input.provider, input)
 }
 
+/** How the edits endpoint expects its request body (#41). */
+export type CompatEditFormat = 'multipart' | 'jsonImageUrlArray'
+
 export async function editOpenAICompatibleImage(input: {
   apiKey: string
   baseURL: string
@@ -42,7 +45,41 @@ export async function editOpenAICompatibleImage(input: {
   size?: string
   maxBytes: number
   signal: AbortSignal
+  /**
+   * Request shape for the edits call. Most OpenAI-compatible channels take
+   * the standard multipart form; some (e.g. SenseNova) accept OpenAI's
+   * generations endpoint but run edits on their own JSON contract with
+   * `images: [{ image_url }]` objects. Defaults to the standard multipart.
+   */
+  editFormat?: CompatEditFormat
+  /**
+   * Channel-specific extra fields merged into the JSON edit body last (so
+   * they can override the defaults above), e.g. SenseNova's
+   * `watermark`/`prompt_extend`. Ignored in multipart mode.
+   */
+  editExtra?: Readonly<Record<string, unknown>>
 }): Promise<GeneratedCompatibleImage> {
+  if (input.editFormat === 'jsonImageUrlArray') {
+    const body = {
+      model: input.model,
+      images: input.sourceImages.map(sourceImage => ({ image_url: toDataUrl(sourceImage) })),
+      prompt: input.prompt,
+      n: 1,
+      // Channels of this shape (SenseNova) document `size: "auto"` as the
+      // only accepted value on the edits endpoint, so the caller's
+      // generation size is deliberately NOT forwarded here. editExtra
+      // (merged last) can still override it for other channels.
+      size: 'auto' as const,
+      response_format: 'url',
+      ...(input.editExtra ?? {}),
+    }
+    const response = await fetch(imageEndpoint(input.baseURL, 'edits'), {
+      method: 'POST', redirect: 'error', signal: input.signal,
+      headers: { authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return parseImageResponse(response, 'openai', input)
+  }
   const form = new FormData()
   const imageField = input.sourceImages.length > 1 ? 'image[]' : 'image'
   input.sourceImages.forEach((sourceImage, index) => {
@@ -82,6 +119,10 @@ function imageEndpoint(baseURL: string, operation: 'generations' | 'edits'): str
   try { return new URL(`images/${operation}`, baseURL.endsWith('/') ? baseURL : `${baseURL}/`).toString() } catch { throw new Error('Image endpoint must be an absolute URL') }
 }
 
+function toDataUrl(image: CompatibleReferenceImage): string {
+  return `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}`
+}
+
 function firstImage(value: unknown): { b64_json?: string; url?: string; mime_type?: string } | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const record = value as { data?: unknown; images?: unknown; output?: unknown }
@@ -91,9 +132,12 @@ function firstImage(value: unknown): { b64_json?: string; url?: string; mime_typ
   if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
   const item = candidate as { b64_json?: unknown; url?: unknown; mime_type?: unknown; mime?: unknown }
   const mime = typeof item.mime_type === 'string' ? item.mime_type : typeof item.mime === 'string' ? item.mime : undefined
-  return typeof item.b64_json === 'string'
+  // Length checks matter: some channels send `b64_json: ""` (or an empty
+  // `url`) alongside the real field, and an empty string would shadow a
+  // usable sibling value and fail later as "no image / invalid base64".
+  return typeof item.b64_json === 'string' && item.b64_json.length > 0
     ? { b64_json: item.b64_json, ...(mime === undefined ? {} : { mime_type: mime }) }
-    : typeof item.url === 'string'
+    : typeof item.url === 'string' && item.url.length > 0
       ? { url: item.url, ...(mime === undefined ? {} : { mime_type: mime }) }
       : undefined
 }
@@ -113,13 +157,13 @@ async function downloadImage(
     redirect: 'follow', signal: input.signal,
     ...(input.apiKey === undefined ? {} : { headers: { authorization: `Bearer ${input.apiKey}` } }),
   })
-  // Some relay CDNs (e.g. Agnes AI) reject image downloads that carry an
-  // Authorization header (WAF rule on UA + auth combo), even though the URL
-  // itself is public. A 401/403 while authenticated means either an invalid
-  // key or such a CDN - retrying without the header is safe (downgraded
-  // request, no secret sent) and only ever turns a guaranteed failure into a
-  // possible success: URLs that need auth would have failed anyway.
-  if (response.status === 401 || response.status === 403) {
+  // Some relay CDNs (e.g. Agnes AI, SenseNova's OSS) reject image downloads
+  // that carry an Authorization header (WAF rules), even though the URL is
+  // public - and not always with 401/403 (SenseNova's OSS answers 400).
+  // Retrying without the header is safe (downgraded request, no secret sent)
+  // and only ever turns a guaranteed failure into a possible success: URLs
+  // that genuinely need auth would have failed anyway.
+  if (!response.ok && input.apiKey !== undefined) {
     response = await fetch(url, { redirect: 'follow', signal: input.signal })
   }
   if (!response.ok) throw new Error(`${provider} image download failed (${response.status})`)

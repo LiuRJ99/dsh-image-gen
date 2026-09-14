@@ -61,6 +61,22 @@ describe('openai-compat provider', () => {
       baseURL: 'https://relay.example.com/v1',
       model: 'flux-pro-1.1',
       imageSize: '1024x1024',
+      editFormat: 'multipart',
+      editExtra: {},
+    })
+  })
+
+  it('carries the edit format and extra fields through to the profile (#41)', () => {
+    expect(resolveProvider({
+      provider: 'openai-compat',
+      openaiCompatBaseURL: 'https://token.sensenova.cn/v1',
+      openaiCompatModel: 'sensenova-u1.5-lite',
+      openaiCompatEditFormat: 'jsonImageUrlArray',
+      openaiCompatEditExtra: { watermark: false, prompt_extend: true },
+    })).toMatchObject({
+      provider: 'openai-compat',
+      editFormat: 'jsonImageUrlArray',
+      editExtra: { watermark: false, prompt_extend: true },
     })
   })
 

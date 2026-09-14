@@ -15,6 +15,8 @@ export const SAVE_WORKSPACE_ROUTE = '/plugins/dsh-image-gen/save-workspace'
 export const TEST_CONNECTION_ROUTE = '/plugins/dsh-image-gen/test'
 /** Browser route the workbench infinite canvas pushes live state through. */
 export const CANVAS_STATE_ROUTE = '/plugins/dsh-image-gen/canvas-state'
+export const SUBSCRIPTION_LOGIN_ROUTE = '/plugins/dsh-image-gen/subscription-login'
+export const SUBSCRIPTION_STATUS_ROUTE = '/plugins/dsh-image-gen/subscription-status'
 
 /** Coarse model-facing kind of one shape on the workbench infinite canvas. */
 export type CanvasNodeKind = 'image' | 'draw' | 'text' | 'note' | 'geo' | 'arrow' | 'frame' | 'other'
@@ -113,8 +115,21 @@ export interface CanvasStatePush {
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'
 
 /** Supported providers. */
-export const IMAGE_PROVIDERS = ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui'] as const
+export const IMAGE_PROVIDERS = ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui', 'chatgpt-sub', 'grok-sub', 'google-sub'] as const
 export type ImageProvider = typeof IMAGE_PROVIDERS[number]
+
+/**
+ * Providers that generate through a logged-in subscription account instead
+ * of an API key. They use no credential reference and never join the
+ * cloud/BYOK sets.
+ */
+export const SUBSCRIPTION_PROVIDERS = ['chatgpt-sub', 'grok-sub', 'google-sub'] as const
+export type SubscriptionProvider = typeof SUBSCRIPTION_PROVIDERS[number]
+
+/** True when the provider generates through a logged-in subscription account. */
+export function isSubscriptionProvider(provider: ImageProvider): provider is SubscriptionProvider {
+  return (SUBSCRIPTION_PROVIDERS as readonly string[]).includes(provider)
+}
 
 /** Providers supported by the first browser workbench release. */
 export const CLOUD_IMAGE_PROVIDERS = ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu'] as const
@@ -172,6 +187,16 @@ export const PROVIDER_DISPLAY_NAMES: Record<ImageProvider, string> = {
   xai: 'xAI Grok',
   zhipu: '智谱 GLM',
   comfyui: 'ComfyUI',
+  'chatgpt-sub': 'ChatGPT 订阅',
+  'grok-sub': 'Grok 订阅',
+  'google-sub': 'Google 订阅',
+}
+
+/** Display names for the subscription providers, separate from the BYOK table. */
+export const SUBSCRIPTION_PROVIDER_DISPLAY_NAMES: Record<SubscriptionProvider, string> = {
+  'chatgpt-sub': 'ChatGPT 订阅',
+  'grok-sub': 'Grok 订阅',
+  'google-sub': 'Google 订阅',
 }
 
 /** One selectable output option exposed by a provider profile. */
@@ -347,6 +372,13 @@ export function mergeComfyUIPrompt(preset: string | undefined, user: string): st
   return `${presetText}, ${userText}`
 }
 
+/** Default models for the subscription channels; fixed by the bridge protocol. */
+export const DEFAULT_SUBSCRIPTION_MODELS: Record<SubscriptionProvider, string> = {
+  'chatgpt-sub': 'gpt-image-2.5-flare',
+  'grok-sub': 'grok-imagine-image-2.0',
+  'google-sub': 'gemini-3-pro-image',
+}
+
 export const DEFAULT_MODELS: Record<ImageProvider, string> = {
   google: DEFAULT_GOOGLE_MODEL,
   openai: DEFAULT_OPENAI_MODEL,
@@ -357,6 +389,9 @@ export const DEFAULT_MODELS: Record<ImageProvider, string> = {
   xai: DEFAULT_XAI_MODEL,
   zhipu: DEFAULT_ZHIPU_MODEL,
   comfyui: DEFAULT_COMFYUI_WORKFLOW_LABEL,
+  'chatgpt-sub': DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'],
+  'grok-sub': DEFAULT_SUBSCRIPTION_MODELS['grok-sub'],
+  'google-sub': DEFAULT_SUBSCRIPTION_MODELS['google-sub'],
 }
 
 export const DEFAULT_BASE_URLS: Record<ImageProvider, string> = {
@@ -369,4 +404,8 @@ export const DEFAULT_BASE_URLS: Record<ImageProvider, string> = {
   xai: DEFAULT_XAI_BASE_URL,
   zhipu: DEFAULT_ZHIPU_BASE_URL,
   comfyui: DEFAULT_COMFYUI_BASE_URL,
+  // Subscription channels call an in-process service, never a URL.
+  'chatgpt-sub': '',
+  'grok-sub': '',
+  'google-sub': '',
 }
