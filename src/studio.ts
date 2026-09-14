@@ -15,10 +15,12 @@ import { requireApiKey, resolveApiKey } from './credentials.js'
 import { editGoogleImage, generateGoogleImage } from './google.js'
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './openai-compatible.js'
 import { editSeedreamImage } from './seedream.js'
+import { generateSubscriptionImage, vendorOf, type SubscriptionManager } from './subscription.js'
 import {
   CLOUD_IMAGE_PROVIDERS,
+  DEFAULT_SUBSCRIPTION_MODELS,
+  SUBSCRIPTION_PROVIDERS,
   isSubscriptionProvider,
-  PROVIDER_DISPLAY_NAMES,
   type CloudImageProvider,
   type StudioConfigResponse,
   type StudioGenerateRequest,
@@ -27,6 +29,7 @@ import {
   type StudioOption,
   type StudioProviderProfile,
   type StudioReference,
+  type SubscriptionProvider,
 } from './shared.js'
 
 const RATIO_LABELS: Record<string, string> = {
@@ -41,17 +44,60 @@ const RATIO_LABELS: Record<string, string> = {
 }
 
 /** Return only browser-safe capability data. */
-export async function describeStudio(ctx: Context, config: Config): Promise<StudioConfigResponse> {
+export async function describeStudio(
+  ctx: Context,
+  config: Config,
+  subscriptions?: SubscriptionManager | undefined,
+): Promise<StudioConfigResponse> {
   const configuredEntries = await Promise.all(CLOUD_IMAGE_PROVIDERS.map(async provider => {
     return [provider, await resolveApiKey(ctx, provider) !== undefined] as const
   }))
   const configured = Object.fromEntries(configuredEntries) as Record<CloudImageProvider, boolean>
-  const profiles = CLOUD_IMAGE_PROVIDERS.map(provider => studioProfile(config, provider, configured[provider]))
+  const cloudProfiles = CLOUD_IMAGE_PROVIDERS.map(provider => studioProfile(config, provider, configured[provider]))
+  // Subscription profiles: configured means "signed in", and the parameter
+  // matrix collapses to a single channel-default pair (prompt-only channels).
+  const subStatuses = await Promise.all(SUBSCRIPTION_PROVIDERS.map(async provider => {
+    return [provider, subscriptions !== undefined && (await subscriptions.loginStatus(vendorOf(provider))).state === 'logged-in'] as const
+  }))
+  const subProfiles = SUBSCRIPTION_PROVIDERS.map(provider => {
+    const signedIn = subStatuses.find(entry => entry[0] === provider)?.[1] === true
+    return subscriptionStudioProfile(provider, signedIn)
+  })
+  const profiles = [...cloudProfiles, ...subProfiles]
   const preferred = config.provider
-  const activeProvider = preferred !== undefined && cloudProvider(preferred)
+  const activeProvider = isStudioPreferred(preferred)
     ? preferred
     : profiles.find(profile => profile.configured)?.provider ?? 'google'
   return { providers: profiles, activeProvider }
+}
+
+/** The persisted default provider is usable directly when the workbench can drive it. */
+function isStudioPreferred(preferred: string | undefined): preferred is NonNullable<StudioConfigResponse['activeProvider']> {
+  return preferred !== undefined && (CLOUD_IMAGE_PROVIDERS as readonly string[]).includes(preferred)
+    || preferred !== undefined && (SUBSCRIPTION_PROVIDERS as readonly string[]).includes(preferred)
+}
+
+/** Fixed parameter shape for subscription channels: one "channel default" pair. */
+function subscriptionStudioProfile(provider: SubscriptionProvider, signedIn: boolean): StudioProviderProfile {
+  const channelDefault = { value: 'auto', label: '通道默认' }
+  return {
+    provider,
+    label: SUBSCRIPTION_DISPLAY_LABELS[provider],
+    model: DEFAULT_SUBSCRIPTION_MODELS[provider],
+    configured: signedIn,
+    supportsEditing: true,
+    ratioOptions: [channelDefault],
+    qualityOptions: [channelDefault],
+    defaultRatio: 'auto',
+    defaultQuality: 'auto',
+  }
+}
+
+/** Short display names for the workbench subscription rows. */
+const SUBSCRIPTION_DISPLAY_LABELS: Record<SubscriptionProvider, string> = {
+  'chatgpt-sub': 'ChatGPT 订阅',
+  'grok-sub': 'Grok 订阅',
+  'google-sub': 'Google 订阅',
 }
 
 /** Execute one validated browser workbench request using the existing provider adapters. */
@@ -61,7 +107,17 @@ export async function generateFromStudio(
   input: StudioGenerateRequest,
   signal: AbortSignal,
   fallbackWorkspaceRoot?: string | undefined,
+  subscriptions?: SubscriptionManager | undefined,
 ): Promise<StudioGenerateResponse> {
+  // Subscription channels take a dedicated path: fixed model, channel-default
+  // parameters, and a per-request sign-in check. Edit mode reads the
+  // references through the same studio reader as the API-key channels.
+  if (isSubscriptionProvider(input.provider)) {
+    if (subscriptions === undefined) throw new Error('订阅生图不可用：订阅管理器未初始化')
+    const subProfile = subscriptionStudioProfile(input.provider, true)
+    assertAllowed(subProfile, input)
+    return generateSubscriptionFromStudio(ctx, subscriptions, input, signal)
+  }
   const profile = studioProfile(config, input.provider, true)
   assertAllowed(profile, input)
   const active = resolveProvider(withProviderOverrides(config, input.provider, input.model))
@@ -221,6 +277,99 @@ export async function runPool<T>(
   return results
 }
 
+/**
+ * Subscription workbench generation: one prompt, channel-default parameters,
+ * through the shared generateSubscriptionImage wrapper (timeout, b64 decode,
+ * size check) so the downstream attachment flow is identical to API keys.
+ */
+async function generateSubscriptionFromStudio(
+  ctx: Context,
+  subscriptions: SubscriptionManager,
+  input: StudioGenerateRequest,
+  signal: AbortSignal,
+): Promise<StudioGenerateResponse> {
+  // Narrow once for the closure: the entry branch already guaranteed this.
+  const provider = input.provider as SubscriptionProvider
+  const rawRefs = input.references ?? (input.reference ? [input.reference] : [])
+  if (input.mode === 'edit' && rawRefs.length === 0) {
+    throw new Error('图生图需要至少一张参考图')
+  }
+  // Same reader as the API-key channels: attachment reads or base64 blobs,
+  // size-checked and validated, so invalid references fail loudly instead of
+  // silently falling back to text-to-image.
+  const sourceImages = input.mode === 'edit'
+    ? await Promise.all(rawRefs.map(ref => readStudioReference(ctx, ref, signal)))
+    : []
+  const startedAt = Date.now()
+  const count = input.count ?? 1
+  const generateSingle = async (index: number): Promise<StudioGeneratedItem> => {
+    const generated = await generateSubscriptionImage({
+      manager: subscriptions,
+      provider,
+      prompt: input.prompt,
+      ...(sourceImages.length > 0 ? { sourceImages } : {}),
+      maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+      signal,
+    })
+    if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) {
+      throw new Error(`当前 DSH 不支持保存 ${generated.mediaType} 图片`)
+    }
+    const attachment = await ctx.attachments.saveImage({
+      data: generated.data,
+      mediaType: generated.mediaType,
+      name: count > 1 ? `studio-image-${index + 1}` : 'studio-image',
+    })
+    return {
+      attachment,
+      output: '通道默认',
+    }
+  }
+  if (count === 1) {
+    const single = await generateSingle(0)
+    return subscriptionResponse(input, startedAt, 1, 0, [single], single)
+  }
+  const poolResults = await runPool(Array.from({ length: count }, (_, i) => () => generateSingle(i)), 2)
+  const successes: StudioGeneratedItem[] = []
+  const errors: Array<{ index: number; message: string }> = []
+  for (let i = 0; i < poolResults.length; i++) {
+    const r = poolResults[i]!
+    if (r.status === 'fulfilled') successes.push(r.value)
+    else errors.push({ index: i, message: r.reason instanceof Error ? r.reason.message : String(r.reason) })
+  }
+  if (successes.length === 0) {
+    const firstReason = poolResults[0] && poolResults[0].status === 'rejected' ? poolResults[0].reason : new Error('订阅生图全部失败')
+    throw firstReason instanceof Error ? firstReason : new Error(String(firstReason))
+  }
+  const first = successes[0]!
+  return subscriptionResponse(input, startedAt, count, errors.length, successes, first, errors)
+}
+
+/** Assemble the subscription workbench response with exactOptionalPropertyTypes-safe spreads. */
+function subscriptionResponse(
+  input: StudioGenerateRequest,
+  startedAt: number,
+  requestedCount: number,
+  failedCount: number,
+  items: StudioGeneratedItem[],
+  primary: StudioGeneratedItem,
+  errors?: Array<{ index: number; message: string }>,
+): StudioGenerateResponse {
+  return {
+    attachment: primary.attachment,
+    output: primary.output,
+    provider: input.provider,
+    model: input.model,
+    prompt: input.prompt,
+    createdAt: Date.now(),
+    elapsedMs: Date.now() - startedAt,
+    requestedCount,
+    failedCount,
+    items,
+    ...(primary.savedTo ? { savedTo: primary.savedTo } : {}),
+    ...(errors !== undefined && errors.length > 0 ? { errors } : {}),
+  }
+}
+
 export function studioProfile(config: Config, provider: CloudImageProvider, configured: boolean): StudioProviderProfile {
   let active: ReturnType<typeof resolveProvider>
   try {
@@ -255,7 +404,7 @@ function profile(
 ): StudioProviderProfile {
   return {
     provider,
-    label: PROVIDER_DISPLAY_NAMES[provider],
+    label: CLOUD_DISPLAY_LABELS[provider],
     model,
     configured,
     supportsEditing: true,
@@ -264,6 +413,17 @@ function profile(
     defaultRatio,
     defaultQuality,
   }
+}
+
+/** Display names for the BYOK cloud rows, mirroring the settings card. */
+const CLOUD_DISPLAY_LABELS: Record<CloudImageProvider, string> = {
+  google: 'Google Gemini',
+  openai: 'OpenAI',
+  'openai-compat': 'OpenAI 兼容',
+  seedream: 'Seedream',
+  dashscope: 'DashScope',
+  xai: 'xAI Grok',
+  zhipu: '智谱 GLM',
 }
 
 function option(value: string): StudioOption {

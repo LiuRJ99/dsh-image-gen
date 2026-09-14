@@ -16,7 +16,7 @@ import { IMAGE_ROUTE, DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, imageAttachmentFromMet
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './openai-compatible.js'
 import { type ResolvedReferenceImage, resolveReferenceImages } from './reference-image.js'
 import { editSeedreamImage } from './seedream.js'
-import { assertSubscriptionEditUnsupported, generateSubscriptionImage, registerSubscriptionRoutes, SubscriptionManager } from './subscription.js'
+import { generateSubscriptionImage, registerSubscriptionRoutes, SubscriptionManager } from './subscription.js'
 import { CANVAS_STATE_ROUTE, IMAGE_GENERATION_NAMESPACE, IMAGE_PROVIDERS, INSPIRATION_ROUTE, STUDIO_ROUTE, TEST_CONNECTION_ROUTE, mergeComfyUIPrompt, type ImageProvider } from './shared.js'
 import { createInspirationRoute } from './inspiration-route.js'
 import { generateFromStudio, describeStudio } from './studio.js'
@@ -147,7 +147,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     kind: 'exact', path: STUDIO_ROUTE,
     handler: (req, res) => serveStudio(req, res, {
       describe: async () => {
-        const base = await describeStudio(ctx, current())
+        const base = await describeStudio(ctx, current(), subscriptionManager)
         const workspaces = await getDshWorkspacesFull().catch(() => [])
         const activeRoot = Array.from(knownWorkspaceRoots)[0] || workspaces[0]?.path || process.cwd()
         return {
@@ -158,7 +158,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       },
       generate: (input, signal) => {
         const fallbackRoot = Array.from(knownWorkspaceRoots)[0] || process.cwd()
-        return generateFromStudio(ctx, current(), input, signal, fallbackRoot)
+        return generateFromStudio(ctx, current(), input, signal, fallbackRoot, subscriptionManager)
       },
       maxBodyBytes: Math.ceil(ctx.attachments.imageLimits.maxImageBytes * 1.4 * 5) + 256 * 1024,
     }),
@@ -235,7 +235,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Edit, combine, or restyle existing images with the configured provider. Images attached inline to the latest human message are already readable DSH attachments even when no workspace file exists. In that case, call edit_image immediately with prompt only; NEVER call read_image, glob, or shell to locate them, and NEVER invent @ paths. All inline images will be used in upload order. For specific older conversation images use source_attachment_id or source_attachment_ids; both canonical sha256: IDs and full bare SHA-256 digests are accepted. For files the user explicitly names in the workspace use source_path or source_paths. For what the user selected or drew on the image-gen workbench canvas (for example a hand-drawn sketch) use source=canvas_selection; canvas_state can verify a selection exists first. Provide exactly one selector field. Without a selector, images from the latest human message take priority; only when that message has no images does editing fall back to the newest conversation image.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Describe the changes to make while preserving everything else that should remain.' },
-      provider: { type: 'string', enum: ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui', 'chatgpt-sub', 'grok-sub', 'google-sub'], description: 'Optional provider for this call only (for example when the user asks to use a specific provider); omit to use the configured default. chatgpt-sub, grok-sub, and google-sub cannot edit images yet; the subscription channel is text-prompt only, so retry editing with an API-key provider instead.' },
+      provider: { type: 'string', enum: ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui', 'chatgpt-sub', 'grok-sub', 'google-sub'], description: 'Optional provider for this call only (for example when the user asks to use a specific provider); omit to use the configured default. chatgpt-sub, grok-sub, and google-sub edit images through the logged-in subscription account instead of an API key.' },
       model: { type: 'string', description: 'Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by the subscription providers (model fixed by the subscription).' },
       source: { type: 'string', enum: ['canvas_selection'], description: 'Use the current selection on the image-gen workbench infinite canvas as the reference image(s): full-resolution originals when the selection is conversation-generated images, plus a screenshot of the whole selection when it also contains other content (hand-drawn strokes, pasted images). Choose this when the user refers to what they selected or drew on the canvas; combine with no other selector field.' },
       source_attachment_id: { type: 'string', description: 'Optional attachment id of a specific image already present in the current conversation.' },
@@ -250,12 +250,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     output: imageOutput('Edited'),
     async execute(args, exec): Promise<GeneratedValue> {
       const active = resolveProvider(withProviderOverrides(current(), providerOverrideOf(args.provider), args.model))
-      if (active.provider === 'chatgpt-sub' || active.provider === 'grok-sub' || active.provider === 'google-sub') {
-        // The subscription channel is text-prompt only today. Fail before any
-        // reference resolution: explicit guidance beats a misleading
-        // "requires a reference image" error from the shared pipeline.
-        assertSubscriptionEditUnsupported(active.provider)
-      }
       const canvasSelection = args.source === 'canvas_selection'
       if (canvasSelection && (
         args.source_attachment_id !== undefined
@@ -301,6 +295,20 @@ export function apply(ctx: Context, config: Config = {}): void {
           signal: exec.signal,
         })
         return saveGenerated(ctx, generated, active.provider, workflow.name, 'API workflow', current(), exec, knownWorkspaceRoots)
+      }
+
+      if (active.provider === 'chatgpt-sub' || active.provider === 'grok-sub' || active.provider === 'google-sub') {
+        if (sourceImages.length === 0) throw new Error('edit_image requires a reference image')
+        const generated = await generateSubscriptionImage({
+          manager: subscriptionManager,
+          provider: active.provider,
+          prompt: args.prompt,
+          sourceImages,
+          ...(args.size !== undefined ? { size: args.size } : {}),
+          maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+          signal: exec.signal,
+        })
+        return saveGenerated(ctx, generated, active.provider, active.model, 'subscription edit', current(), exec, knownWorkspaceRoots)
       }
 
       const credential = await requireApiKey(ctx, active.provider, 'edit_image')

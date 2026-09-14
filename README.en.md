@@ -117,7 +117,7 @@ After restarting DSH, open:
 
 Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. Once the key is stored, click **Test connection** to verify it, or **Fetch models** to pull every image-capable model the provider offers—no manual lookups needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
 
-Already paying for ChatGPT, Grok, or Google? No API key needed: expand the matching subscription Provider row, click **Sign in** and complete the authorization in your browser, then start generating right away.
+Already paying for ChatGPT, Grok, or Google? No API key needed: expand the matching subscription Provider row, click **Sign in** and complete the authorization in your browser, then start generating (and editing) right away.
 
 ### 3. Start creating
 
@@ -277,13 +277,13 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | **xAI Grok Imagine** | ✅ | ⚠️ Limited | ✅ | ✅ |
 | **Zhipu GLM-Image** | ✅ | — | ✅ | ✅ |
 | **Local ComfyUI** | ✅ | ✅ Single | — | — |
-| **ChatGPT subscription (key-free)** | ✅ | — | — | — |
-| **Grok subscription (key-free)** | ✅ | — | — | — |
-| **Google subscription (key-free)** | ✅ | — | — | — |
+| **ChatGPT subscription (key-free)** | ✅ | ✅ Multiple | ✅ | ✅ |
+| **Grok subscription (key-free)** | ✅ | ✅ Multiple | ✅ | ✅ |
+| **Google subscription (key-free)** | ✅ | ✅ Multiple | ✅ | ✅ |
 
-> Studio and multi-model comparison currently support cloud Providers only. Multi-model comparison uses the model configured for each Provider in Settings.
+> Studio and multi-model comparison currently support cloud Providers only (subscription channels included). Multi-model comparison uses the model configured for each Provider in Settings.
 > Zhipu GLM-Image does not support image-to-image upstream. xAI image editing goes through the OpenAI-compatible protocol (multipart); some gateways may need further adaptation.
-> Subscription channels work through account sign-in (no API key). They currently support in-chat text-to-image only; for editing, Studio, and multi-model comparison, use an API-key Provider.
+> Subscription channels work through account sign-in (no API key). They support in-chat text-to-image / image-to-image, Studio batch generation, and multi-model comparison; edits ride each channel's edit endpoint with channel-default parameters (up to 5 reference images).
 
 <details>
 <summary><strong>Current default models and endpoints (all configurable)</strong></summary>

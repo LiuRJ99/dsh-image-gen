@@ -117,7 +117,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 选择 Provider，填写自己的 API Key，并按需调整模型、Endpoint / Base URL 与工作区保存选项。填好 Key 后可点击**「测试连接」**验证可用性，或点击**「拉取模型」**一键获取该厂商支持的全部生图模型，无需手动查文档。使用 ComfyUI 时，请填写 DSH Host 可访问的服务地址，并导入 **API Format Workflow JSON**。
 
-已有 ChatGPT、Grok 或 Google 订阅？无需填写 API Key：展开对应的订阅 Provider 行，点击**「登录」**并在浏览器完成授权，即可直接开始生图。
+已有 ChatGPT、Grok 或 Google 订阅？无需填写 API Key：展开对应的订阅 Provider 行，点击**「登录」**并在浏览器完成授权，即可直接开始文生图与图生图。
 
 ### 3. 开始创作
 
@@ -277,13 +277,13 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 | **xAI Grok Imagine**              |    ✅    | ⚠️ 有限  |   ✅   |     ✅     |
 | **智谱 GLM-Image**                |    ✅    |    —     |   ✅   |     ✅     |
 | **Local ComfyUI**                 |    ✅    | ✅ 单图  |   —    |     —      |
-| **ChatGPT 订阅（免 Key）**       |    ✅    |    —     |   —    |     —      |
-| **Grok 订阅（免 Key）**          |    ✅    |    —     |   —    |     —      |
-| **Google 订阅（免 Key）**        |    ✅    |    —     |   —    |     —      |
+| **ChatGPT 订阅（免 Key）**       |    ✅    | ✅ 多图  |   ✅   |     ✅     |
+| **Grok 订阅（免 Key）**          |    ✅    | ✅ 多图  |   ✅   |     ✅     |
+| **Google 订阅（免 Key）**        |    ✅    | ✅ 多图  |   ✅   |     ✅     |
 
-> Studio 与多模型对比目前只支持云端 Provider；多模型对比调用的是各 Provider 在设置中已配置的模型。
+> Studio 与多模型对比目前只支持云端 Provider（含订阅通道）；多模型对比调用的是各 Provider 在设置中已配置的模型。
 > 智谱 GLM-Image 上游本身不支持图生图；xAI 图生图走 OpenAI 兼容协议（multipart），部分网关可能需等待后续适配。
-> 订阅通道通过账号登录使用（免 API Key），目前仅支持对话文生图；编辑、Studio 与多模型对比请使用 API Key 类 Provider。
+> 订阅通道通过账号登录使用（免 API Key），支持对话文生图 / 图生图、Studio 批量生成与多模型对比；图生图走各订阅渠道的编辑接口，参数为通道默认（最多 5 张参考图）。
 
 <details>
 <summary><strong>当前默认模型与 Endpoint（均可修改）</strong></summary>

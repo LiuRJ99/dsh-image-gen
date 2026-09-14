@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { DEFAULT_GOOGLE_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_SEEDREAM_MODEL, DEFAULT_DASHSCOPE_MODEL } from '../src/config.js'
-import { generateFromStudio, runPool, studioProfile } from '../src/studio.js'
+import { generateFromStudio, runPool, studioProfile, describeStudio } from '../src/studio.js'
 import { parseStudioGenerateRequest, serveStudio } from '../src/studio-route.js'
+import { SUBSCRIPTION_PROVIDERS, DEFAULT_SUBSCRIPTION_MODELS, SUBSCRIPTION_TIMEOUT_MS, STUDIO_PROVIDERS, CLOUD_IMAGE_PROVIDERS, type SubscriptionProvider } from '../src/shared.js'
+import type { SubscriptionManager, SubscriptionVendor } from '../src/subscription/manager.js'
 import {
   fetchAttachmentBlob,
   clearAttachmentCache,
@@ -70,6 +72,11 @@ describe('image workbench provider capabilities', () => {
 
   it('does not expose ComfyUI through the first workbench release', () => {
     expect(() => studioProfile({}, 'comfyui' as never, true)).toThrow()
+  })
+
+  it('lists subscription channels after the cloud rows', () => {
+    expect(STUDIO_PROVIDERS).toEqual([...CLOUD_IMAGE_PROVIDERS, ...SUBSCRIPTION_PROVIDERS])
+    expect(STUDIO_PROVIDERS).not.toContain('comfyui')
   })
 })
 
@@ -142,6 +149,251 @@ describe('image workbench request validation', () => {
     expect(() => parseStudioGenerateRequest({ ...base, count: -1 })).toThrow('生成数量仅支持 1 到 4 张')
     expect(() => parseStudioGenerateRequest({ ...base, count: 2.5 })).toThrow('生成数量仅支持 1 到 4 张')
     expect(() => parseStudioGenerateRequest({ ...base, count: '2' as never })).toThrow('生成数量仅支持 1 到 4 张')
+  })
+
+  it('accepts subscription providers for both text-to-image and edits at the boundary', () => {
+    for (const provider of SUBSCRIPTION_PROVIDERS) {
+      expect(parseStudioGenerateRequest({ ...base, provider, model: DEFAULT_SUBSCRIPTION_MODELS[provider], ratio: 'auto', quality: 'auto' }))
+        .toMatchObject({ provider, ratio: 'auto', quality: 'auto' })
+    }
+    expect(parseStudioGenerateRequest({
+      ...base,
+      provider: 'chatgpt-sub',
+      model: DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'],
+      mode: 'edit',
+      reference: {
+        attachment: { attachmentId: 'sha256:image', mediaType: 'image/png', bytes: 8, width: 32, height: 32 },
+      },
+    })).toMatchObject({ provider: 'chatgpt-sub', mode: 'edit' })
+  })
+})
+
+describe('subscription workbench profiles', () => {
+  it('builds a stub SubscriptionManager whose loginStatus reflects credentials', async () => {
+    const manager = stubSubscriptionManager({ 'chatgpt-sub': { state: 'logged-in', email: 'user@example.com' } })
+    expect((await manager.loginStatus('codex')).state).toBe('logged-in')
+    expect((await manager.loginStatus('grok')).state).toBe('logged-out')
+  })
+
+  it('exposes signed-in subscriptions as configured rows with channel-default parameters', async () => {
+    const manager = stubSubscriptionManager({
+      'chatgpt-sub': { state: 'logged-in', email: 'user@example.com' },
+      'grok-sub': { state: 'logged-in', email: 'user@example.com' },
+      'google-sub': { state: 'logged-out' },
+    })
+    const config = await describeStudio(studioCtx(), {}, manager)
+    const byProvider = new Map(config.providers.map(profile => [profile.provider, profile]))
+    expect([...byProvider.keys()]).toEqual([...CLOUD_IMAGE_PROVIDERS, ...SUBSCRIPTION_PROVIDERS])
+
+    const chatgpt = byProvider.get('chatgpt-sub')!
+    expect(chatgpt).toMatchObject({
+      label: 'ChatGPT 订阅',
+      model: DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'],
+      configured: true,
+      supportsEditing: true,
+      defaultRatio: 'auto',
+      defaultQuality: 'auto',
+    })
+    expect(chatgpt.ratioOptions).toEqual([{ value: 'auto', label: '通道默认' }])
+    expect(chatgpt.qualityOptions).toEqual([{ value: 'auto', label: '通道默认' }])
+
+    expect(byProvider.get('grok-sub')!.configured).toBe(true)
+    expect(byProvider.get('google-sub')!.configured).toBe(false)
+  })
+
+  it('falls back to the first configured provider when the preference cannot drive the workbench', async () => {
+    const manager = stubSubscriptionManager({})
+    const config = await describeStudio(studioCtx(), { provider: 'comfyui' }, manager)
+    expect(config.activeProvider).toBe('google')
+  })
+
+  it('keeps a preferred subscription provider as the active workbench provider', async () => {
+    const manager = stubSubscriptionManager({
+      'chatgpt-sub': { state: 'logged-in', email: 'user@example.com' },
+    })
+    const config = await describeStudio(studioCtx(), { provider: 'chatgpt-sub' }, manager)
+    expect(config.activeProvider).toBe('chatgpt-sub')
+  })
+})
+
+describe('subscription workbench generation', () => {
+  it('routes prompt-only subscription requests through generateSubscriptionImage', async () => {
+    const manager = stubSubscriptionManager({ 'chatgpt-sub': { state: 'logged-in', email: 'user@example.com' } })
+    const ctx = studioCtx()
+    const result = await generateFromStudio(
+      ctx,
+      {},
+      {
+        mode: 'generate',
+        provider: 'chatgpt-sub',
+        model: DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'],
+        prompt: 'a warm editorial portrait',
+        ratio: 'auto',
+        quality: 'auto',
+      },
+      new AbortController().signal,
+      undefined,
+      manager,
+    )
+    expect(manager.generateCalls.map(call => call.vendor)).toEqual(['codex'])
+    expect(result.output).toBe('通道默认')
+    expect(result.provider).toBe('chatgpt-sub')
+    expect(result.model).toBe(DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'])
+    expect(result.items).toHaveLength(1)
+    expect(ctx.attachments.saveImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes reference images through to the subscription manager for edits', async () => {
+    const manager = stubSubscriptionManager({ 'grok-sub': { state: 'logged-in', email: 'user@example.com' } })
+    const ctx = studioCtx()
+    const result = await generateFromStudio(
+      ctx,
+      {},
+      {
+        mode: 'edit',
+        provider: 'grok-sub',
+        model: DEFAULT_SUBSCRIPTION_MODELS['grok-sub'],
+        prompt: 'a warm editorial portrait',
+        ratio: 'auto',
+        quality: 'auto',
+        references: [{ data: Buffer.from('stub-image').toString('base64'), mediaType: 'image/png' }],
+      },
+      new AbortController().signal,
+      undefined,
+      manager,
+    )
+    expect(manager.generateCalls).toHaveLength(1)
+    expect(manager.generateCalls[0]!.vendor).toBe('grok')
+    expect(manager.generateCalls[0]!.referenceImages).toHaveLength(1)
+    expect(result.provider).toBe('grok-sub')
+    expect(result.items).toHaveLength(1)
+    expect(ctx.attachments.saveImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects subscription edits that arrive without any reference image', async () => {
+    const manager = stubSubscriptionManager({ 'grok-sub': { state: 'logged-in', email: 'user@example.com' } })
+    await expect(generateFromStudio(
+      studioCtx(),
+      {},
+      {
+        mode: 'edit',
+        provider: 'grok-sub',
+        model: DEFAULT_SUBSCRIPTION_MODELS['grok-sub'],
+        prompt: 'a warm editorial portrait',
+        ratio: 'auto',
+        quality: 'auto',
+      },
+      new AbortController().signal,
+      undefined,
+      manager,
+    )).rejects.toThrow('图生图需要至少一张参考图')
+    expect(manager.generateCalls).toHaveLength(0)
+  })
+
+  it('rejects invalid base64 subscription references without falling back to text-to-image', async () => {
+    const manager = stubSubscriptionManager({ 'grok-sub': { state: 'logged-in', email: 'user@example.com' } })
+    await expect(generateFromStudio(
+      studioCtx(),
+      {},
+      {
+        mode: 'edit',
+        provider: 'grok-sub',
+        model: DEFAULT_SUBSCRIPTION_MODELS['grok-sub'],
+        prompt: 'a warm editorial portrait',
+        ratio: 'auto',
+        quality: 'auto',
+        references: [{ data: 'not-valid-base64!!', mediaType: 'image/png' }],
+      },
+      new AbortController().signal,
+      undefined,
+      manager,
+    )).rejects.toThrow('参考图编码无效')
+    expect(manager.generateCalls).toHaveLength(0)
+  })
+
+  it('rejects subscription generation when the manager is missing', async () => {
+    await expect(generateFromStudio(
+      studioCtx(),
+      {},
+      {
+        mode: 'generate',
+        provider: 'chatgpt-sub',
+        model: DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'],
+        prompt: 'a warm editorial portrait',
+        ratio: 'auto',
+        quality: 'auto',
+      },
+      new AbortController().signal,
+    )).rejects.toThrow('订阅管理器未初始化')
+  })
+
+  it('runs multi-image subscription batches through the same 2-slot pool', async () => {
+    const manager = stubSubscriptionManager({ 'google-sub': { state: 'logged-in', email: 'user@example.com' } })
+    const ctx = studioCtx()
+    const result = await generateFromStudio(
+      ctx,
+      {},
+      {
+        mode: 'generate',
+        provider: 'google-sub',
+        model: DEFAULT_SUBSCRIPTION_MODELS['google-sub'],
+        prompt: 'a warm editorial portrait',
+        ratio: 'auto',
+        quality: 'auto',
+        count: 3,
+      },
+      new AbortController().signal,
+      undefined,
+      manager,
+    )
+    expect(manager.generateCalls).toHaveLength(3)
+    expect(result.requestedCount).toBe(3)
+    expect(result.failedCount).toBe(0)
+    expect(result.items).toHaveLength(3)
+    expect(ctx.attachments.saveImage).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('mixed subscription and API comparison planning', () => {
+  const subProfile = (provider: SubscriptionProvider, configured: boolean) => ({
+    provider,
+    label: provider,
+    model: DEFAULT_SUBSCRIPTION_MODELS[provider],
+    configured,
+    supportsEditing: true,
+    ratioOptions: [{ value: 'auto', label: '通道默认' }],
+    qualityOptions: [{ value: 'auto', label: '通道默认' }],
+    defaultRatio: 'auto',
+    defaultQuality: 'auto',
+  })
+
+  it('keeps API-key rows adjustable while subscription rows fall back to channel defaults', () => {
+    const profiles = [
+      studioProfile({}, 'google', true),
+      studioProfile({}, 'openai', true),
+      subProfile('chatgpt-sub', true),
+      subProfile('grok-sub', false),
+    ]
+    const targets = buildComparisonTargets(profiles, ['google', 'openai', 'chatgpt-sub', 'grok-sub'], '16:9', '4K')
+    expect(targets.map(target => ({
+      provider: target.profile.provider,
+      ratio: target.ratio,
+      quality: target.quality,
+    }))).toEqual([
+      { provider: 'google', ratio: '16:9', quality: '4K' },
+      { provider: 'openai', ratio: '1:1', quality: 'standard' },
+      { provider: 'chatgpt-sub', ratio: 'auto', quality: 'auto' },
+    ])
+  })
+
+  it('starts mixed comparisons from the active provider regardless of channel kind', () => {
+    const profiles = [
+      studioProfile({}, 'google', true),
+      subProfile('chatgpt-sub', true),
+      subProfile('grok-sub', true),
+    ]
+    expect(initialComparisonProviders(profiles, 'chatgpt-sub')).toEqual(['chatgpt-sub', 'google'])
+    expect(initialComparisonProviders(profiles, 'grok-sub')).toEqual(['grok-sub', 'google'])
   })
 })
 
@@ -683,3 +935,70 @@ describe('generateFromStudio multi-image execution', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Test doubles shared by the subscription workbench suites.
+// ---------------------------------------------------------------------------
+
+/** Minimal Context shape the studio paths touch (credentials + attachments). */
+function studioCtx(): any {
+  return {
+    credentials: {
+      resolve: vi.fn().mockResolvedValue(undefined),
+    },
+    attachments: {
+      imageLimits: {
+        maxImageBytes: 10 * 1024 * 1024,
+        mediaTypes: ['image/jpeg', 'image/png'],
+      },
+      saveImage: vi.fn().mockImplementation(async ({ mediaType }: { mediaType: string }) => ({
+        attachmentId: `att-${saveImageSeq++}`,
+        mediaType,
+        bytes: 100,
+      })),
+      readImage: vi.fn(async (ref: { attachmentId: string }) => ({
+        ref: { attachmentId: ref.attachmentId, mediaType: 'image/png' },
+        data: new Uint8Array(10),
+      })),
+      validateImage: vi.fn(async ({ data }: { data: Uint8Array }) => {
+        if (data.byteLength === 0) throw new Error('参考图编码无效')
+      }),
+    },
+    logger: { warn: vi.fn() },
+  }
+}
+
+let saveImageSeq = 0
+
+interface StubSubscriptionManager extends SubscriptionManager {
+  generateCalls: Array<{ vendor: SubscriptionVendor; prompt: string; referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }> }>
+}
+
+/** 1x1 PNG the stub generate() returns; passes the format sniffing. */
+const TINY_PNG = 'iVBORw0KGgo='
+
+/** In-memory SubscriptionManager: status per provider, generated PNGs, no network. */
+function stubSubscriptionManager(statuses: Partial<Record<SubscriptionProvider, { state: 'logged-in'; email: string } | { state: 'logged-out' }>>): StubSubscriptionManager {
+  const generateCalls: Array<{ vendor: SubscriptionVendor; prompt: string; referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }> }> = []
+  const manager = {
+    generateCalls,
+    async loginStatus(vendor: SubscriptionVendor) {
+      const provider = vendor === 'codex' ? 'chatgpt-sub' as const
+        : vendor === 'antigravity' ? 'google-sub' as const
+        : 'grok-sub' as const
+      const status = statuses[provider]
+      return status?.state === 'logged-in' ? { state: 'logged-in' as const, email: status.email } : { state: 'logged-out' as const }
+    },
+    async generate(options: { vendor: SubscriptionVendor; prompt: string; referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }> }) {
+      const vendor = options.vendor
+      const provider = vendor === 'codex' ? 'chatgpt-sub' as const
+        : vendor === 'antigravity' ? 'google-sub' as const
+        : 'grok-sub' as const
+      const status = statuses[provider]
+      if (status?.state !== 'logged-in') throw new Error(`${String(vendor)} is not logged in`)
+      generateCalls.push({ vendor, prompt: options.prompt, ...(options.referenceImages !== undefined ? { referenceImages: options.referenceImages } : {}) })
+      return [{ b64_json: TINY_PNG }]
+    },
+  }
+  return manager as unknown as StubSubscriptionManager
+}

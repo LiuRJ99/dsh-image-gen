@@ -423,6 +423,26 @@ describe('image tool registration', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('routes subscription edit_image through the subscription channel with a clear not-logged-in error', async () => {
+    const { ctx, tools } = harnessContext()
+    vi.mocked(ctx.attachments.readImage).mockResolvedValue({
+      ref: { mediaType: 'image/png', attachmentId: 'sha256:a' as ImageAttachmentRef['attachmentId'], bytes: 1, width: 2, height: 2 },
+      data: new Uint8Array([1]),
+    } as never)
+    // Every credential ref resolves empty: the subscription blob is absent,
+    // so the call must fail with the login hint, not an API-key hint.
+    vi.mocked(ctx.credentials.resolve).mockResolvedValue(undefined as never)
+    const fetchMock = vi.fn(() => { throw new Error('fetch must not be called') })
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'chatgpt-sub', saveToWorkspace: false })
+
+    await expect(toolByName(tools, 'edit_image').execute(
+      { prompt: 'restyle it' },
+      execWithUserImages('sha256:source-image'),
+    )).rejects.toThrow('ChatGPT 订阅 未登录')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('still generates after trimming a credential stored with surrounding whitespace', async () => {
     const { ctx, tools } = harnessContext()
     vi.mocked(ctx.credentials.resolve).mockResolvedValue({ value: '  sk-live-key  ' } as never)

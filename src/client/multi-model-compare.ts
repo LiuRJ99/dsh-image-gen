@@ -1,4 +1,4 @@
-import type { CloudImageProvider, StudioProviderProfile } from '../shared.js'
+import type { StudioProvider, StudioProviderProfile } from '../shared.js'
 
 export interface ComparisonTarget {
   profile: StudioProviderProfile
@@ -10,7 +10,7 @@ export interface ComparisonTarget {
 /** Map one shared output intent to settings accepted by every target model. */
 export function buildComparisonTargets(
   profiles: readonly StudioProviderProfile[],
-  selectedProviders: readonly CloudImageProvider[],
+  selectedProviders: readonly StudioProvider[],
   ratio: string,
   quality: string,
 ): ComparisonTarget[] {
@@ -32,8 +32,8 @@ export function buildComparisonTargets(
 /** Start with two models, not every configured API, to avoid surprise spend. */
 export function initialComparisonProviders(
   profiles: readonly StudioProviderProfile[],
-  activeProvider: CloudImageProvider,
-): CloudImageProvider[] {
+  activeProvider: StudioProvider,
+): StudioProvider[] {
   const configured = profiles.filter(profile => profile.configured)
   const active = configured.find(profile => profile.provider === activeProvider)
   const ordered = active === undefined

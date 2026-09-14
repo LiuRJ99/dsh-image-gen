@@ -136,6 +136,23 @@ export const CLOUD_IMAGE_PROVIDERS = ['google', 'openai', 'openai-compat', 'seed
 export type CloudImageProvider = typeof CLOUD_IMAGE_PROVIDERS[number]
 
 /**
+ * Providers the browser workbench can drive: the BYOK cloud set plus the
+ * logged-in subscription channels. ComfyUI stays out; it has its own workflow
+ * pipeline and no shared request shape.
+ */
+export const STUDIO_PROVIDERS = [...CLOUD_IMAGE_PROVIDERS, ...SUBSCRIPTION_PROVIDERS] as const
+export type StudioProvider = CloudImageProvider | SubscriptionProvider
+
+/** True when the provider is selectable in the browser workbench. */
+export function isStudioProvider(provider: ImageProvider): provider is StudioProvider {
+  return (STUDIO_PROVIDERS as readonly string[]).includes(provider)
+}
+
+/** Timeout for one subscription image call, shared by the tool path and the
+ * studio route so neither drifts from the other. */
+export const SUBSCRIPTION_TIMEOUT_MS = 300_000
+
+/**
  * Credential references resolved through the DSH Credentials service (BYOK).
  * These are POSIX-style reference names, not environment variables: the host
  * layers the process environment and its managed store behind them, so a name
@@ -207,7 +224,7 @@ export interface StudioOption {
 
 /** Browser-safe provider description. Credentials and endpoints never cross this boundary. */
 export interface StudioProviderProfile {
-  provider: CloudImageProvider
+  provider: StudioProvider
   label: string
   model: string
   configured: boolean
@@ -229,7 +246,7 @@ export interface StudioWorkspaceInfo {
 /** Read model and capability state for the workbench without exposing secrets. */
 export interface StudioConfigResponse {
   providers: StudioProviderProfile[]
-  activeProvider: CloudImageProvider
+  activeProvider: StudioProvider
   workspaceRoot?: string | undefined
   workspaces?: StudioWorkspaceInfo[] | undefined
 }
@@ -251,7 +268,7 @@ export type StudioReference = StudioEncodedReference | StudioAttachmentReference
 /** One browser workbench generation or editing request. */
 export interface StudioGenerateRequest {
   mode: 'generate' | 'edit'
-  provider: CloudImageProvider
+  provider: StudioProvider
   model: string
   prompt: string
   ratio: string
@@ -271,7 +288,7 @@ export interface StudioGeneratedItem {
 
 /** One completed workbench request. */
 export interface StudioGenerateResponse extends StudioGeneratedItem {
-  provider: CloudImageProvider
+  provider: StudioProvider
   model: string
   prompt: string
   createdAt: number

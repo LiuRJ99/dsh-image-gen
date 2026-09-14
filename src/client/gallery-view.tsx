@@ -328,6 +328,8 @@ export interface GalleryViewTabProps {
   useSession?: (selector: (state: any) => any) => any
   useSessions?: (selector: (state: any) => any) => any
   useWorkspaces?: (selector: (state: any) => any) => any
+  /** Host credential-change notifier; forwarded to the studio workbench. */
+  credentialEvents?: { listen(callback: () => void): () => void } | undefined
   /**
    * Right-sidebar variant (DSH official `sidebar.right.pane.tab` seat). The
    * native conversation stays in the main area, so the composer must NOT be
@@ -341,7 +343,7 @@ export interface GalleryViewTabProps {
 }
 
 export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
-  const { locale, sessionId, useSessions, useWorkspaces, inSidebar, defaultTab, initialCanvasSurface } = props
+  const { locale, sessionId, useSessions, useWorkspaces, credentialEvents, inSidebar, defaultTab, initialCanvasSurface } = props
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab ?? 'gallery')
   const [studioDraft, setStudioDraft] = useState<string | undefined>(undefined)
   const [items, setItems] = useState<GalleryItem[]>([])
@@ -1184,7 +1186,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
         ) : activeTab === 'inspiration' ? (
           <InspirationView locale={locale} onUsePrompt={useInspirationPrompt} />
         ) : (
-          <StudioView locale={locale} workspace={activeWorkspace} initialPrompt={studioDraft} initialCanvasSurface={initialCanvasSurface} showInfiniteCanvasHint={!inSidebar} onInitialPromptApplied={clearStudioDraft} onOpenInspiration={() => setActiveTab('inspiration')} />
+          <StudioView locale={locale} credentialEvents={credentialEvents} workspace={activeWorkspace} initialPrompt={studioDraft} initialCanvasSurface={initialCanvasSurface} showInfiniteCanvasHint={!inSidebar} onInitialPromptApplied={clearStudioDraft} onOpenInspiration={() => setActiveTab('inspiration')} />
         )}
       </div>
 

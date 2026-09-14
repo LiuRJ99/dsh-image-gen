@@ -15,6 +15,8 @@ const CODEX_SCOPE = 'openid profile email offline_access api.connectors.read api
 
 /** Where the ChatGPT subscription image request goes. */
 export const CODEX_IMAGE_URL = 'https://chatgpt.com/backend-api/codex/images/generations'
+/** Where the ChatGPT subscription image edit request goes. */
+export const CODEX_IMAGE_EDIT_URL = 'https://chatgpt.com/backend-api/codex/images/edits'
 /** The model served by this endpoint (probed live: gpt-image-2.5-flare works
  * on the ChatGPT internal generations route as of 2026-09-14). */
 export const CODEX_IMAGE_MODEL = 'gpt-image-2.5-flare'

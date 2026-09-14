@@ -21,6 +21,7 @@ import { createPkce, type Pkce } from './oauth.js'
 import { startLoopback } from './loopback.js'
 import { parseBlob, serializeBlob, type SubscriptionBlob } from './blob.js'
 import {
+  CODEX_IMAGE_EDIT_URL,
   CODEX_IMAGE_MODEL,
   CODEX_IMAGE_URL,
   CODEX_REDIRECT_URI,
@@ -31,6 +32,7 @@ import {
   codexRefresh,
 } from './vendors/codex.js'
 import {
+  GROK_IMAGE_EDIT_URL,
   GROK_IMAGE_MODEL,
   GROK_IMAGE_URL,
   GROK_REDIRECT_URI,
@@ -54,6 +56,15 @@ import { SUBSCRIPTION_PROVIDER_DISPLAY_NAMES, type SubscriptionProvider } from '
 /** Vendor ids used by the credential refs and the wire calls. */
 export type SubscriptionVendor = 'codex' | 'grok' | 'antigravity'
 
+/**
+ * Reference image passed to edit calls. Structural so callers can pass their
+ * own resolved types without importing from the plugin root.
+ */
+export interface SubscriptionReferenceImage {
+  data: Uint8Array
+  mediaType: string
+}
+
 /** The vendor each dsh-image-gen subscription provider maps onto. */
 export function vendorOf(provider: SubscriptionProvider): SubscriptionVendor {
   if (provider === 'chatgpt-sub') return 'codex'
@@ -68,6 +79,13 @@ export function subscriptionOauthRef(vendor: SubscriptionVendor): CredentialRef 
 
 /** Sizes both vendors understand. */
 export const SUBSCRIPTION_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'] as const
+
+/**
+ * Reference images per edit call. Every subscription channel accepts at
+ * least this many (Codex edits up to 16, Grok up to 5, Antigravity up to 10),
+ * so 5 keeps one shared guard in line with the Studio UI's upload cap.
+ */
+export const SUBSCRIPTION_MAX_REFERENCE_IMAGES = 5
 
 /** Login status the settings card renders as a badge. */
 export type SubscriptionLoginStatus =
@@ -206,12 +224,17 @@ export class SubscriptionManager {
     prompt: string
     size?: string
     quality?: string
+    referenceImages?: ReadonlyArray<SubscriptionReferenceImage>
     signal?: AbortSignal
   }): Promise<Array<{ b64_json: string; revisedPrompt?: string }>> {
     const { vendor, prompt } = options
     const session = await this.ensureFresh(vendor)
     const text = prompt.trim()
     if (text.length === 0) throw new Error('prompt must be a non-empty string')
+    const references = options.referenceImages ?? []
+    if (references.length > SUBSCRIPTION_MAX_REFERENCE_IMAGES) {
+      throw new Error(`订阅生图最多支持 ${String(SUBSCRIPTION_MAX_REFERENCE_IMAGES)} 张参考图，当前 ${String(references.length)} 张`)
+    }
 
     // Antigravity speaks the Gemini contents protocol, not OpenAI-style
     // generations; it gets its own wire call and skips the shared shape below.
@@ -224,6 +247,7 @@ export class SubscriptionManager {
         prompt: text,
         ...(aspectRatio !== undefined ? { aspectRatio } : {}),
         hd: options.quality === 'hd' || options.quality === 'high',
+        ...(references.length > 0 ? { referenceImages: references } : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
       })
       return [{ b64_json: result.b64 }]
@@ -233,16 +257,21 @@ export class SubscriptionManager {
     let headers: Record<string, string>
     let body: Record<string, unknown>
     if (vendor === 'codex') {
-      url = CODEX_IMAGE_URL
+      // Codex edits ride a sibling endpoint with the same identity headers;
+      // reference images go as data-URL image_url entries (JSON, not multipart).
+      url = references.length > 0 ? CODEX_IMAGE_EDIT_URL : CODEX_IMAGE_URL
       headers = codexIdentityHeaders(session)
       body = {
         prompt: text,
         model: CODEX_IMAGE_MODEL,
+        ...(references.length > 0 ? { images: references.map(image => ({ image_url: toDataUrl(image) })) } : {}),
         ...(options.size !== undefined && options.size.length > 0 ? { size: options.size } : {}),
         ...(options.quality !== undefined && options.quality.length > 0 ? { quality: options.quality } : {}),
       }
     } else {
-      url = GROK_IMAGE_URL
+      // Grok edits ride the public /v1/images/edits JSON endpoint; reference
+      // images go as typed image_url entries (JSON, not multipart).
+      url = references.length > 0 ? GROK_IMAGE_EDIT_URL : GROK_IMAGE_URL
       headers = grokIdentityHeaders(session)
       // Grok thinks in aspect ratios, not sizes; and has two quality tiers
       // where high is composed from medium.
@@ -252,6 +281,7 @@ export class SubscriptionManager {
         prompt: text,
         model: GROK_IMAGE_MODEL,
         response_format: 'b64_json',
+        ...(references.length > 0 ? { images: references.map(image => ({ type: 'image_url', image_url: toDataUrl(image) })) } : {}),
         ...(options.size !== undefined && aspect[options.size] !== undefined ? { aspect_ratio: aspect[options.size] } : {}),
         ...(level !== undefined ? { quality: level } : {}),
       }
@@ -301,6 +331,11 @@ function antigravityAspectRatioOf(size: string | undefined): string | undefined 
   if (mapped !== undefined) return mapped
   // Already a ratio like 16:9 passes through; anything else falls back to 1:1.
   return /^\d+:\d+$/.test(size) ? size : '1:1'
+}
+
+/** Encode one reference image as the data URL the edit endpoints accept. */
+function toDataUrl(image: SubscriptionReferenceImage): string {
+  return `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}`
 }
 
 /** Response parsing: both vendors reply in the same `{data:[{b64_json}]}` shape. */

@@ -271,14 +271,25 @@ function platformOf(): string {
  * Build the streamGenerateContent request body for one image generation.
  * Ported from the reference buildImageRequest + the wrapping envelope: no
  * tools, no systemInstruction, no thinkingConfig; responseModalities asks
- * for TEXT+IMAGE.
+ * for TEXT+IMAGE. Reference images (edits) ride along as inlineData parts
+ * before the text part, mirroring the reference implementation.
  */
-export function antigravityImageBody(options: { prompt: string; aspectRatio?: string; hd?: boolean }): Record<string, unknown> {
+export function antigravityImageBody(options: {
+  prompt: string
+  aspectRatio?: string
+  hd?: boolean
+  referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>
+}): Record<string, unknown> {
   const ratio = options.aspectRatio !== undefined && (ASPECT_RATIOS as readonly string[]).includes(options.aspectRatio) ? options.aspectRatio : '1:1'
   const imageConfig: Record<string, unknown> = { aspectRatio: ratio }
   if (options.hd === true) imageConfig.imageSize = '4K'
+  const parts: Array<Record<string, unknown>> = []
+  for (const image of options.referenceImages ?? []) {
+    parts.push({ inlineData: { mimeType: image.mediaType, data: Buffer.from(image.data).toString('base64') } })
+  }
+  parts.push({ text: options.prompt })
   return {
-    contents: [{ role: 'user', parts: [{ text: options.prompt }] }],
+    contents: [{ role: 'user', parts }],
     generationConfig: { candidateCount: 1, imageConfig, responseModalities: ['TEXT', 'IMAGE'] },
     safetySettings: SAFETY_SETTINGS_OFF,
   }
@@ -313,6 +324,7 @@ export async function antigravityGenerateImage(options: {
   prompt: string
   aspectRatio?: string
   hd?: boolean
+  referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>
   signal?: AbortSignal
 }): Promise<AntigravityImageResult> {
   // Content requests carry the browser UA with the client version, which the
@@ -322,6 +334,7 @@ export async function antigravityGenerateImage(options: {
     prompt: options.prompt,
     ...(options.aspectRatio !== undefined ? { aspectRatio: options.aspectRatio } : {}),
     ...(options.hd !== undefined ? { hd: options.hd } : {}),
+    ...(options.referenceImages !== undefined ? { referenceImages: options.referenceImages } : {}),
   })
   const body = antigravityEnvelope(options.projectId, inner)
   let lastError = 'no endpoint succeeded'

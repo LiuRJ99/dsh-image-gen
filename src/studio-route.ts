@@ -3,11 +3,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { parseImageAttachmentRef } from './reference-image.js'
 import {
-  CLOUD_IMAGE_PROVIDERS,
-  type CloudImageProvider,
+  STUDIO_PROVIDERS,
+  SUBSCRIPTION_TIMEOUT_MS,
+  isSubscriptionProvider,
   type StudioConfigResponse,
   type StudioGenerateRequest,
   type StudioGenerateResponse,
+  type StudioProvider,
   type StudioReference,
 } from './shared.js'
 
@@ -35,8 +37,12 @@ export async function serveStudio(req: IncomingMessage, res: ServerResponse, dep
   const controller = new AbortController()
   // Upstream watchdog: a stalled provider must fail loudly instead of pinning
   // the browser spinner until undici's default 300s headers timeout fires.
-  const upstreamTimeout = AbortSignal.timeout(150_000)
-  const signal = AbortSignal.any([controller.signal, upstreamTimeout])
+  // Subscription channels are slower (especially Antigravity), so they get the
+  // shared SUBSCRIPTION_TIMEOUT_MS budget instead of the cloud 150s.
+  const watchdog = new AbortController()
+  const CLOUD_WATCHDOG_MS = 150_000
+  let subscriptionChannel = false
+  const signal = AbortSignal.any([controller.signal, watchdog.signal])
   const onConnectionClose = () => {
     if (!res.writableEnded) {
       controller.abort(new Error('The browser closed the image generation request.'))
@@ -56,6 +62,11 @@ export async function serveStudio(req: IncomingMessage, res: ServerResponse, dep
     } catch (error) {
       return jsonError(res, 400, errorMessage(error, 'invalid-request'))
     }
+    // Watchdog arms per channel: subscriptions get the longer subscription
+    // budget; API-key providers keep the original 150s.
+    subscriptionChannel = isSubscriptionProvider(input.provider)
+    const timeoutMs = subscriptionChannel ? SUBSCRIPTION_TIMEOUT_MS : CLOUD_WATCHDOG_MS
+    setTimeout(() => { watchdog.abort() }, timeoutMs).unref?.()
     const output = await deps.generate(input, signal)
     if (!res.headersSent && !res.writableEnded && !res.destroyed) {
       json(res, 200, output)
@@ -65,8 +76,10 @@ export async function serveStudio(req: IncomingMessage, res: ServerResponse, dep
       // Client disconnected prematurely; do not write to closed/destroyed socket
       return
     }
-    if (upstreamTimeout.aborted) {
-      return jsonError(res, 504, '上游生成超时（150 秒未返回），请检查网络或代理后重试')
+    if (watchdog.signal.aborted) {
+      return jsonError(res, 504, subscriptionChannel
+        ? '上游生成超时（订阅通道 300 秒未返回），请稍后重试'
+        : '上游生成超时（150 秒未返回），请检查网络或代理后重试')
     }
     jsonError(res, controller.signal.aborted ? 499 : 502, errorMessage(error, 'generation-failed'))
   } finally {
@@ -80,7 +93,7 @@ export function parseStudioGenerateRequest(value: unknown): StudioGenerateReques
   const input = record(value)
   if (input === undefined) throw new Error('请求格式无效')
   if (input.mode !== 'generate' && input.mode !== 'edit') throw new Error('请选择生成类型')
-  if (!cloudProvider(input.provider)) throw new Error('不支持该图像 Provider')
+  if (!studioProvider(input.provider)) throw new Error('不支持该图像 Provider')
   const prompt = requiredText(input.prompt, '请输入提示词', 2_000)
   const model = requiredText(input.model, '请选择模型', 200)
   const ratio = requiredText(input.ratio, '请选择比例', 32)
@@ -143,8 +156,8 @@ function requiredText(value: unknown, message: string, maxLength: number): strin
   return text
 }
 
-function cloudProvider(value: unknown): value is CloudImageProvider {
-  return typeof value === 'string' && (CLOUD_IMAGE_PROVIDERS as readonly string[]).includes(value)
+function studioProvider(value: unknown): value is StudioProvider {
+  return typeof value === 'string' && (STUDIO_PROVIDERS as readonly string[]).includes(value)
 }
 
 function imageMediaType(value: unknown): value is ImageMediaType {

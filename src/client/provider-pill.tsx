@@ -89,19 +89,36 @@ const PILL_DICT = {
 
 type PillDictKey = keyof typeof PILL_DICT.zh
 
-/** Short row labels; the settings card keeps the longer descriptive names. */
-const PILL_PROVIDER_LABELS: Record<ImageProvider, string> = {
-  google: 'Gemini',
-  openai: 'OpenAI',
-  'openai-compat': 'OpenAI 兼容',
-  seedream: 'Seedream',
-  dashscope: 'DashScope',
-  xai: 'Grok',
-  zhipu: '智谱 GLM',
-  comfyui: 'ComfyUI',
-  'chatgpt-sub': 'ChatGPT 订阅',
-  'grok-sub': 'Grok 订阅',
-  'google-sub': 'Google 订阅',
+/** Provider row names, per locale. Brand words stay untranslated; only the
+ * qualifier ("订阅" / "Sub") localizes, so the pill and the menu agree with the
+ * settings card in both languages. */
+const PILL_PROVIDER_LABELS: Record<'zh' | 'en', Record<ImageProvider, string>> = {
+  zh: {
+    google: 'Gemini',
+    openai: 'OpenAI',
+    'openai-compat': 'OpenAI 兼容',
+    seedream: 'Seedream',
+    dashscope: 'DashScope',
+    xai: 'Grok',
+    zhipu: '智谱 GLM',
+    comfyui: 'ComfyUI',
+    'chatgpt-sub': 'ChatGPT 订阅',
+    'grok-sub': 'Grok 订阅',
+    'google-sub': 'Google 订阅',
+  },
+  en: {
+    google: 'Gemini',
+    openai: 'OpenAI',
+    'openai-compat': 'OpenAI Compatible',
+    seedream: 'Seedream',
+    dashscope: 'DashScope',
+    xai: 'Grok',
+    zhipu: 'Zhipu GLM',
+    comfyui: 'ComfyUI',
+    'chatgpt-sub': 'ChatGPT Sub',
+    'grok-sub': 'Grok Sub',
+    'google-sub': 'Google Sub',
+  },
 }
 
 type KeyDot = 'checking' | 'configured' | 'missing' | 'unknown'
@@ -144,7 +161,7 @@ export function pillModelOf(provider: ImageProvider, value: PillSettings | undef
 /** One fixed-position provider menu anchored to the pill button. */
 export function ImageProviderPill(props: ProviderPillFace) {
   const [snapshot, setSnapshot] = useState(() => props.scope.getSnapshot())
-  const [lang, setLang] = useState(() => (props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'))
+  const [lang, setLang] = useState<'zh' | 'en'>(() => (props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'))
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<ImageProvider | undefined>(undefined)
   const [error, setError] = useState('')
@@ -328,7 +345,7 @@ export function ImageProviderPill(props: ProviderPillFace) {
         <svg className="dsh-ig-pill-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="1.5" y="2.5" width="13" height="11" rx="2" /><circle cx="5.5" cy="6.5" r="1.3" /><path d="M14.5 10.5l-3.2-3.2-6.3 6.2" />
         </svg>
-        <span className="dsh-ig-pill-provider">{PILL_PROVIDER_LABELS[current]}</span>
+        <span className="dsh-ig-pill-provider">{PILL_PROVIDER_LABELS[lang][current]}</span>
         <span className={`dsh-ig-pill-caret${open ? ' dsh-ig-pill-caret-open' : ''}`} aria-hidden="true">
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10l4-4 4 4" /></svg>
         </span>
@@ -348,7 +365,7 @@ export function ImageProviderPill(props: ProviderPillFace) {
             >
               <span className={`dsh-ig-pill-dot ${dotClassOf(provider)}`} aria-hidden="true" />
               <span className="dsh-ig-pill-option-text">
-                <span className="dsh-ig-pill-option-name">{PILL_PROVIDER_LABELS[provider]}</span>
+                <span className="dsh-ig-pill-option-name">{PILL_PROVIDER_LABELS[lang][provider]}</span>
                 <span className="dsh-ig-pill-option-sub">{subtitleOf(provider)}</span>
               </span>
               {provider === current ? <span className="dsh-ig-pill-check" aria-hidden="true">
@@ -365,16 +382,20 @@ export function ImageProviderPill(props: ProviderPillFace) {
 
 /** Styles for the pill and its fixed-position menu; injected by the client entry. */
 export const PROVIDER_PILL_STYLE = `
-.dsh-ig-pill-root{position:relative;display:inline-flex;align-items:center;height:26px}
-.dsh-ig-pill-button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px 0 7px;border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:13px;background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:12px;line-height:1;cursor:pointer;transition:border-color .15s,background .15s,color .15s;-webkit-user-select:none;user-select:none}
+.dsh-ig-pill-root{position:relative;display:inline-flex;align-items:center;height:28px}
+.dsh-ig-pill-button{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px 0 8px;border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:14px;background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:13px;line-height:20px;cursor:pointer;transition:border-color .15s,background .15s,color .15s;-webkit-user-select:none;user-select:none}
 .dsh-ig-pill-button:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#9ca3af);color:var(--dsw-alias-label-primary,#111827)}
 .dsh-ig-pill-button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4c78ff);outline-offset:1px}
 .dsh-ig-pill-button:disabled{opacity:.5;cursor:not-allowed}
 .dsh-ig-pill-button-open{border-color:var(--dsw-alias-brand-primary,#4c78ff);color:var(--dsw-alias-label-primary,#111827)}
 .dsh-ig-pill-icon{flex:none;color:var(--dsw-alias-brand-primary,#4c78ff)}
-.dsh-ig-pill-provider{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ig-pill-provider{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ig-pill-caret{display:inline-flex;flex:none;transition:transform .15s}
 .dsh-ig-pill-caret-open{transform:rotate(180deg)}
+@container (max-width:700px){
+  .dsh-ig-pill-caret{display:none}
+  .dsh-ig-pill-button{padding:0 7px 0 6px}
+}
 .dsh-ig-pill-menu{position:fixed;z-index:1000;min-width:264px;max-width:min(320px,calc(100vw - 24px));padding:6px;border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:12px;background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 12px 32px rgba(0,0,0,.16),0 2px 8px rgba(0,0,0,.08);max-height:min(320px,calc(100vh - 48px));overflow-y:auto}
 .dsh-ig-pill-menu-title{padding:6px 8px 4px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary,#6b7280)}
 .dsh-ig-pill-option{display:flex;width:100%;align-items:center;gap:9px;padding:7px 8px;border:0;border-radius:8px;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}

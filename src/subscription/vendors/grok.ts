@@ -15,6 +15,8 @@ const GROK_SCOPE = 'openid profile email offline_access grok-cli:access api:acce
 
 /** Where the Grok subscription image request goes. */
 export const GROK_IMAGE_URL = 'https://api.x.ai/v1/images/generations'
+/** Where the Grok subscription image edit request goes. */
+export const GROK_IMAGE_EDIT_URL = 'https://api.x.ai/v1/images/edits'
 /** The model served by this endpoint. */
 export const GROK_IMAGE_MODEL = 'grok-imagine-image-2.0'
 

@@ -204,8 +204,8 @@ const DICT = {
     subLoginOk: '登录成功',
     subModelLabel: '订阅模型',
     subModelHint: '由订阅通道固定，不可更改。',
-    subEditUnsupported: '订阅通道暂不支持图生图（编辑图片），仅支持文字生图。',
-    subDefaultHint: '订阅 Provider 只能生成，不能编辑图片；需要编辑时请切换到 API Key Provider。',
+    subEditCapability: '订阅生图 · 图生图：支持。对话 edit_image、Studio 图生图与多模型对比均可上传参考图（最多 5 张）。',
+    subDefaultHint: '订阅 Provider 已支持文字生图与图生图；图生图使用各订阅渠道默认参数。',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: '留空即可保留已配置的 Key',
     apiKeyHint: '安全保存为 {key}；页面不会读回明文。',
@@ -333,8 +333,8 @@ const DICT = {
     subLoginOk: 'Signed in',
     subModelLabel: 'Subscription model',
     subModelHint: 'Fixed by the subscription channel; not changeable.',
-    subEditUnsupported: 'The subscription channel does not support image editing yet; text-to-image only.',
-    subDefaultHint: 'Subscription providers can only generate; switch to an API-key provider for editing.',
+    subEditCapability: 'Subscription image editing is now supported: edit_image in chats, Studio and multi-model compare all accept reference images (up to 5).',
+    subDefaultHint: 'Subscription providers support both text-to-image and image editing; edits use each channel\'s default parameters.',
     apiKeyLabel: '{provider} API Key',
     apiKeyPlaceholder: 'Leave empty to keep configured key',
     apiKeyHint: 'Securely saved as {key}; never read back in plaintext.',
@@ -883,7 +883,7 @@ export function apply(ctx: Context): void {
       const active = locale?.getSnapshot?.()?.active
       return active?.startsWith('en') ? 'Gallery' : '画廊'
     },
-    inject: () => ({ locale }),
+    inject: () => ({ locale, credentialEvents }),
   }, GalleryViewTab))
 
   // 4. Right-sidebar studio tab (DSH 0.1.5 official `sidebar.right.pane.tab`
@@ -919,6 +919,7 @@ export function apply(ctx: Context): void {
         key: SIDEBAR_STUDIO_TAB_ID,
         inject: (): GalleryViewTabProps => ({
           locale,
+          credentialEvents,
           inSidebar: true,
           defaultTab: 'studio',
           initialCanvasSurface: 'infinite',
@@ -1795,7 +1796,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
             <span className="dsh-ig-hint">{t('subModelHint')}</span>
           </label>
           <div className="dsh-ig-field">
-            <span className="dsh-ig-label">{t('subEditUnsupported')}</span>
+            <span className="dsh-ig-hint">{t('subEditCapability')}</span>
           </div>
           <div className="dsh-ig-row-actions">
             <p className={`dsh-ig-status${row.messageIsError ? ' dsh-ig-status-error' : ''}`} role="status">{row.message || testResultText(row.testResult)}</p>

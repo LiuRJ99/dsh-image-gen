@@ -31,7 +31,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, STUDIO_ROUTE, type CloudImageProvider, type StudioConfigResponse, type StudioGenerateResponse, type StudioGeneratedItem, type StudioProviderProfile, type StudioReference } from '../shared.js'
+import { DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, STUDIO_ROUTE, isSubscriptionProvider, type CloudImageProvider, type StudioConfigResponse, type StudioGenerateResponse, type StudioGeneratedItem, type StudioProvider, type StudioProviderProfile, type StudioReference } from '../shared.js'
 import { deleteGalleryItem, getGalleryItems, saveGalleryItem, subscribeGallery, toggleFavoriteGalleryItem, type GalleryItem } from './gallery-store.js'
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
@@ -80,6 +80,7 @@ const COPY = {
     referencesCount: '参考图 ({current}/{max})', addMoreRef: '+ 添加', maxReferencesExceeded: '最多支持添加 {max} 张参考图',
     newGeneration: '新建生成', new: '新建',
     configuredCount: 'API 已配置 · {count}', unconfiguredStatus: 'API 未配置', providerStatus: '云端提供商与模型状态',
+    configuredSplit: 'API {api} · 订阅 {sub}', subSignedIn: '已登录', subSignedOut: '未登录',
     collapseSidebar: '折叠最近生成', expandSidebar: '展开最近生成',
     collapseGenerate: '折叠生成面板', expandGenerate: '展开生成面板', generatePanel: '生成面板',
     findInspiration: '找灵感',
@@ -110,6 +111,7 @@ const COPY = {
     referencesCount: 'References ({current}/{max})', addMoreRef: '+ Add', maxReferencesExceeded: 'Up to {max} reference images allowed',
     newGeneration: 'New generation', new: 'New',
     configuredCount: 'API configured · {count}', unconfiguredStatus: 'Not configured', providerStatus: 'Provider & Model Status',
+    configuredSplit: 'API {api} · Sub {sub}', subSignedIn: 'Signed in', subSignedOut: 'Signed out',
     collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand recent list',
     collapseGenerate: 'Collapse generate panel', expandGenerate: 'Expand generate panel', generatePanel: 'Generate',
     findInspiration: 'Find inspiration',
@@ -132,6 +134,8 @@ export interface StudioWorkspaceProps {
 
 export const StudioView: FC<{
   locale?: LocaleService | undefined
+  /** Host credential-change notifier; re-reads provider sign-in state silently. */
+  credentialEvents?: { listen(callback: () => void): () => void } | undefined
   workspace?: StudioWorkspaceProps | null | undefined
   initialPrompt?: string | undefined
   /**
@@ -149,7 +153,7 @@ export const StudioView: FC<{
   showInfiniteCanvasHint?: boolean
   onInitialPromptApplied?(): void
   onOpenInspiration?(): void
-}> = ({ locale, workspace, initialPrompt, initialCanvasSurface, showInfiniteCanvasHint, onInitialPromptApplied, onOpenInspiration }) => {
+}> = ({ locale, credentialEvents, workspace, initialPrompt, initialCanvasSurface, showInfiniteCanvasHint, onInitialPromptApplied, onOpenInspiration }) => {
   const [lang, setLang] = useState<'zh' | 'en'>(() => locale?.getSnapshot?.().active?.startsWith('en') ? 'en' : 'zh')
   const [config, setConfig] = useState<StudioConfigResponse | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
@@ -167,7 +171,7 @@ export const StudioView: FC<{
   const [visibleLimit, setVisibleLimit] = useState(30)
   const [selected, setSelected] = useState<GalleryItem | null>(null)
   const [mode, setMode] = useState<Mode>('generate')
-  const [provider, setProvider] = useState('google')
+  const [provider, setProvider] = useState<StudioProvider>('google')
   const [model, setModel] = useState('')
   const [ratio, setRatio] = useState('1:1')
   const [quality, setQuality] = useState('1K')
@@ -178,7 +182,7 @@ export const StudioView: FC<{
   const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([])
   const [batchKind, setBatchKind] = useState<BatchKind | null>(null)
   const [comparisonEnabled, setComparisonEnabled] = useState(false)
-  const [comparisonProviders, setComparisonProviders] = useState<CloudImageProvider[]>([])
+  const [comparisonProviders, setComparisonProviders] = useState<StudioProvider[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -268,6 +272,16 @@ export const StudioView: FC<{
   const referencesRef = useRef(references)
   referencesRef.current = references
 
+  // Parameter locking for the comparison view: only when every selected model
+  // is a subscription channel (channel-default parameters only) do the shared
+  // ratio/quality controls step aside; a mixed selection keeps user-chosen
+  // parameters for the API rows while subscription rows use channel defaults.
+  const comparisonSelectionsAllSubscription = comparisonEnabled
+    && comparisonProviders.length > 0
+    && comparisonProviders.every(provider => isSubscriptionProvider(provider))
+  // Single-model view: a subscription provider has no parameter matrix at all.
+  const singleProviderIsSubscription = !comparisonEnabled && isSubscriptionProvider(provider)
+
   const t = (key: CopyKey, values?: Record<string, string>): string => {
     let text: string = COPY[lang][key]
     for (const [name, value] of Object.entries(values ?? {})) text = text.replace(`{${name}}`, value)
@@ -276,30 +290,61 @@ export const StudioView: FC<{
 
   useEffect(() => locale?.subscribe?.(() => setLang(locale.getSnapshot().active?.startsWith('en') ? 'en' : 'zh')), [locale])
 
-  const loadConfig = useCallback(async () => {
-    setConfigLoading(true)
-    setConfigError(null)
+  // Latest form state for the silent refresher, kept in refs so loadConfig's
+  // identity stays stable and a refresh never re-runs the initial load.
+  const formStateRef = useRef({ provider, model })
+  formStateRef.current = { provider, model }
+
+  const loadConfig = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (!silent) {
+      setConfigLoading(true)
+      setConfigError(null)
+    }
     const controller = new AbortController()
     try {
       const response = await fetch(STUDIO_ROUTE, { signal: controller.signal, credentials: 'same-origin' })
       const payload = await response.json() as StudioConfigResponse | { error?: string }
       if (!response.ok || !('providers' in payload)) throw new Error('error' in payload && payload.error ? payload.error : 'Studio unavailable')
       setConfig(payload)
+      if (silent) {
+        // Silent refresh: keep the user's in-flight form state (prompt,
+        // parameters, selections). Only reconcile the selected provider's
+        // model when it changed on the host, and drop comparisons that are
+        // no longer signed in / configured.
+        const { provider: currentProvider, model: currentModel } = formStateRef.current
+        const activeProfile = payload.providers.find(item => item.provider === currentProvider)
+        if (activeProfile !== undefined && activeProfile.model !== currentModel) setModel(activeProfile.model)
+        setComparisonProviders(current => current.filter(selectedProvider =>
+          payload.providers.some(item => item.provider === selectedProvider && item.configured)))
+        return
+      }
       const initial = payload.providers.find(item => item.provider === payload.activeProvider) ?? payload.providers[0]
       if (initial !== undefined) {
         applyProvider(initial)
         setComparisonProviders(initialComparisonProviders(payload.providers, initial.provider))
       }
     } catch (fetchError) {
-      if (!controller.signal.aborted) setConfigError(messageOf(fetchError))
+      if (!silent && !controller.signal.aborted) setConfigError(messageOf(fetchError))
     } finally {
-      setConfigLoading(false)
+      if (!silent) setConfigLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void loadConfig()
   }, [loadConfig])
+
+  // Host credential changes (subscription sign-in/out, API keys) re-read the
+  // provider state silently; the workbench refreshes badges and option lists
+  // without touching the prompt or parameters the user is working on. The
+  // one-second delay lets the host finish persisting the new credential.
+  useEffect(() => {
+    if (credentialEvents === undefined) return
+    return credentialEvents.listen(() => {
+      window.setTimeout(() => { void loadConfig({ silent: true }) }, 1_000)
+    })
+  }, [credentialEvents, loadConfig])
 
   useEffect(() => {
     let mounted = true
@@ -390,6 +435,10 @@ export const StudioView: FC<{
 
   const activeProfile = useMemo(() => config?.providers.find(item => item.provider === provider), [config, provider])
   const configuredCount = config?.providers.filter(item => item.configured).length ?? 0
+  // Split badge counts: BYOK keys and subscription sign-ins stay separately
+  // visible so a number is never a mixed bag of semantics.
+  const apiConfiguredCount = config?.providers.filter(item => item.configured && !isSubscriptionProvider(item.provider)).length ?? 0
+  const subscriptionSignedInCount = config?.providers.filter(item => item.configured && isSubscriptionProvider(item.provider)).length ?? 0
   const displayItems = useMemo(() => items.slice(0, visibleLimit), [items, visibleLimit])
   const comparisonProfiles = useMemo(
     () => (config?.providers ?? []).filter(item => item.configured && (mode === 'generate' || item.supportsEditing)),
@@ -583,14 +632,14 @@ export const StudioView: FC<{
       return
     }
     if (config === null) return
-    const initial = initialComparisonProviders(comparisonProfiles, provider as CloudImageProvider)
+    const initial = initialComparisonProviders(comparisonProfiles, provider)
       .filter(item => mode !== 'edit' || referencesRef.current.length <= 3 || item !== 'dashscope')
     setComparisonProviders(initial)
     if (!['1:1', '3:2', '2:3', '16:9', '9:16'].includes(ratio)) setRatio('1:1')
     if (!['standard', '1K', '2K', '4K'].includes(quality)) setQuality('1K')
   }
 
-  const toggleComparisonProvider = (target: CloudImageProvider) => {
+  const toggleComparisonProvider = (target: StudioProvider) => {
     if (mode === 'edit' && target === 'dashscope' && referencesRef.current.length > 3 && !comparisonProviders.includes(target)) {
       setError(t('maxReferencesExceeded', { max: '3' }))
       return
@@ -1019,7 +1068,11 @@ export const StudioView: FC<{
                 <div className="dsh-ig-status-badge">
                   <span className={`dsh-ig-status-dot ${configuredCount > 0 ? 'is-ready' : 'is-muted'}`} />
                   <span className="dsh-ig-status-text">
-                    {configuredCount > 0 ? t('configuredCount', { count: String(configuredCount) }) : t('unconfiguredStatus')}
+                    {configuredCount > 0
+                      ? (subscriptionSignedInCount > 0
+                          ? t('configuredSplit', { api: String(apiConfiguredCount), sub: String(subscriptionSignedInCount) })
+                          : t('configuredCount', { count: String(apiConfiguredCount) }))
+                      : t('unconfiguredStatus')}
                   </span>
                   <ChevronDown size={11} className="dsh-ig-status-arrow" />
                 </div>
@@ -1034,7 +1087,9 @@ export const StudioView: FC<{
                             <small>{p.model}</small>
                           </div>
                           <span className="dsh-ig-status-item-tag">
-                            {p.configured ? t('configured') : t('unconfigured')}
+                            {isSubscriptionProvider(p.provider)
+                              ? (p.configured ? t('subSignedIn') : t('subSignedOut'))
+                              : (p.configured ? t('configured') : t('unconfigured'))}
                           </span>
                         </li>
                       ))}
@@ -1355,10 +1410,24 @@ export const StudioView: FC<{
                   </div>
                   <p>{t('compareParameterHint')}</p>
                 </div>
-                <div className="dsh-ig-field-grid"><FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={comparisonRatioOptions(lang)} /><FieldSelect label={t('quality')} value={quality} onChange={setQuality} options={comparisonQualityOptions(lang)} /></div>
+                {comparisonSelectionsAllSubscription ? (
+                    <div className="dsh-ig-field-grid">
+                      <FieldSelect label={t('ratio')} value="auto" onChange={() => {}} options={[{ value: 'auto', label: lang === 'en' ? 'Channel default' : '通道默认' }]} />
+                      <FieldSelect label={t('quality')} value="auto" onChange={() => {}} options={[{ value: 'auto', label: lang === 'en' ? 'Channel default' : '通道默认' }]} />
+                    </div>
+                  ) : (
+                    <div className="dsh-ig-field-grid"><FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={comparisonRatioOptions(lang)} /><FieldSelect label={t('quality')} value={quality} onChange={setQuality} options={comparisonQualityOptions(lang)} /></div>
+                  )}
               </> : <>
                 <div className="dsh-ig-field-grid"><FieldSelect label={t('provider')} value={provider} onChange={changeProvider} options={config.providers.map(item => ({ value: item.provider, label: `${item.label}${item.configured ? '' : ` · ${t('unconfigured')}`}` }))} /><FieldSelect label={t('model')} value={model} onChange={setModel} options={activeProfile === undefined ? [] : [{ value: activeProfile.model, label: activeProfile.model }]} /></div>
-                <div className="dsh-ig-field-grid"><FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={localizeRatioOptions(activeProfile?.ratioOptions ?? [], lang)} /><FieldSelect label={t('quality')} value={quality} onChange={setQuality} options={localizeQualityOptions(activeProfile?.qualityOptions ?? [], lang)} /></div>
+                {singleProviderIsSubscription ? (
+                  <div className="dsh-ig-field-grid">
+                    <FieldSelect label={t('ratio')} value="auto" onChange={() => {}} options={[{ value: 'auto', label: lang === 'en' ? 'Channel default' : '通道默认' }]} />
+                    <FieldSelect label={t('quality')} value="auto" onChange={() => {}} options={[{ value: 'auto', label: lang === 'en' ? 'Channel default' : '通道默认' }]} />
+                  </div>
+                ) : (
+                  <div className="dsh-ig-field-grid"><FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={localizeRatioOptions(activeProfile?.ratioOptions ?? [], lang)} /><FieldSelect label={t('quality')} value={quality} onChange={setQuality} options={localizeQualityOptions(activeProfile?.qualityOptions ?? [], lang)} /></div>
+                )}
                 <div className="dsh-ig-field"><label>{t('count')}</label><div className="dsh-ig-count-row">{[1, 2, 3, 4].map(option => <button key={option} type="button" className={`dsh-ig-count-pill ${count === option ? 'is-active' : ''}`} onClick={() => setCount(option)}>{t('countUnit', { n: String(option) })}</button>)}</div></div>
               </>}
             </>}

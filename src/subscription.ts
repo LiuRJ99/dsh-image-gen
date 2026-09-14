@@ -16,18 +16,17 @@
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { detectImageMediaType } from './reference-image.js'
 import { SubscriptionManager, vendorOf } from './subscription/manager.js'
-import { SUBSCRIPTION_PROVIDER_DISPLAY_NAMES, type SubscriptionProvider } from './shared.js'
+import { SUBSCRIPTION_TIMEOUT_MS, type SubscriptionProvider } from './shared.js'
 
 export { SubscriptionManager, vendorOf } from './subscription/manager.js'
 export { registerSubscriptionRoutes } from './subscription/subscription-route.js'
-
-/** Timeout for one subscription image call, mirroring the other adapters. */
-export const SUBSCRIPTION_TIMEOUT_MS = 300_000
+export { SUBSCRIPTION_TIMEOUT_MS } from './shared.js'
 
 /**
  * Generate one image through a logged-in subscription account. Returns the
  * same `{ data, mediaType }` contract as the API-key adapters so the caller
- * can feed it straight into `saveGenerated`.
+ * can feed it straight into `saveGenerated`. With sourceImages the call is
+ * an edit: the vendor layer picks the channel's edit endpoint.
  */
 export async function generateSubscriptionImage(options: {
   manager: SubscriptionManager
@@ -35,16 +34,19 @@ export async function generateSubscriptionImage(options: {
   prompt: string
   size?: string
   quality?: string
+  sourceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: ImageMediaType }>
   maxBytes: number
   signal: AbortSignal
 }): Promise<{ data: Uint8Array; mediaType: ImageMediaType; revisedPrompt?: string }> {
   const { manager, provider, prompt, maxBytes, signal } = options
   const size = options.size?.trim()
+  const sourceImages = options.sourceImages ?? []
   const result = await withTimeout(
     manager.generate({
       vendor: vendorOf(provider),
       prompt,
       ...(size !== undefined && size.length > 0 ? { size } : {}),
+      ...(sourceImages.length > 0 ? { referenceImages: sourceImages } : {}),
       signal,
     }),
     signal,
@@ -66,13 +68,6 @@ export async function generateSubscriptionImage(options: {
     mediaType,
     ...(typeof first.revisedPrompt === 'string' && first.revisedPrompt.length > 0 ? { revisedPrompt: first.revisedPrompt } : {}),
   }
-}
-
-/** Subscription channels are prompt-only today; edit_image is rejected outright. */
-export function assertSubscriptionEditUnsupported(provider: SubscriptionProvider): never {
-  throw new Error(
-    `edit_image with ${SUBSCRIPTION_PROVIDER_DISPLAY_NAMES[provider]} is not supported yet: the subscription channel only accepts text prompts. Retry with an API-key provider (for example google or openai) through the provider argument.`,
-  )
 }
 
 /** Run one promise with the subscription timeout and the call's abort signal. */
