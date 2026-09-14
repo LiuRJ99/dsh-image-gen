@@ -10,7 +10,7 @@
 
 ### Native AI image creation suite for DeepSeek Harness
 
-<p><b>In-chat generation and editing · Studio batch creation · Multi-model comparison · 500+ prompt inspirations · Gallery management · Local ComfyUI</b></p>
+<p><b>In-chat generation and editing · Studio batch creation · Multi-model comparison · 500+ prompt inspirations · Gallery management · Local ComfyUI · Subscription no-key</b></p>
 
 <p>
   <a href="https://www.npmjs.com/package/dsh-image-gen"><img src="https://img.shields.io/npm/v/dsh-image-gen?style=flat-square&color=4f6ef7" alt="npm version" /></a>
@@ -35,7 +35,7 @@
 
 **A complete AI image creation workflow for DeepSeek Harness.**
 
-`dsh-image-gen` goes far beyond basic in-chat image generation. It brings **continuous natural-language editing**, **Studio batch creation**, **side-by-side multi-model comparison**, a **500+ prompt inspiration library**, and **local ComfyUI** workflows into DSH. It supports **Google Gemini, OpenAI Images / Compatible, ByteDance Seedream, Aliyun DashScope, xAI Grok Imagine, Zhipu GLM-Image**, and private local workflows. It uses a BYOK model and can isolate generated assets by workspace.
+`dsh-image-gen` goes far beyond basic in-chat image generation. It brings **continuous natural-language editing**, **Studio batch creation**, **side-by-side multi-model comparison**, a **500+ prompt inspiration library**, and **local ComfyUI** workflows into DSH. It supports **Google Gemini, OpenAI Images / Compatible, ByteDance Seedream, Aliyun DashScope, xAI Grok Imagine, Zhipu GLM-Image**, and private local workflows. It supports both BYOK (bring your own key) and **subscription accounts without any API key**, and can isolate generated assets by workspace. Already paying for ChatGPT, Grok, or Google? Just sign in and start generating—no separate API key purchase needed.
 
 ```bash
 pnpm dsh plugin --profile web add dsh-image-gen@latest
@@ -97,6 +97,8 @@ After restarting DSH, open:
 **Settings → Plugins → Plugin Configuration → Image Generation**
 
 Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. Once the key is stored, click **Test connection** to verify it, or **Fetch models** to pull every image-capable model the provider offers—no manual lookups needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
+
+Already paying for ChatGPT, Grok, or Google? No API key needed: expand the matching subscription Provider row, click **Sign in** and complete the authorization in your browser, then start generating right away.
 
 ### 3. Start creating
 
@@ -237,9 +239,13 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | **xAI Grok Imagine** | ✅ | ⚠️ Limited | ✅ | ✅ |
 | **Zhipu GLM-Image** | ✅ | — | ✅ | ✅ |
 | **Local ComfyUI** | ✅ | ✅ Single | — | — |
+| **ChatGPT subscription (key-free)** | ✅ | — | — | — |
+| **Grok subscription (key-free)** | ✅ | — | — | — |
+| **Google subscription (key-free)** | ✅ | — | — | — |
 
 > Studio and multi-model comparison currently support cloud Providers only. Multi-model comparison uses the model configured for each Provider in Settings.
 > Zhipu GLM-Image does not support image-to-image upstream. xAI image editing goes through the OpenAI-compatible protocol (multipart); some gateways may need further adaptation.
+> Subscription channels work through account sign-in (no API key). They currently support in-chat text-to-image only; for editing, Studio, and multi-model comparison, use an API-key Provider.
 
 <details>
 <summary><strong>Current default models and endpoints (all configurable)</strong></summary>
@@ -254,6 +260,9 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | xAI Grok Imagine | `grok-imagine-image` | `https://api.x.ai/v1` |
 | Zhipu GLM-Image | `glm-image` | `https://open.bigmodel.cn/api/paas/v4` |
 | Local ComfyUI | Imported API Workflow | `http://127.0.0.1:8188` |
+| ChatGPT subscription | `gpt-image-2.5-flare` (channel-fixed) | Account sign-in, no configuration |
+| Grok subscription | `grok-imagine-image-2.0` (channel-fixed) | Account sign-in, no configuration |
+| Google subscription | `gemini-3-pro-image` (channel-fixed) | Account sign-in, no configuration |
 
 </details>
 
@@ -262,6 +271,7 @@ Bring private image generation on your local GPU directly into Agent conversatio
 ## Data and Privacy
 
 - **BYOK:** API keys are stored through the DSH Credentials service and are never displayed in plaintext on the settings page.
+- **Subscription sign-in:** Subscription tokens are saved in DSH Credentials after your authorized sign-in, fully isolated from API keys; the browser side never touches a token.
 - **Cloud requests:** The prompt and reference images used for a request are sent to the selected Provider. Follow that Provider's terms of service.
 - **Local ComfyUI:** Requests are sent to the configured ComfyUI address.
 - **Workspace files:** When workspace saving is enabled, chat results are written to disk; Studio saves only the candidates you select.

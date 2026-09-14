@@ -13,6 +13,7 @@ import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_SEEDREAM_BASE_URL,
   DEFAULT_SEEDREAM_MODEL,
+  DEFAULT_SUBSCRIPTION_MODELS,
   DEFAULT_XAI_BASE_URL,
   DEFAULT_XAI_MODEL,
   DEFAULT_ZHIPU_BASE_URL,
@@ -155,7 +156,10 @@ export function resolveProvider(config: Config):
   | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
   | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   | { provider: 'zhipu'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
-  | { provider: 'comfyui'; baseURL: string; workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry; timeoutMs: number } {
+  | { provider: 'comfyui'; baseURL: string; workflows: ComfyUIWorkflowEntry[]; workflow?: ComfyUIWorkflowEntry; timeoutMs: number }
+  | { provider: 'chatgpt-sub'; model: string }
+  | { provider: 'grok-sub'; model: string }
+  | { provider: 'google-sub'; model: string } {
   switch (config.provider ?? 'google') {
     case 'openai': return { provider: 'openai', apiKeyEnv: OPENAI_API_KEY_ENV, model: config.openaiModel ?? DEFAULT_OPENAI_MODEL, baseURL: config.openaiBaseURL ?? DEFAULT_OPENAI_BASE_URL, imageSize: '1024x1024' }
     case 'openai-compat': {
@@ -184,6 +188,9 @@ export function resolveProvider(config: Config):
         timeoutMs: config.comfyuiTimeoutMs ?? DEFAULT_COMFYUI_TIMEOUT_MS,
       }
     }
+    case 'chatgpt-sub': return { provider: 'chatgpt-sub', model: DEFAULT_SUBSCRIPTION_MODELS['chatgpt-sub'] }
+    case 'grok-sub': return { provider: 'grok-sub', model: DEFAULT_SUBSCRIPTION_MODELS['grok-sub'] }
+    case 'google-sub': return { provider: 'google-sub', model: DEFAULT_SUBSCRIPTION_MODELS['google-sub'] }
     case 'google': return { provider: 'google', apiKeyEnv: GOOGLE_API_KEY_ENV, model: config.googleModel ?? DEFAULT_GOOGLE_MODEL, endpoint: config.googleEndpoint ?? DEFAULT_GOOGLE_ENDPOINT, aspectRatio: '1:1', imageSize: '1K' }
   }
 }
@@ -205,6 +212,10 @@ export function withProviderOverrides(config: Config, provider?: ImageProvider, 
     case 'dashscope': return { ...base, dashscopeModel: trimmed }
     case 'xai': return { ...base, xaiModel: trimmed }
     case 'zhipu': return { ...base, zhipuModel: trimmed }
+    // Subscription models are fixed by the bridge protocol; the override is ignored.
+    case 'chatgpt-sub': return base
+    case 'grok-sub': return base
+    case 'google-sub': return base
     case 'comfyui': return base
   }
 }

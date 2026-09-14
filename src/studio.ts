@@ -17,6 +17,7 @@ import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './open
 import { editSeedreamImage } from './seedream.js'
 import {
   CLOUD_IMAGE_PROVIDERS,
+  isSubscriptionProvider,
   PROVIDER_DISPLAY_NAMES,
   type CloudImageProvider,
   type StudioConfigResponse,
@@ -65,6 +66,16 @@ export async function generateFromStudio(
   assertAllowed(profile, input)
   const active = resolveProvider(withProviderOverrides(config, input.provider, input.model))
   if (active.provider === 'comfyui') throw new Error('ComfyUI 暂未接入工作台')
+  if (isSubscriptionProvider(active.provider)) throw new Error('订阅生图暂未接入工作台，请通过对话或设置切换默认 Provider 使用')
+  // Subscription and ComfyUI are rejected above; narrow for the closures below.
+  const wired = active as
+    | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
+    | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+    | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; editFormat: 'multipart' | 'jsonImageUrlArray'; editExtra: Record<string, unknown> }
+    | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+    | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
+    | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+    | { provider: 'zhipu'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
   const credential = await requireApiKey(ctx, input.provider)
 
   const rawRefs = input.references ?? (input.reference ? [input.reference] : [])
@@ -81,24 +92,24 @@ export async function generateFromStudio(
     let generated: { data: Uint8Array; mediaType: ImageMediaType }
     let output: string
 
-    if (active.provider === 'google') {
+    if (wired.provider === 'google') {
       const aspectRatio = input.ratio as AspectRatio
       const imageSize = input.quality as ImageSize
       generated = input.mode === 'edit'
-        ? await editGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateGoogleImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editGoogleImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, sourceImages, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateGoogleImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, aspectRatio, imageSize, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = `${aspectRatio}, ${imageSize}`
-    } else if (active.provider === 'openai' || active.provider === 'openai-compat' || active.provider === 'xai' || active.provider === 'zhipu') {
+    } else if (wired.provider === 'openai' || wired.provider === 'openai-compat' || wired.provider === 'xai' || wired.provider === 'zhipu') {
       const size = openAISize(input.ratio)
       generated = input.mode === 'edit'
-        ? await editOpenAICompatibleImage({ apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(active.provider === 'openai-compat' ? { editFormat: active.editFormat, editExtra: active.editExtra } : {}) })
-        : await generateOpenAICompatibleImage({ provider: active.provider, apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editOpenAICompatibleImage({ apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(wired.provider === 'openai-compat' ? { editFormat: wired.editFormat, editExtra: wired.editExtra } : {}) })
+        : await generateOpenAICompatibleImage({ provider: wired.provider, apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = size
-    } else if (active.provider === 'seedream') {
+    } else if (wired.provider === 'seedream') {
       const size = input.quality
       generated = input.mode === 'edit'
-        ? await editSeedreamImage({ apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential, baseURL: active.baseURL, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editSeedreamImage({ apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = size
     } else {
       if (input.mode === 'edit' && sourceImages.length > 3) {
@@ -106,8 +117,8 @@ export async function generateFromStudio(
       }
       const size = dashScopeSize(input.ratio)
       generated = input.mode === 'edit'
-        ? await editDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateDashScopeImage({ apiKey: credential, endpoint: active.endpoint, model: active.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editDashScopeImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        : await generateDashScopeImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
       output = size
     }
 

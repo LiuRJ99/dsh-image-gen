@@ -4,7 +4,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import * as dshSettings from '@deepseek-ai/dsh-settings'
 import { defineTool, type ToolResult } from '@deepseek-ai/dsh-tools'
-import { Config, migrateOpenAICompatConfig, resolveProvider, selectComfyUIWorkflow, withProviderOverrides, type AspectRatio, type ImageProvider, type ImageSize } from './config.js'
+import { Config, migrateOpenAICompatConfig, resolveProvider, selectComfyUIWorkflow, withProviderOverrides, type AspectRatio, type ImageSize } from './config.js'
 import { requireApiKey, resolveApiKey } from './credentials.js'
 import { CanvasMirror } from './canvas-state.js'
 import { serveCanvasState } from './canvas-state-route.js'
@@ -16,7 +16,8 @@ import { IMAGE_ROUTE, DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, imageAttachmentFromMet
 import { editOpenAICompatibleImage, generateOpenAICompatibleImage } from './openai-compatible.js'
 import { type ResolvedReferenceImage, resolveReferenceImages } from './reference-image.js'
 import { editSeedreamImage } from './seedream.js'
-import { CANVAS_STATE_ROUTE, IMAGE_GENERATION_NAMESPACE, IMAGE_PROVIDERS, INSPIRATION_ROUTE, STUDIO_ROUTE, TEST_CONNECTION_ROUTE, mergeComfyUIPrompt } from './shared.js'
+import { assertSubscriptionEditUnsupported, generateSubscriptionImage, registerSubscriptionRoutes, SubscriptionManager } from './subscription.js'
+import { CANVAS_STATE_ROUTE, IMAGE_GENERATION_NAMESPACE, IMAGE_PROVIDERS, INSPIRATION_ROUTE, STUDIO_ROUTE, TEST_CONNECTION_ROUTE, mergeComfyUIPrompt, type ImageProvider } from './shared.js'
 import { createInspirationRoute } from './inspiration-route.js'
 import { generateFromStudio, describeStudio } from './studio.js'
 import { serveStudio } from './studio-route.js'
@@ -63,6 +64,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   // route, read by the canvas tools, the edit_image canvas_selection source,
   // and the system-prompt context. Session-scratch, never persisted.
   const canvasMirror = new CanvasMirror()
+  // Subscription image accounts: login flows, blob storage, refresh, and the
+  // vendor wire calls. One instance per application; tokens stay host-side.
+  const subscriptionManager = new SubscriptionManager(ctx)
+  registerSubscriptionRoutes(ctx, subscriptionManager)
 
   installImageSettings(ctx, config, {
     setSource: source => { current = () => migrateOpenAICompatConfig(source()) },
@@ -110,6 +115,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     handler: (req, res) => serveTestConnection(req, res, {
       resolveKey: provider => resolveApiKey(ctx, provider),
       config: () => current(),
+      subscriptionManager,
     }),
   }), 'dsh-image-gen: test connection route')
   ctx.effect(() => ctx.webServer.register({
@@ -172,8 +178,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Generate a new image with the configured provider. Use when the user asks to create or draw a new image; use edit_image instead when they want to change an existing image. Give a complete visual prompt including subject, composition, style, lighting, and any exact text that should appear. The optional provider/model arguments switch provider or model for this call only when the user asks for a specific one. A successful image is attached directly to the conversation and may also be saved under the session workspace. Do not call read, glob, or other tools to locate or verify the image.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Complete description of the image to generate.' },
-      provider: { type: 'string', enum: ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui'], description: 'Optional provider for this call only (for example when the user asks to use a specific provider); omit to use the configured default.' },
-      model: { type: 'string', description: 'Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead).' },
+      provider: { type: 'string', enum: ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui', 'chatgpt-sub', 'grok-sub', 'google-sub'], description: 'Optional provider for this call only (for example when the user asks to use a specific provider); omit to use the configured default. chatgpt-sub, grok-sub, and google-sub generate through the logged-in subscription account instead of an API key.' },
+      model: { type: 'string', description: 'Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by the subscription providers (model fixed by the subscription).' },
       aspect_ratio: { type: 'string', enum: ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'], description: 'Optional output aspect ratio for Google Gemini.' },
       image_size: { type: 'string', enum: ['1K', '2K', '4K'], description: 'Optional output resolution for Google Gemini.' },
       size: { type: 'string', description: 'Optional dimensions or size tier for OpenAI, Seedream, or DashScope.' },
@@ -193,6 +199,17 @@ export function apply(ctx: Context, config: Config = {}): void {
           signal: exec.signal,
         })
         return saveGenerated(ctx, generated, active.provider, workflow.name, 'API workflow', current(), exec, knownWorkspaceRoots)
+      }
+      if (active.provider === 'chatgpt-sub' || active.provider === 'grok-sub' || active.provider === 'google-sub') {
+        const generated = await generateSubscriptionImage({
+          manager: subscriptionManager,
+          provider: active.provider,
+          prompt: args.prompt,
+          ...(args.size !== undefined ? { size: args.size } : {}),
+          maxBytes: ctx.attachments.imageLimits.maxImageBytes,
+          signal: exec.signal,
+        })
+        return saveGenerated(ctx, generated, active.provider, active.model, 'subscription', current(), exec, knownWorkspaceRoots)
       }
       const credential = await requireApiKey(ctx, active.provider, 'generate_image')
       if (active.provider === 'google') {
@@ -218,8 +235,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Edit, combine, or restyle existing images with the configured provider. Images attached inline to the latest human message are already readable DSH attachments even when no workspace file exists. In that case, call edit_image immediately with prompt only; NEVER call read_image, glob, or shell to locate them, and NEVER invent @ paths. All inline images will be used in upload order. For specific older conversation images use source_attachment_id or source_attachment_ids; both canonical sha256: IDs and full bare SHA-256 digests are accepted. For files the user explicitly names in the workspace use source_path or source_paths. For what the user selected or drew on the image-gen workbench canvas (for example a hand-drawn sketch) use source=canvas_selection; canvas_state can verify a selection exists first. Provide exactly one selector field. Without a selector, images from the latest human message take priority; only when that message has no images does editing fall back to the newest conversation image.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Describe the changes to make while preserving everything else that should remain.' },
-      provider: { type: 'string', enum: ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui'], description: 'Optional provider for this call only (for example when the user asks to use a specific provider); omit to use the configured default.' },
-      model: { type: 'string', description: 'Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead).' },
+      provider: { type: 'string', enum: ['google', 'openai', 'openai-compat', 'seedream', 'dashscope', 'xai', 'zhipu', 'comfyui', 'chatgpt-sub', 'grok-sub', 'google-sub'], description: 'Optional provider for this call only (for example when the user asks to use a specific provider); omit to use the configured default. chatgpt-sub, grok-sub, and google-sub cannot edit images yet; the subscription channel is text-prompt only, so retry editing with an API-key provider instead.' },
+      model: { type: 'string', description: 'Optional model name for this call only, overriding the configured model. Not used by ComfyUI (use workflow instead) nor by the subscription providers (model fixed by the subscription).' },
       source: { type: 'string', enum: ['canvas_selection'], description: 'Use the current selection on the image-gen workbench infinite canvas as the reference image(s): full-resolution originals when the selection is conversation-generated images, plus a screenshot of the whole selection when it also contains other content (hand-drawn strokes, pasted images). Choose this when the user refers to what they selected or drew on the canvas; combine with no other selector field.' },
       source_attachment_id: { type: 'string', description: 'Optional attachment id of a specific image already present in the current conversation.' },
       source_attachment_ids: { type: 'array', items: { type: 'string' }, description: 'Optional ordered attachment ids of multiple images already present in the current conversation. Prompt references such as image 1 and image 2 follow this order.' },
@@ -233,6 +250,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     output: imageOutput('Edited'),
     async execute(args, exec): Promise<GeneratedValue> {
       const active = resolveProvider(withProviderOverrides(current(), providerOverrideOf(args.provider), args.model))
+      if (active.provider === 'chatgpt-sub' || active.provider === 'grok-sub' || active.provider === 'google-sub') {
+        // The subscription channel is text-prompt only today. Fail before any
+        // reference resolution: explicit guidance beats a misleading
+        // "requires a reference image" error from the shared pipeline.
+        assertSubscriptionEditUnsupported(active.provider)
+      }
       const canvasSelection = args.source === 'canvas_selection'
       if (canvasSelection && (
         args.source_attachment_id !== undefined

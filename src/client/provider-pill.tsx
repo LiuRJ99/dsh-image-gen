@@ -9,11 +9,15 @@ import {
   CLOUD_IMAGE_PROVIDERS,
   DEFAULT_MODELS,
   IMAGE_PROVIDERS,
+  SUBSCRIPTION_PROVIDERS,
+  SUBSCRIPTION_STATUS_ROUTE,
   activeComfyUIWorkflow,
   cloudCredentialRef,
+  isSubscriptionProvider,
   type CloudImageProvider,
   type ComfyUIWorkflowEntry,
   type ImageProvider,
+  type SubscriptionProvider,
 } from '../shared.js'
 import type { SettingsScope } from './index.js'
 import type { LocaleService } from './gallery-view.js'
@@ -60,6 +64,10 @@ const PILL_DICT = {
     keyMissing: '未配置 Key',
     noKeyNeeded: '无需 Key',
     noWorkflow: '未导入工作流',
+    subNoKey: '订阅生图',
+    subSignedIn: '已登录',
+    subSignedOut: '未登录',
+    subStatusUnknown: '状态未知',
     readOnly: '图像设置为只读，无法在此切换',
     switchFailed: '切换失败',
   },
@@ -70,6 +78,10 @@ const PILL_DICT = {
     keyMissing: 'No key',
     noKeyNeeded: 'No key needed',
     noWorkflow: 'No workflow',
+    subNoKey: 'Subscription',
+    subSignedIn: 'Signed in',
+    subSignedOut: 'Signed out',
+    subStatusUnknown: 'Unknown',
     readOnly: 'Image settings are read-only; switch them in the config source',
     switchFailed: 'Switch failed',
   },
@@ -87,9 +99,26 @@ const PILL_PROVIDER_LABELS: Record<ImageProvider, string> = {
   xai: 'Grok',
   zhipu: '智谱 GLM',
   comfyui: 'ComfyUI',
+  'chatgpt-sub': 'ChatGPT 订阅',
+  'grok-sub': 'Grok 订阅',
+  'google-sub': 'Google 订阅',
 }
 
 type KeyDot = 'checking' | 'configured' | 'missing' | 'unknown'
+
+/** Menu's design max-height, mirroring the CSS `max-height` rule. */
+const MENU_MAX_HEIGHT = 320
+
+/** Compute the fixed-position anchor from the pill button: open upward when
+ * the chat pane leaves room above the composer, drop down otherwise. */
+function anchorOf(button: HTMLButtonElement | null): { left: number; bottom?: number; top?: number } | undefined {
+  const rect = button?.getBoundingClientRect()
+  if (rect === undefined) return undefined
+  if (rect.top >= MENU_MAX_HEIGHT + 12) {
+    return { left: rect.left, bottom: window.innerHeight - rect.top + 6 }
+  }
+  return { left: rect.left, top: rect.bottom + 6 }
+}
 
 /** Whether the user opted into the composer pill; hidden (not merely inert) when off. */
 export function pillVisible(value: PillSettings | undefined): boolean {
@@ -101,6 +130,9 @@ export function pillModelOf(provider: ImageProvider, value: PillSettings | undef
   if (provider === 'comfyui') {
     const workflow = activeComfyUIWorkflow(value ?? {})
     return workflow === undefined ? '' : workflow.name
+  }
+  if ((SUBSCRIPTION_PROVIDERS as readonly string[]).includes(provider)) {
+    return DEFAULT_MODELS[provider]
   }
   const stored = provider === 'google' ? value?.googleModel : provider === 'openai' ? value?.openaiModel
     : provider === 'openai-compat' ? value?.openaiCompatModel
@@ -118,8 +150,13 @@ export function ImageProviderPill(props: ProviderPillFace) {
   const [error, setError] = useState('')
   const [dots, setDots] = useState<Record<CloudImageProvider, KeyDot>>({ google: 'unknown', openai: 'unknown', 'openai-compat': 'unknown', seedream: 'unknown', dashscope: 'unknown', xai: 'unknown', zhipu: 'unknown' })
   const [keyTick, setKeyTick] = useState(0)
+  // Subscription login state read from the host status route; the browser sees
+  // only state words and the account email, never a token.
+  const [subDots, setSubDots] = useState<Record<SubscriptionProvider, 'logged-in' | 'logged-out' | 'unknown'>>(
+    () => ({ 'chatgpt-sub': 'unknown', 'grok-sub': 'unknown', 'google-sub': 'unknown' }),
+  )
   const buttonRef = useRef<HTMLButtonElement | null>(null)
-  const [menuStyle, setMenuStyle] = useState<{ left: number; bottom: number } | null>(null)
+  const [menuStyle, setMenuStyle] = useState<{ left: number; bottom?: number; top?: number } | null>(null)
 
   useEffect(() => props.scope.subscribe(() => { setSnapshot(props.scope.getSnapshot()) }), [props.scope])
   useEffect(() => props.locale?.subscribe?.(() => {
@@ -149,19 +186,52 @@ export function ImageProviderPill(props: ProviderPillFace) {
     return () => { active = false }
   }, [props.credentials, keyTick])
 
+  // Subscription login badges: probed when the menu opens and re-probed on
+  // host credential events (a login/logout in the settings card flips the
+  // dots here too). Same status route as the settings card; state words only.
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    const probe = async (): Promise<void> => {
+      try {
+        const response = await fetch(SUBSCRIPTION_STATUS_ROUTE, { method: 'POST', cache: 'no-store' })
+        if (!active || !response.ok) return
+        const payload = await response.json() as { statuses?: Record<string, { state?: string }> }
+        if (!active || payload.statuses === undefined) return
+        const next = {} as Record<SubscriptionProvider, 'logged-in' | 'logged-out' | 'unknown'>
+        for (const provider of SUBSCRIPTION_PROVIDERS) {
+          const row = payload.statuses[provider]
+          next[provider] = row?.state === 'logged-in' ? 'logged-in' : row?.state === 'logged-out' ? 'logged-out' : 'unknown'
+        }
+        setSubDots(next)
+      } catch { /* dots stay unknown */ }
+    }
+    void probe()
+    return () => { active = false }
+  }, [open, keyTick])
+
   const t = (keyName: PillDictKey): string => (lang === 'en' ? PILL_DICT.en : PILL_DICT.zh)[keyName]
 
   const current = snapshot.value?.provider ?? 'google'
   const writable = snapshot.writable
 
-  // Anchor the fixed-position menu above the pill each time it opens.
+  // Anchor the fixed-position menu next to the pill each time it opens, and
+  // re-anchor on viewport changes: the menu follows the button instead of
+  // snapping shut.
   useEffect(() => {
     if (!open) { setMenuStyle(null); return }
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (rect !== undefined) setMenuStyle({ left: rect.left, bottom: window.innerHeight - rect.top + 6 })
+    const anchor = (): void => {
+      const next = anchorOf(buttonRef.current)
+      if (next !== undefined) setMenuStyle(next)
+    }
+    anchor()
+    window.addEventListener('resize', anchor)
+    return () => { window.removeEventListener('resize', anchor) }
   }, [open])
 
-  // Close on outside press, Escape, and viewport changes while open.
+  // Close on outside press, Escape, and when the pill scrolls fully out of
+  // view. Menu-internal scrolling never closes: the capture-phase scroll
+  // listener below ignores events originating inside the menu itself.
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: Event): void => {
@@ -172,7 +242,20 @@ export function ImageProviderPill(props: ProviderPillFace) {
       }
     }
     const onKeyDown = (event: KeyboardEvent): void => { if (event.key === 'Escape') setOpen(false) }
-    const onReflow = (): void => { setOpen(false) }
+    const onReflow = (event: Event): void => {
+      // Scrolling inside the menu itself only scrolls; it never re-anchors
+      // and never closes.
+      if (event.target instanceof Element && event.target.closest('.dsh-ig-pill-menu') !== null) return
+      // Page/pane scroll re-anchors the menu so it keeps following the
+      // button; it closes only when the pill left the viewport entirely.
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (rect !== undefined && (rect.bottom < 0 || rect.top > window.innerHeight)) {
+        setOpen(false)
+        return
+      }
+      const next = anchorOf(buttonRef.current)
+      if (next !== undefined) setMenuStyle(next)
+    }
     document.addEventListener('mousedown', onPointerDown, true)
     document.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('resize', onReflow)
@@ -200,8 +283,15 @@ export function ImageProviderPill(props: ProviderPillFace) {
       .finally(() => { setPending(undefined) })
   }
 
+  /** Plan A dots: ComfyUI is always fixed blue (theme-independent); each
+   * subscription reflects its login state (green in, gray out); cloud rows
+   * reflect their API-key state as before. */
   const dotClassOf = (provider: ImageProvider): string => {
     if (provider === 'comfyui') return 'dsh-ig-pill-dot-neutral'
+    if (isSubscriptionProvider(provider)) {
+      const state = subDots[provider]
+      return state === 'logged-in' ? 'dsh-ig-pill-dot-ok' : 'dsh-ig-pill-dot-missing'
+    }
     const dot = dots[provider]
     return dot === 'configured' ? 'dsh-ig-pill-dot-ok' : dot === 'missing' ? 'dsh-ig-pill-dot-missing' : 'dsh-ig-pill-dot-neutral'
   }
@@ -210,6 +300,11 @@ export function ImageProviderPill(props: ProviderPillFace) {
     if (provider === 'comfyui') {
       const workflow = pillModelOf(provider, snapshot.value)
       return workflow.length > 0 ? `${t('noKeyNeeded')} · ${workflow}` : `${t('noKeyNeeded')} · ${t('noWorkflow')}`
+    }
+    if (isSubscriptionProvider(provider)) {
+      const state = subDots[provider]
+      const stateText = state === 'logged-in' ? t('subSignedIn') : state === 'logged-out' ? t('subSignedOut') : t('subStatusUnknown')
+      return `${t('subNoKey')} · ${stateText} · ${pillModelOf(provider, snapshot.value)}`
     }
     const dot = dots[provider]
     const model = pillModelOf(provider, snapshot.value)
@@ -289,8 +384,8 @@ export const PROVIDER_PILL_STYLE = `
 .dsh-ig-pill-option-active{background:var(--dsw-alias-brand-primary-soft,rgba(76,120,255,.10))}
 .dsh-ig-pill-dot{flex:none;width:7px;height:7px;border-radius:50%}
 .dsh-ig-pill-dot-ok{background:#22c55e}
-.dsh-ig-pill-dot-missing{background:var(--dsw-alias-border-l2,#d1d5db)}
-.dsh-ig-pill-dot-neutral{background:var(--dsw-alias-brand-primary,#4c78ff)}
+.dsh-ig-pill-dot-missing{background:#9ca3af}
+.dsh-ig-pill-dot-neutral{background:#4c78ff}
 .dsh-ig-pill-option-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .dsh-ig-pill-option-name{font-size:12.5px;font-weight:500;color:var(--dsw-alias-label-primary,#111827);line-height:1.2}
 .dsh-ig-pill-option-sub{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

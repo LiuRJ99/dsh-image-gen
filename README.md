@@ -10,7 +10,7 @@
 
 ### DeepSeek Harness 的原生 AI 图像创作套件
 
-<p><b>对话生图与编辑 · Studio 批量创作 · 多模型对比 · 500+ Prompt 灵感 · 图库管理 · 本地 ComfyUI</b></p>
+<p><b>对话生图与编辑 · Studio 批量创作 · 多模型对比 · 500+ Prompt 灵感 · 图库管理 · 本地 ComfyUI · 订阅免 Key</b></p>
 
 <p>
   <a href="https://www.npmjs.com/package/dsh-image-gen"><img src="https://img.shields.io/npm/v/dsh-image-gen?style=flat-square&color=4f6ef7" alt="npm version" /></a>
@@ -35,7 +35,7 @@
 
 **为 DeepSeek Harness 带来完整的 AI 图像创作工作流。**
 
-`dsh-image-gen` 不只是简单的对话生图，而是为 DSH 补齐了从**自然语言连续修图**、**Studio 批量创作**、**多模型横向对比**，到 **500+ Prompt 灵感库**与**本地 ComfyUI** 的全流程能力。支持 **Google Gemini、OpenAI Images / Compatible、ByteDance Seedream、Aliyun DashScope、xAI Grok Imagine、智谱 GLM-Image** 及本地私有化工作流，采用 BYOK（自带 Key）模式，生成结果支持按工作区隔离存储。
+`dsh-image-gen` 不只是简单的对话生图，而是为 DSH 补齐了从**自然语言连续修图**、**Studio 批量创作**、**多模型横向对比**，到 **500+ Prompt 灵感库**与**本地 ComfyUI** 的全流程能力。支持 **Google Gemini、OpenAI Images / Compatible、ByteDance Seedream、Aliyun DashScope、xAI Grok Imagine、智谱 GLM-Image** 及本地私有化工作流，支持 BYOK（自带 Key）与**订阅账号免 Key** 两种方式，生成结果支持按工作区隔离存储。已有 ChatGPT、Grok 或 Google 订阅？登录账号即可直接生图，无需单独购买 API Key。
 
 ```bash
 pnpm dsh plugin --profile web add dsh-image-gen@latest
@@ -97,6 +97,8 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 **设置 → 插件 → 插件配置 → 图像生成**
 
 选择 Provider，填写自己的 API Key，并按需调整模型、Endpoint / Base URL 与工作区保存选项。填好 Key 后可点击**「测试连接」**验证可用性，或点击**「拉取模型」**一键获取该厂商支持的全部生图模型，无需手动查文档。使用 ComfyUI 时，请填写 DSH Host 可访问的服务地址，并导入 **API Format Workflow JSON**。
+
+已有 ChatGPT、Grok 或 Google 订阅？无需填写 API Key：展开对应的订阅 Provider 行，点击**「登录」**并在浏览器完成授权，即可直接开始生图。
 
 ### 3. 开始创作
 
@@ -237,9 +239,13 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 | **xAI Grok Imagine**              |    ✅    | ⚠️ 有限  |   ✅   |     ✅     |
 | **智谱 GLM-Image**                |    ✅    |    —     |   ✅   |     ✅     |
 | **Local ComfyUI**                 |    ✅    | ✅ 单图  |   —    |     —      |
+| **ChatGPT 订阅（免 Key）**       |    ✅    |    —     |   —    |     —      |
+| **Grok 订阅（免 Key）**          |    ✅    |    —     |   —    |     —      |
+| **Google 订阅（免 Key）**        |    ✅    |    —     |   —    |     —      |
 
 > Studio 与多模型对比目前只支持云端 Provider；多模型对比调用的是各 Provider 在设置中已配置的模型。
 > 智谱 GLM-Image 上游本身不支持图生图；xAI 图生图走 OpenAI 兼容协议（multipart），部分网关可能需等待后续适配。
+> 订阅通道通过账号登录使用（免 API Key），目前仅支持对话文生图；编辑、Studio 与多模型对比请使用 API Key 类 Provider。
 
 <details>
 <summary><strong>当前默认模型与 Endpoint（均可修改）</strong></summary>
@@ -252,8 +258,11 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 | ByteDance Seedream | `doubao-seedream-5-0-260128` | `https://ark.cn-beijing.volces.com/api/v3`                      |
 | Aliyun DashScope   | `qwen-image-3.0`             | `https://dashscope.aliyuncs.com/api/v1`                         |
 | xAI Grok Imagine   | `grok-imagine-image`         | `https://api.x.ai/v1`                                           |
-| 智谱 GLM-Image     | `glm-image`                  | `https://open.bigmodel.cn/api/paas/v4`                          |
+| 智谱 GLM-Image     | `glm-image`                  | `https://open.bigmodel.cn/api/paas/v4`                         |
 | Local ComfyUI      | 用户导入的 API Workflow      | `http://127.0.0.1:8188`                                         |
+| ChatGPT 订阅       | `gpt-image-2.5-flare`（通道固定） | 账号登录，无需配置                                        |
+| Grok 订阅         | `grok-imagine-image-2.0`（通道固定） | 账号登录，无需配置                                    |
+| Google 订阅       | `gemini-3-pro-image`（通道固定） | 账号登录，无需配置                                        |
 
 </details>
 
@@ -262,6 +271,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 ## 数据与隐私
 
 - **BYOK**：API Key 通过 DSH Credentials 服务保存，设置页不会回显 Key 明文。
+- **订阅登录**：订阅账号令牌经你授权登录后保存于 DSH Credentials，与 API Key 完全隔离，浏览器侧不接触令牌。
 - **云端请求**：Prompt 与本次使用的参考图会发送给所选 Provider，请遵守对应服务条款。
 - **本地 ComfyUI**：请求发送到用户配置的 ComfyUI 地址。
 - **工作区文件**：开启工作区保存后，对话结果会落盘；Studio 仅保存用户选中的候选图。
