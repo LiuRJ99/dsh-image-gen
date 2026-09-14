@@ -7,6 +7,15 @@
 
 ---
 
+## [0.5.4] - 2026-09-14
+
+### Fixed
+
+- 更新安装文档中的 CPA Provider 目标到已发布的 `v0.4.5`，并修正 Peer 契约说明与实际范围。
+- 将本地 CPA sibling 明确保留在 `devDependencies`，同步 pnpm workspace/lockfile，避免开发依赖被误记录为运行时依赖。
+- 本版本不改变 ImageGen 运行时代码或 `dshCpaImageGeneration` 契约；继续兼容 CPA `>=0.4.0 <0.5.0`。
+- 本版本未执行真实 CPA relay 生图/编辑调用；GPT/Gemini 的认证 E2E 仍需在用户已配置的环境中单独验收。
+
 ## [0.5.3] - 2026-09-11
 
 ### Fixed
