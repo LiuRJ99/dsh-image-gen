@@ -122,8 +122,7 @@ export async function generateFromStudio(
   assertAllowed(profile, input)
   const active = resolveProvider(withProviderOverrides(config, input.provider, input.model))
   if (active.provider === 'comfyui') throw new Error('ComfyUI 暂未接入工作台')
-  if (isSubscriptionProvider(active.provider)) throw new Error('订阅生图暂未接入工作台，请通过对话或设置切换默认 Provider 使用')
-  // Subscription and ComfyUI are rejected above; narrow for the closures below.
+  // ComfyUI is rejected above; subscription channels were routed earlier; narrow for the closures below.
   const wired = active as
     | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
     | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
