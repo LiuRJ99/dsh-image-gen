@@ -30,7 +30,47 @@ describe('resolveProvider', () => {
 
   it('resolves editable OpenAI-compatible profiles independently', () => {
     expect(resolveProvider({ provider: 'openai' })).toEqual({ provider: 'openai', apiKeyEnv: 'OPENAI_API_KEY', baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_OPENAI_MODEL, imageSize: '1024x1024' })
-    expect(resolveProvider({ provider: 'seedream' })).toEqual({ provider: 'seedream', apiKeyEnv: 'ARK_API_KEY', baseURL: DEFAULT_SEEDREAM_BASE_URL, model: DEFAULT_SEEDREAM_MODEL, imageSize: '2K' })
+    expect(resolveProvider({ provider: 'seedream' })).toEqual({
+      provider: 'seedream',
+      apiKeyEnv: 'ARK_API_KEY',
+      baseURL: DEFAULT_SEEDREAM_BASE_URL,
+      model: DEFAULT_SEEDREAM_MODEL,
+      imageSize: '2K',
+      arkOptions: { outputFormat: 'jpeg', watermark: true, background: 'opaque' },
+    })
+  })
+
+  it('carries the Seedream output controls through to the resolved profile', () => {
+    expect(resolveProvider({
+      provider: 'seedream',
+      seedreamOutputFormat: 'png',
+      seedreamWatermark: false,
+      seedreamBackground: 'transparent',
+    })).toMatchObject({
+      provider: 'seedream',
+      arkOptions: { outputFormat: 'png', watermark: false, background: 'transparent' },
+    })
+  })
+
+  // Ark rejects `output_format: jpeg` together with `background: transparent` —
+  // a JPEG cannot carry the alpha channel the transparent mode exists to produce.
+  // The settings UI keeps the two controls independent, so the profile couples them.
+  it('forces PNG output when the Seedream background is transparent', () => {
+    expect(resolveProvider({
+      provider: 'seedream',
+      seedreamOutputFormat: 'jpeg',
+      seedreamBackground: 'transparent',
+    })).toMatchObject({
+      arkOptions: { outputFormat: 'png', background: 'transparent' },
+    })
+    // An opaque background leaves the chosen format alone.
+    expect(resolveProvider({
+      provider: 'seedream',
+      seedreamOutputFormat: 'jpeg',
+      seedreamBackground: 'opaque',
+    })).toMatchObject({
+      arkOptions: { outputFormat: 'jpeg', background: 'opaque' },
+    })
   })
 
   it('resolves DashScope profile', () => {

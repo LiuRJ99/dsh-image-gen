@@ -311,6 +311,56 @@ export const DEFAULT_COMFYUI_TIMEOUT_MS = 300_000
 export const DEFAULT_COMFYUI_WORKFLOW_LABEL = 'API workflow'
 export const MAX_COMFYUI_WORKFLOW_BYTES = 5 * 1024 * 1024
 
+/** Content types Ark's Seedream endpoint can return. */
+export const ARK_OUTPUT_FORMATS = ['png', 'jpeg'] as const
+/** Whether Ark stamps an "AI generated" watermark on the result. */
+export const ARK_BACKGROUND_MODES = ['opaque', 'transparent'] as const
+export type ArkOutputFormat = typeof ARK_OUTPUT_FORMATS[number]
+export type ArkBackgroundMode = typeof ARK_BACKGROUND_MODES[number]
+
+/**
+ * Ark (Seedream) output controls, shared by the generate and edit paths.
+ *
+ * Every field mirrors an Ark request-body field of the same meaning, and every
+ * default below reproduces Ark's own default — so an untouched configuration
+ * sends exactly what it sent before these options existed.
+ */
+export interface ArkOutputOptions {
+  /** `output_format`. Ark defaults to `jpeg`; `png` is lossless and keeps an alpha channel. */
+  outputFormat?: ArkOutputFormat
+  /** `watermark`. Ark defaults to `true`, which bakes an "AI generated" mark into the image. */
+  watermark?: boolean
+  /** `background`. Ark defaults to `opaque`. */
+  background?: ArkBackgroundMode
+}
+
+/**
+ * Map the Ark output controls onto request-body fields.
+ *
+ * `background` is opt-in per call site because Ark restricts `transparent` to
+ * image-to-image with a single alpha-bearing reference and rejects the whole
+ * request otherwise:
+ *
+ *   text-to-image + transparent → 400 InvalidParameter
+ *     "transparent background requires exactly one input image"
+ *
+ * So the generation endpoint must never carry it, and that caller passes
+ * `{ background: false }`. `background: opaque` is never emitted anywhere: it
+ * is already Ark's default, so sending it would change nothing while adding a
+ * field only the edit path can act on.
+ */
+export function arkOutputBody(
+  options: ArkOutputOptions | undefined,
+  { background = true }: { background?: boolean } = {},
+): Record<string, unknown> {
+  if (options === undefined) return {}
+  const body: Record<string, unknown> = {}
+  if (options.outputFormat !== undefined) body.output_format = options.outputFormat
+  if (options.watermark !== undefined) body.watermark = options.watermark
+  if (background && options.background === 'transparent') body.background = 'transparent'
+  return body
+}
+
 /** Default model names. */
 export const DEFAULT_GOOGLE_MODEL = 'gemini-3.1-flash-image'
 export const DEFAULT_OPENAI_MODEL = 'gpt-image-2'

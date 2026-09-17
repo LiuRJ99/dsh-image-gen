@@ -2,6 +2,7 @@
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { redactSecrets } from './redact.js'
 import { detectImageMediaType } from './reference-image.js'
+import { arkOutputBody, type ArkOutputOptions } from './shared.js'
 
 const ERROR_LIMIT = 4096
 
@@ -24,11 +25,21 @@ export async function generateOpenAICompatibleImage(input: {
   size: string
   maxBytes: number
   signal: AbortSignal
+  /** Ark-only output controls; ignored by every other provider. */
+  arkOptions?: ArkOutputOptions
 }): Promise<GeneratedCompatibleImage> {
   const response = await fetch(imageEndpoint(input.baseURL, 'generations'), {
     method: 'POST', redirect: 'error', signal: input.signal,
     headers: { authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: input.model, prompt: input.prompt, size: input.size, ...(input.provider === 'seedream' ? { response_format: 'url' } : {}) }),
+    body: JSON.stringify({
+      model: input.model,
+      prompt: input.prompt,
+      size: input.size,
+      // `background: false` — Ark rejects `transparent` on this endpoint
+      // outright (it needs exactly one input image), so it is the edit path's
+      // option alone.
+      ...(input.provider === 'seedream' ? { response_format: 'url', ...arkOutputBody(input.arkOptions, { background: false }) } : {}),
+    }),
   })
   return parseImageResponse(response, input.provider, input)
 }
