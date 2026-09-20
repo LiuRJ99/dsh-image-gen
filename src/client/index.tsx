@@ -232,6 +232,7 @@ const DICT = {
     keyCleared: '已清除 Key',
     clearKeyFailed: '清除 Key 失败',
     saveKeyFailed: '保存 Key 失败',
+    saveKeyFirst: '请先保存 API Key，再拉取模型或测试连接。',
     clearKeyUnsupported: '当前版本 DSH 不支持在此清除 Key，请到凭据管理中删除。',
     endpoint: '接口地址',
     reset: '重置',
@@ -373,6 +374,7 @@ const DICT = {
     keyCleared: 'Key cleared',
     clearKeyFailed: 'Failed to clear key',
     saveKeyFailed: 'Failed to save the key',
+    saveKeyFirst: 'Save the API key first, then fetch models or test the connection.',
     clearKeyUnsupported: 'This DSH build cannot clear keys here; remove it from credential management instead.',
     endpoint: 'Endpoint / Base URL',
     reset: 'Reset',
@@ -1472,7 +1474,10 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
           updateRow(provider, { keyInput: '', keyStatus: 'configured' })
         }
       }
-      updateRow(provider, { message: t('saved'), messageIsError: false })
+      updateRow(provider, {
+        message: t('saved'), messageIsError: false,
+        testResult: undefined, modelFetchMessage: '', modelFetchIsError: false,
+      })
     } catch (cause) {
       updateRow(provider, { message: cause instanceof Error ? cause.message : String(cause), messageIsError: true })
     } finally {
@@ -1482,6 +1487,10 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 
   /** Probe through the host route so the browser side never touches credential values. */
   const testConnection = async (provider: Provider): Promise<void> => {
+    if (rows[provider].keyInput.trim().length > 0) {
+      updateRow(provider, { message: t('saveKeyFirst'), messageIsError: false, testResult: undefined })
+      return
+    }
     updateRow(provider, { testing: true, testResult: undefined, message: '', messageIsError: false })
     try {
       const response = await fetch(TEST_CONNECTION_ROUTE, {
@@ -1500,6 +1509,10 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 
   /** Pull the provider's image-capable model ids through the host route (Google and the OpenAI family). */
   const fetchProviderModels = async (provider: CloudImageProvider): Promise<void> => {
+    if (rows[provider].keyInput.trim().length > 0) {
+      updateRow(provider, { modelFetchMessage: t('saveKeyFirst'), modelFetchIsError: false })
+      return
+    }
     updateRow(provider, { fetchingModels: true, modelFetchMessage: '', modelFetchIsError: false })
     try {
       const response = await fetch(TEST_CONNECTION_ROUTE, {
@@ -1707,7 +1720,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
                 <button
                   type="button"
                   className="dsh-ig-btn-secondary"
-                  disabled={row.fetchingModels || !snapshot.writable}
+                  disabled={row.fetchingModels || row.saving || !snapshot.writable}
                   onClick={() => { void fetchProviderModels(provider) }}
                 >{row.fetchingModels ? t('fetchingModels') : t('fetchModels')}</button>
               </div>
@@ -1797,11 +1810,11 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
           <div className="dsh-ig-row-actions">
             <p className={`dsh-ig-status${row.messageIsError ? ' dsh-ig-status-error' : ''}`} role="status">{row.message || testResultText(row.testResult)}</p>
             <span className="dsh-ig-row-buttons">
-              <button type="button" className="dsh-ig-btn-secondary" disabled={row.testing} onClick={() => { void testConnection(provider) }}>{row.testing ? t('testing') : t('testConnection')}</button>
+              <button type="button" className="dsh-ig-btn-secondary" disabled={row.testing || row.saving} onClick={() => { void testConnection(provider) }}>{row.testing ? t('testing') : t('testConnection')}</button>
               {row.keyStatus === 'configured' && !keyReadOnly ? (
                 <button type="button" className="dsh-ig-btn-secondary dsh-ig-btn-danger" disabled={row.saving} onClick={() => { void clearProviderKey(provider) }}>{t('clearKey')}</button>
               ) : null}
-              <button className="dsh-ig-save" type="submit" disabled={row.saving || !snapshot.writable}>{row.saving ? t('saving') : t('save')}</button>
+              <button className="dsh-ig-save" type="submit" disabled={row.saving || row.testing || row.fetchingModels || !snapshot.writable}>{row.saving ? t('saving') : t('save')}</button>
             </span>
           </div>
         </form>
