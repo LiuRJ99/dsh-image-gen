@@ -115,6 +115,8 @@ After restarting DSH, open:
 
 **Settings → Plugins → Image Generation**
 
+> On DSH 0.1.5 and earlier the entry is **Settings → Plugins → Plugin Configuration → Image Generation**; the same plugin build supports both.
+
 Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. Once the key is stored, click **Test connection** to verify it, or **Fetch models** to pull every image-capable model the provider offers—no manual lookups needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
 
 Already paying for ChatGPT, Grok, or Google? No API key needed: expand the matching subscription Provider row, click **Sign in** and complete the authorization in your browser, then start generating (and editing) right away.
@@ -321,7 +323,9 @@ Bring private image generation on your local GPU directly into Agent conversatio
 <details>
 <summary><strong>What should I do if “Image Generation” is missing after installation?</strong></summary>
 
-Fully restart the current DSH Profile, then inspect the plugin configuration:
+The settings entry depends on the DSH version: 0.1.6 and newer place it at **Settings → Plugins → Image Generation**, while 0.1.5 and earlier place it at **Settings → Plugins → Plugin Configuration → Image Generation**.
+
+If it is missing in both places, fully restart the current DSH Profile, then inspect the plugin configuration:
 
 ```bash
 dsh --profile web --dump-config

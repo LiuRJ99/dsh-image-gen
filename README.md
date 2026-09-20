@@ -115,6 +115,8 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 **设置 → 插件 → 图像生成**
 
+> DSH 0.1.5 及更早版本的入口为「设置 → 插件 → 插件配置 → 图像生成」，插件已同时兼容两种入口。
+
 选择 Provider，填写自己的 API Key，并按需调整模型、Endpoint / Base URL 与工作区保存选项。填好 Key 后可点击**「测试连接」**验证可用性，或点击**「拉取模型」**一键获取该厂商支持的全部生图模型，无需手动查文档。使用 ComfyUI 时，请填写 DSH Host 可访问的服务地址，并导入 **API Format Workflow JSON**。
 
 已有 ChatGPT、Grok 或 Google 订阅？无需填写 API Key：展开对应的订阅 Provider 行，点击**「登录」**并在浏览器完成授权，即可直接开始文生图与图生图。
@@ -321,7 +323,9 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 <details>
 <summary><strong>安装后找不到“图像生成”设置怎么办？</strong></summary>
 
-先完全重启当前 DSH Profile，再检查插件配置：
+设置入口随 DSH 版本不同：0.1.6 及以上位于「设置 → 插件 → 图像生成」，0.1.5 及更早位于「设置 → 插件 → 插件配置 → 图像生成」。
+
+若两处都没有，先完全重启当前 DSH Profile，再检查插件配置：
 
 ```bash
 dsh --profile web --dump-config

@@ -205,6 +205,8 @@ describe('DSH client compatibility', () => {
     expect(harness.registrations.has('settings.plugin.item')).toBe(true)
     expect(harness.registrations.has('conversation.input.right')).toBe(true)
     expect(() => harness.registrations.get('settings.plugins.tab')?.()).not.toThrow()
+    // The legacy per-plugin seat must stay mountable on the very same build.
+    expect(() => harness.registrations.get('settings.plugin.item')?.()).not.toThrow()
     expect(harness.settingsFace()?.credentialsAvailable?.()).toBe(false)
     const degraded = harness.injectedCredentials() as {
       describe(refs: string[]): Promise<unknown>
