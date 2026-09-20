@@ -8,6 +8,8 @@ import { Config, migrateOpenAICompatConfig, resolveProvider, selectComfyUIWorkfl
 import { requireApiKey, resolveApiKey } from './credentials.js'
 import { CanvasMirror } from './canvas-state.js'
 import { serveCanvasState } from './canvas-state-route.js'
+import { serveCanvasAsset } from './canvas-asset-route.js'
+import { CANVAS_ASSET_ROUTE } from './shared.js'
 import { registerCanvasTools, resolveCanvasSelectionReferences } from './canvas-tools.js'
 import { editComfyUIImage, generateComfyUIImage } from './comfyui.js'
 import { editDashScopeImage, generateDashScopeImage } from './dashscope.js'
@@ -127,6 +129,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       maxImageBytes: ctx.attachments.imageLimits.maxImageBytes,
     }),
   }), 'dsh-image-gen: canvas state route')
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact', path: CANVAS_ASSET_ROUTE,
+    handler: (req, res) => serveCanvasAsset(req, res, {
+      maxImageBytes: ctx.attachments.imageLimits.maxImageBytes,
+      saveImage: image => ctx.attachments.saveImage(image),
+    }),
+  }), 'dsh-image-gen: canvas asset route')
   // A few lines of live canvas context per model request. The service is an
   // optional dependency: hosts without dsh-system-prompt boot unchanged and
   // the canvas tools remain the model's way to discover the canvas.

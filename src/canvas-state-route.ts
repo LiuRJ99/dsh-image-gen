@@ -13,6 +13,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { CANVAS_MAX_NODES, CANVAS_MAX_PROMPT_CHARS, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_NODE_KINDS, type CanvasNodeKind, type CanvasNodeSummary, type CanvasStatePush } from './shared.js'
 import type { CanvasMirror } from './canvas-state.js'
+import { parseImageAttachmentRef } from './reference-image.js'
 
 /** Dependencies required by the canvas-state route. */
 export interface CanvasStateRouteDeps {
@@ -132,6 +133,11 @@ function parsePush(value: unknown): CanvasStatePush {
   }
 
   if (record.selectionImage !== undefined && typeof record.selectionImage !== 'string') throw new InvalidPush()
+  const selectionRevision = optionalBoundedString(record.selectionRevision, 64)
+  const selectionError = optionalBoundedString(record.selectionError, 300)
+  const selectionStatus = record.selectionStatus
+  if (selectionStatus !== undefined && selectionStatus !== 'preparing' && selectionStatus !== 'ready' && selectionStatus !== 'error') throw new InvalidPush()
+  if (record.sequence !== undefined && (!nonNegativeInteger(record.sequence) || !Number.isSafeInteger(record.sequence))) throw new InvalidPush()
 
   return {
     clientInstance,
@@ -140,6 +146,10 @@ function parsePush(value: unknown): CanvasStatePush {
     ...(nodes === undefined ? {} : { nodes }),
     ...(selection === undefined ? {} : { selection }),
     ...(typeof record.selectionImage === 'string' ? { selectionImage: record.selectionImage } : {}),
+    ...(selectionRevision === undefined ? {} : { selectionRevision }),
+    ...(selectionStatus === undefined ? {} : { selectionStatus }),
+    ...(selectionError === undefined ? {} : { selectionError }),
+    ...(record.sequence === undefined ? {} : { sequence: record.sequence as number }),
     updatedAt: record.updatedAt,
   }
 }
@@ -170,6 +180,8 @@ function parseNodeSummary(value: unknown): CanvasNodeSummary | undefined {
   if (typeof record.kind !== 'string' || !(CANVAS_NODE_KINDS as readonly string[]).includes(record.kind)) return undefined
   const galleryId = optionalBoundedString(record.galleryId, MAX_ID_CHARS)
   const attachmentId = optionalBoundedString(record.attachmentId, MAX_ID_CHARS)
+  const attachment = record.attachment === undefined ? undefined : parseImageAttachmentRef(record.attachment)
+  if (record.attachment !== undefined && (attachment === undefined || attachment.attachmentId.length > MAX_ID_CHARS || (attachment.name?.length ?? 0) > MAX_ID_CHARS)) throw new InvalidPush()
   const name = optionalBoundedString(record.name, MAX_ID_CHARS)
   const text = optionalBoundedString(record.text, MAX_NODE_TEXT_CHARS)
   const prompt = optionalBoundedString(record.prompt, CANVAS_MAX_PROMPT_CHARS)
@@ -181,6 +193,7 @@ function parseNodeSummary(value: unknown): CanvasNodeSummary | undefined {
     kind: record.kind as CanvasNodeKind,
     ...(galleryId === undefined ? {} : { galleryId }),
     ...(attachmentId === undefined ? {} : { attachmentId }),
+    ...(attachment === undefined ? {} : { attachment }),
     ...(name === undefined ? {} : { name }),
     ...(width === undefined ? {} : { width }),
     ...(height === undefined ? {} : { height }),

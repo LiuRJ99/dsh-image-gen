@@ -67,6 +67,10 @@ function getDB(): Promise<IDBDatabase> {
     }
 
     request.onerror = () => {
+      // Drop the cached promise so the next call retries opening the database
+      // instead of failing for the rest of the session (e.g. transient quota
+      // or version-block states that a later attempt can recover from).
+      dbPromise = null
       reject(request.error)
     }
   })
@@ -127,15 +131,17 @@ export function subscribeGallery(listener: GalleryListener): () => void {
  * Save or update a gallery record by attachmentId.
  * Skipped if the item was previously deleted (tombstoned).
  * Preserves existing isFavorite, tags, and original createdAt on re-renders.
+ * Returns false when the record was not persisted (e.g. IndexedDB unavailable)
+ * so callers can surface the failure and let the user retry.
  */
 export async function saveGalleryItem(
   item: Omit<GalleryItem, 'createdAt'> & { createdAt?: number }
-): Promise<void> {
+): Promise<boolean> {
   try {
     const db = await getDB()
     const tombstones = await loadTombstones(db)
     if (tombstones.has(item.id)) {
-      return
+      return true
     }
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -163,8 +169,10 @@ export async function saveGalleryItem(
       getReq.onerror = () => reject(getReq.error)
     })
     notifyListeners()
+    return true
   } catch (err) {
     console.warn('[dsh-image-gen] Failed to save gallery item to IndexedDB:', err)
+    return false
   }
 }
 

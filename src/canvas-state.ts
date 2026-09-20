@@ -42,6 +42,8 @@ export interface CanvasMirrorEntry {
   selectionSignature: string
   /** In-memory screenshot of the current selection, when one was pushed. */
   selectionImage?: CanvasSelectionImage
+  selectionStatus?: CanvasStatePush['selectionStatus']
+  selectionError?: string
   /** Mirror receive time, used for the digest's "updated N ago" line. */
   receivedAt: number
   /** Monotonic apply counter; `latest()` prefers the most recently applied instance. */
@@ -110,6 +112,7 @@ function freshestEntry(entries: Iterable<CanvasMirrorEntry>): CanvasMirrorEntry 
  */
 export class CanvasMirror {
   private readonly entries = new Map<string, CanvasMirrorEntry>()
+  private readonly sequences = new Map<string, { value: number; receivedAt: number }>()
   private nextSeq = 0
 
   /**
@@ -118,6 +121,15 @@ export class CanvasMirror {
    * still view them while unrelated canvas edits keep flowing in.
    */
   apply(push: CanvasStatePush, selectionImage?: CanvasSelectionImage): void {
+    // Keep short-lived disconnect tombstones so an older in-flight upload
+    // cannot resurrect a closed canvas or replace a newer selection.
+    for (const [id, item] of this.sequences) {
+      if (Date.now() - item.receivedAt > 5 * 60_000) this.sequences.delete(id)
+    }
+    if (push.sequence !== undefined) {
+      if (push.sequence <= (this.sequences.get(push.clientInstance)?.value ?? -1)) return
+      this.sequences.set(push.clientInstance, { value: push.sequence, receivedAt: Date.now() })
+    }
     if (!push.connected) {
       this.entries.delete(push.clientInstance)
       return
@@ -126,8 +138,10 @@ export class CanvasMirror {
     const selectionCount = push.selection?.count ?? 0
     const selectionKinds = [...(push.selection?.kinds ?? [])]
     const selectionItems = [...(push.selection?.items ?? [])]
-    const selectionSignature = signatureOf(selectionCount, selectionKinds, selectionItems)
-    const keepImage = previous !== undefined && previous.selectionSignature === selectionSignature
+    const selectionSignature = push.selectionRevision === undefined
+      ? signatureOf(selectionCount, selectionKinds, selectionItems)
+      : JSON.stringify([push.selectionRevision, selectionCount])
+    const keepImage = push.selectionStatus !== 'preparing' && previous !== undefined && previous.selectionSignature === selectionSignature
       ? previous.selectionImage
       : undefined
     this.entries.set(push.clientInstance, {
@@ -139,6 +153,8 @@ export class CanvasMirror {
       selectionKinds,
       selectionItems,
       selectionSignature,
+      ...(push.selectionStatus === undefined ? {} : { selectionStatus: push.selectionStatus }),
+      ...(push.selectionError === undefined ? {} : { selectionError: push.selectionError }),
       ...(selectionImage !== undefined
         ? { selectionImage }
         : keepImage !== undefined ? { selectionImage: keepImage } : {}),
@@ -212,9 +228,12 @@ export class CanvasMirror {
         lines.push(`- (${unlistedSelection} further selected shapes not itemized)`)
       }
       const screenshot = entry.selectionImage !== undefined
-        ? 'A screenshot of the selection is available; call view_canvas to see it. edit_image with source=canvas_selection sends the full-resolution originals of selected conversation images, plus the screenshot when the selection also contains other content (hand-drawn strokes, pasted images).'
-        : 'No selection screenshot yet — the canvas pushes one about a second after the selection settles. edit_image with source=canvas_selection can still use the full-resolution originals of selected conversation images; for anything else ask the user to re-select the shapes.'
+        ? 'A screenshot of the selection is available; call view_canvas to see it. edit_image with source=canvas_selection uses separately synchronized originals, including images from earlier conversations and imports, plus the screenshot for mixed selections. Provider reference-count limits still apply.'
+        : entry.selectionError !== undefined
+          ? `Selection synchronization failed: ${entry.selectionError}. Ask the user to retry using the canvas status bar. Do not claim that image-only selections are invisible or suggest adding a stroke.`
+          : 'The selection preview and original images are being prepared. Wait for the canvas status bar to report ready, then retry.'
       lines.push(screenshot)
+      if (entry.selectionImage !== undefined && entry.selectionError !== undefined) lines.push(`The preview is available, but original synchronization failed: ${entry.selectionError}. Editing must not silently omit these references.`)
     }
     return lines.join('\n')
   }

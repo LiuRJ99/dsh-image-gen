@@ -15,17 +15,14 @@
  * in the summary) never hit the network.
  */
 import type { Editor, TLShape } from 'tldraw'
-import { CANVAS_MAX_NODES, CANVAS_MAX_PROMPT_CHARS, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary } from '../../shared.js'
+import { CANVAS_MAX_NODES, CANVAS_MAX_PROMPT_CHARS, CANVAS_MAX_SELECTION_ITEMS, CANVAS_MAX_SELECTION_KINDS, CANVAS_STATE_ROUTE, type CanvasNodeKind, type CanvasNodeSummary, type CanvasStatePush } from '../../shared.js'
+import { exportSelectionPreview, readCanvasImageLimit, syncCanvasOriginal, type CanvasOriginalCacheEntry } from './canvas-selection.js'
 
 /** Debounce for ordinary document/session changes. */
 const STATE_DEBOUNCE_MS = 600
 /** Extra settle time before an expensive selection screenshot export. */
 const SELECTION_EXPORT_DELAY_MS = 1200
-/** Minimum spacing between two HTTP pushes. */
-const MIN_PUSH_INTERVAL_MS = 400
 const MAX_TEXT_CHARS = 96
-/** Hard cap on the exported screenshot payload (base64 chars, ~5MB binary). */
-const MAX_SCREENSHOT_DATAURL_CHARS = 7_000_000
 
 /** Map a tldraw shape type onto the coarse model-facing node kind. */
 function kindOf(shapeType: string): CanvasNodeKind {
@@ -165,137 +162,168 @@ function selectionKeyOf(editor: Editor): string {
  * Start mirroring one editor into the host canvas-state route.
  * Returns a disposer that stops listening and marks the instance offline.
  */
-export function startCanvasSync(editor: Editor): () => void {
-  const clientInstance = String(editor.id)
+export interface CanvasSyncStatus {
+  phase: 'idle' | 'preparing' | 'ready' | 'error'
+  count: number
+  error?: string
+}
+
+export type CanvasSyncHandle = (() => void) & { retry(): void }
+
+export function startCanvasSync(editor: Editor, onStatus: (status: CanvasSyncStatus) => void = () => {}): CanvasSyncHandle {
+  // A fresh sync instance (including after clear) must not reuse sequence ids.
+  const clientInstance = `${String(editor.id).slice(0, 36)}-${Math.random().toString(36).slice(2, 10)}`
   let disposed = false
   let stateTimer: ReturnType<typeof setTimeout> | undefined
   let exportTimer: ReturnType<typeof setTimeout> | undefined
   let lastPushKey = ''
-  let lastSelectionKey = 'init'
-  let lastPostAt = 0
-  let inFlight: AbortController | undefined
+  let lastSelectionKey = selectionKeyOf(editor)
+  let revision = 0
+  let sequence = 0
+  let imageLimit: number | undefined
+  let inFlight = new AbortController()
+  let exporting = false
+  let exportAgain = false
+  let prepared: Pick<CanvasStatePush, 'selectionImage' | 'selectionError' | 'selectionStatus'> = {}
+  const originalCache = new Map<string, CanvasOriginalCacheEntry>()
+  let preparedItems: CanvasNodeSummary[] | undefined
 
-  const stopListening = editor.store.listen(() => {
+  const stopListening = editor.store.listen(event => {
     if (disposed) return
-    // Hot path: store changes fire at pointer-move frequency while drawing.
-    // Only compare the selection ids here (O(selected shapes)); the expensive
-    // full summarize() runs inside the debounced flush instead, so a burst of
-    // drawing events costs a few string comparisons, not a page walk.
-    const selectionKey = selectionKeyOf(editor)
-    if (selectionKey !== lastSelectionKey) {
-      // Selection changed: re-arm the settled-screenshot export timer.
-      lastSelectionKey = selectionKey
-      if (exportTimer !== undefined) clearTimeout(exportTimer)
-      exportTimer = setTimeout(() => {
-        exportTimer = undefined
-        void flush(true)
-      }, SELECTION_EXPORT_DELAY_MS)
+    const key = selectionKeyOf(editor)
+    // Camera/hover changes need no export; edits to shapes/assets do, even
+    // when the selected ids stay the same (drawing, cropping, moving, undo).
+    const changes = event.changes
+    const documentChanged = [...Object.values(changes.added), ...Object.values(changes.removed), ...Object.values(changes.updated).map(pair => pair[1])]
+      .some(record => record.typeName === 'shape' || record.typeName === 'asset' || record.typeName === 'page')
+    if (key !== lastSelectionKey || documentChanged) {
+      lastSelectionKey = key
+      invalidate()
     }
     if (stateTimer === undefined) {
       stateTimer = setTimeout(() => {
         stateTimer = undefined
-        void flush(false)
+        void pushState()
       }, STATE_DEBOUNCE_MS)
     }
   }, { source: 'all', scope: 'all' })
 
-  async function flush(withScreenshot: boolean): Promise<void> {
+  function invalidate(): void {
+    revision++
+    inFlight.abort()
+    inFlight = new AbortController()
+    prepared = {}
+    preparedItems = undefined
+    const count = editor.getSelectedShapeIds().length
+    onStatus({ phase: count > 0 ? 'preparing' : 'idle', count })
+    if (exportTimer !== undefined) clearTimeout(exportTimer)
+    if (count > 0) exportTimer = setTimeout(() => { exportTimer = undefined; void prepare() }, SELECTION_EXPORT_DELAY_MS)
+  }
+
+  async function pushState(force = false): Promise<void> {
     if (disposed) return
+    const currentRevision = revision
     const summary = summarize(editor)
-    if (!withScreenshot && summary.stateKey === lastPushKey) return
-    const elapsed = Date.now() - lastPostAt
-    if (elapsed < MIN_PUSH_INTERVAL_MS) {
-      if (stateTimer !== undefined) clearTimeout(stateTimer)
-      stateTimer = setTimeout(() => {
-        stateTimer = undefined
-        void flush(withScreenshot)
-      }, MIN_PUSH_INTERVAL_MS - elapsed)
-      return
-    }
-
-    let selectionImage: string | undefined
-    // Persistent images may belong to a different conversation. Keep a
-    // screenshot fallback; the host still prefers available original images.
-    if (withScreenshot && summary.selectionCount > 0) {
-      try {
-        const selectedBefore = editor.getSelectedShapes()
-        const { url } = await editor.toImageDataUrl(selectedBefore, { background: true, padding: 16, scale: 1, pixelRatio: 2 })
-        if (disposed) return
-        // Export is async: if the selection moved while it ran, this image no
-        // longer matches what the user has selected — discard it and let the
-        // listener's re-armed export timer produce a fresh one.
-        const selectedAfter = editor.getSelectedShapes()
-        const idsBefore = new Set(selectedBefore.map(shape => String(shape.id)))
-        const unchanged = selectedBefore.length === selectedAfter.length
-          && selectedAfter.every(shape => idsBefore.has(String(shape.id)))
-        if (!unchanged) return
-        if (url.length > MAX_SCREENSHOT_DATAURL_CHARS) {
-          console.warn('[dsh-image-gen] canvas selection screenshot skipped: too large')
-        } else {
-          selectionImage = url
-        }
-      } catch (error) {
-        console.warn('[dsh-image-gen] canvas selection screenshot failed:', error)
-      }
-    }
-
-    const payload: Record<string, unknown> = {
+    const key = `${revision}:${summary.stateKey}`
+    if (!force && key === lastPushKey) return
+    const payload: CanvasStatePush = {
       clientInstance,
       connected: true,
       nodeCount: summary.nodeCount,
       nodes: summary.nodes,
-      selection: { count: summary.selectionCount, kinds: summary.selectionKinds, items: summary.selectionItems },
+      selection: { count: summary.selectionCount, kinds: summary.selectionKinds, items: preparedItems ?? summary.selectionItems },
+      selectionRevision: String(revision),
+      ...(summary.selectionCount > 0 ? { selectionStatus: 'preparing' as const } : {}),
+      ...prepared,
+      sequence: ++sequence,
       updatedAt: Date.now(),
     }
-    if (selectionImage !== undefined) payload.selectionImage = selectionImage
-
-    lastPushKey = summary.stateKey
-    lastPostAt = Date.now()
-    const controller = new AbortController()
-    inFlight = controller
+    const requestSequence = sequence
     try {
-      await fetch(CANVAS_STATE_ROUTE, {
+      const response = await fetch(CANVAS_STATE_ROUTE, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: controller.signal,
+        signal: AbortSignal.any([inFlight.signal, AbortSignal.timeout(30_000)]),
       })
+      if (!response.ok) throw new Error(`state-sync-failed (${response.status})`)
+      if (disposed || revision !== currentRevision || sequence !== requestSequence) return
+      lastPushKey = key
+      onStatus({ phase: payload.selectionStatus ?? 'idle', count: summary.selectionCount, ...(payload.selectionError ? { error: payload.selectionError } : {}) })
     } catch (error) {
-      if (!disposed) console.warn('[dsh-image-gen] canvas state push failed:', error)
-      // Let the next change retry: forget the key so the push is not skipped.
+      if (disposed || revision !== currentRevision || sequence !== requestSequence) return
       lastPushKey = ''
+      onStatus({ phase: 'error', count: summary.selectionCount, error: error instanceof Error ? error.message : 'state-sync-failed' })
     }
   }
 
-  // Initial snapshot once the editor settles.
-  stateTimer = setTimeout(() => {
-    stateTimer = undefined
-    void flush(false)
-  }, STATE_DEBOUNCE_MS)
-
-  // A persisted selection may already exist before our store listener starts.
-  if (editor.getSelectedShapeIds().length > 0) {
-    exportTimer = setTimeout(() => {
-      exportTimer = undefined
-      void flush(true)
-    }, SELECTION_EXPORT_DELAY_MS)
+  async function prepare(): Promise<void> {
+    if (disposed) return
+    if (exporting) { exportAgain = true; return }
+    exporting = true
+    const currentRevision = revision
+    const signal = AbortSignal.any([inFlight.signal, AbortSignal.timeout(30_000)])
+    const shapes = editor.getSelectedShapes()
+    const items = shapes.slice(0, CANVAS_MAX_SELECTION_ITEMS).map(shape => describeShape(editor, shape))
+    let selectionImage: string | undefined
+    let failure: string | undefined
+    try {
+      imageLimit ??= await readCanvasImageLimit(signal)
+      try {
+        selectionImage = await exportSelectionPreview(editor, shapes, imageLimit, signal)
+      } catch (error) {
+        signal.throwIfAborted()
+        failure = error instanceof Error ? error.message : 'preview-export-failed'
+      }
+      if (shapes.length > CANVAS_MAX_SELECTION_ITEMS && shapes.some(shape => shape.type === 'image')) throw new Error('too-many-selected-shapes')
+      // Sequential uploads bound peak memory; each cached asset is reused on
+      // re-selection. No dependency on the currently open conversation.
+      for (const [index, shape] of shapes.entries()) {
+        signal.throwIfAborted()
+        if (shape.type !== 'image') continue
+        const item = items[index]
+        if (item === undefined) continue
+        const attachment = await syncCanvasOriginal(editor, shape, imageLimit, signal, originalCache)
+        item.attachment = attachment
+        item.attachmentId = attachment.attachmentId
+      }
+    } catch (error) {
+      failure = error instanceof Error ? error.message : 'selection-sync-failed'
+    } finally {
+      exporting = false
+    }
+    if (!disposed && revision === currentRevision) {
+      preparedItems = items
+      prepared = {
+        selectionStatus: failure === undefined ? 'ready' : 'error',
+        ...(failure === undefined ? {} : { selectionError: failure.slice(0, 300) }),
+        ...(selectionImage === undefined ? {} : { selectionImage }),
+      }
+      await pushState(true)
+    }
+    if (exportAgain && !disposed) { exportAgain = false; void prepare() }
   }
 
-  return () => {
+  invalidate()
+  stateTimer = setTimeout(() => { stateTimer = undefined; void pushState() }, STATE_DEBOUNCE_MS)
+
+  const stop = (): void => {
     if (disposed) return
     disposed = true
     if (stateTimer !== undefined) clearTimeout(stateTimer)
     if (exportTimer !== undefined) clearTimeout(exportTimer)
     stopListening()
-    inFlight?.abort()
+    inFlight.abort()
+    originalCache.clear()
     // Best-effort offline marker; keepalive lets it survive the unload path.
     void fetch(CANVAS_STATE_ROUTE, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       keepalive: true,
-      body: JSON.stringify({ clientInstance, connected: false, nodeCount: 0, updatedAt: Date.now() }),
+      body: JSON.stringify({ clientInstance, connected: false, nodeCount: 0, sequence: ++sequence, updatedAt: Date.now() }),
     }).catch(() => {})
   }
+  return Object.assign(stop, { retry: () => { invalidate(); void pushState(true) } })
 }

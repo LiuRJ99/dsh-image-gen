@@ -56,6 +56,7 @@ export async function editDashScopeImage(options: DashScopeEditOptions): Promise
   data: Uint8Array
   mediaType: ImageAttachmentRef['mediaType']
 }> {
+  if (options.sourceImages.length > 3) throw new Error(`DashScope image editing supports at most 3 reference images; this selection resolved ${options.sourceImages.length}. Select fewer images or choose a provider that supports more references. No images were omitted.`)
   assertQwenImageModel(options.model)
   const formattedSize = formatSize(options.size)
   return requestQwenImage({

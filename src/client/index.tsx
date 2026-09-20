@@ -315,6 +315,7 @@ const DICT = {
     confirmRegenerate: '确认生成',
     regenerating: '重新生成中…',
     regenerateFailed: '重新生成失败',
+    regenerateSaveFailed: '已重新生成，但保存到图库失败，请重试',
     versionPrevious: '上一版本',
     versionNext: '下一版本',
     versionLabel: '图片版本 {current}/{total}',
@@ -457,6 +458,7 @@ const DICT = {
     confirmRegenerate: 'Regenerate',
     regenerating: 'Regenerating…',
     regenerateFailed: 'Regeneration failed',
+    regenerateSaveFailed: 'Regenerated, but saving to the gallery failed. Please retry.',
     versionPrevious: 'Previous version',
     versionNext: 'Next version',
     versionLabel: 'Image version {current}/{total}',
@@ -2277,7 +2279,7 @@ function ImageResultCard({
         ratio: request.ratio,
         quality: request.quality,
       }
-      await saveGalleryItem({
+      const savedOk = await saveGalleryItem({
         id: String(revision.attachment.attachmentId),
         attachment: revision.attachment,
         prompt: revision.prompt,
@@ -2292,7 +2294,7 @@ function ImageResultCard({
       })
       const next = appendConversationImageRevision(String(originId), revision)
       setRevisionChain(next)
-      setToast(t('regenerate'))
+      setToast(savedOk ? t('regenerate') : t('regenerateSaveFailed'))
       setTimeout(() => { setToast(undefined) }, 2000)
     } catch (cause) {
       if (!controller.signal.aborted) {

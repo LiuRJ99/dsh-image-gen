@@ -15,6 +15,8 @@ export const SAVE_WORKSPACE_ROUTE = '/plugins/dsh-image-gen/save-workspace'
 export const TEST_CONNECTION_ROUTE = '/plugins/dsh-image-gen/test'
 /** Browser route the workbench infinite canvas pushes live state through. */
 export const CANVAS_STATE_ROUTE = '/plugins/dsh-image-gen/canvas-state'
+/** Upload a selected canvas original to the host attachment store. */
+export const CANVAS_ASSET_ROUTE = '/plugins/dsh-image-gen/canvas-asset'
 export const SUBSCRIPTION_LOGIN_ROUTE = '/plugins/dsh-image-gen/subscription-login'
 export const SUBSCRIPTION_STATUS_ROUTE = '/plugins/dsh-image-gen/subscription-status'
 
@@ -56,6 +58,8 @@ export interface CanvasNodeSummary {
   galleryId?: string
   /** Conversation attachment id for generated images; edit_image can target it directly. */
   attachmentId?: string
+  /** Complete host reference; remains usable after switching conversations. */
+  attachment?: ImageAttachmentRef
   /** Human-facing label: image name, geo variant, or similar. */
   name?: string
   width?: number
@@ -108,6 +112,12 @@ export interface CanvasStatePush {
    * live canvas state, not just the original conversation attachment.
    */
   selectionImage?: string
+  /** Changes whenever the selection or its contents change. */
+  selectionRevision?: string
+  selectionStatus?: 'preparing' | 'ready' | 'error'
+  selectionError?: string
+  /** Monotonic per mounted editor, including its final disconnect. */
+  sequence?: number
   updatedAt: number
 }
 

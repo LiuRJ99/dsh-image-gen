@@ -1,4 +1,4 @@
-import { memo, useId, type FC } from 'react'
+import { memo, useCallback, useId, useRef, useState, type FC } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
   DefaultToolbar,
@@ -14,7 +14,7 @@ import { blobToDataUrl } from '../browser-image-utils.js'
 import { clearAttachmentCache, fetchAttachmentBlob } from '../image-cache.js'
 import { CANVAS_MAX_PROMPT_CHARS } from '../../shared.js'
 import { applyBrandTheme } from './tl-brand-theme.js'
-import { startCanvasSync } from './canvas-sync.js'
+import { startCanvasSync, type CanvasSyncStatus } from './canvas-sync.js'
 import { clearTlLandings, getTlLandingGeneration, registerTlLandingConsumer, type TlLandingItem } from './tl-canvas-bridge.js'
 
 /**
@@ -218,17 +218,14 @@ async function landTlItems(editor: Editor, items: readonly TlLandingItem[], isAc
   return true
 }
 
-export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
+const TL_COMPONENTS = { Toolbar: StudioToolbar }
+
+export const StudioTlCanvas: FC<{ lang?: 'zh' | 'en' }> = memo(function StudioTlCanvas({ lang = 'zh' }) {
   // Separate camera/selection state for editors sharing the document.
   const sessionId = useId()
-
-  return (
-    <div className="dsh-ig-tl-canvas">
-      <Tldraw
-        persistenceKey="dsh-image-gen-workbench-v1"
-        sessionId={sessionId}
-        components={{ Toolbar: StudioToolbar }}
-        onMount={editor => {
+  const [syncStatus, setSyncStatus] = useState<CanvasSyncStatus>({ phase: 'idle', count: 0 })
+  const retrySync = useRef<() => void>(() => {})
+  const onMount = useCallback((editor: Editor) => {
           let active = true
           // Re-tint canvas-rendered colors (selection, marquee, "blue"
           // palette) to the plugin brand; UI chrome comes from TL_THEME_CSS.
@@ -247,7 +244,8 @@ export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
           })
           // Mirror this canvas into the host so the conversation agent can
           // see it (canvas_state / view_canvas / edit_image canvas_selection).
-          let stopSync = startCanvasSync(editor)
+          let stopSync = startCanvasSync(editor, setSyncStatus)
+          retrySync.current = () => stopSync.retry()
           const clear = (): void => {
             // Stop outstanding screenshots as well as the old host selection.
             stopSync()
@@ -263,7 +261,7 @@ export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
               editor.setCamera({ x: 0, y: 0, z: 1 })
             }, { history: 'ignore', ignoreShapeLock: true })
             editor.clearHistory()
-            stopSync = startCanvasSync(editor)
+            stopSync = startCanvasSync(editor, setSyncStatus)
           }
           mountedCanvases.add(clear)
           return () => {
@@ -271,9 +269,40 @@ export const StudioTlCanvas: FC = memo(function StudioTlCanvas() {
             mountedCanvases.delete(clear)
             stopLanding()
             stopSync()
+            retrySync.current = () => {}
           }
-        }}
+  }, [])
+  const statusText = lang === 'en'
+    ? syncStatus.phase === 'ready' ? `Selection ready · ${syncStatus.count} shapes`
+      : syncStatus.phase === 'preparing' ? `Preparing selection · ${syncStatus.count} shapes…`
+        : 'Selection sync failed'
+    : syncStatus.phase === 'ready' ? `选区已就绪 · ${syncStatus.count} 个元素`
+      : syncStatus.phase === 'preparing' ? `正在准备选区 · ${syncStatus.count} 个元素…`
+        : '选区同步失败'
+
+  return (
+    <div className="dsh-ig-tl-canvas">
+      <Tldraw
+        persistenceKey="dsh-image-gen-workbench-v1"
+        sessionId={sessionId}
+        components={TL_COMPONENTS}
+        onMount={onMount}
       />
+      {syncStatus.phase !== 'idle' && (
+        <div className="dsh-ig-canvas-sync-status" data-phase={syncStatus.phase} role="status" aria-live="polite">
+          <span>{statusText}{syncStatus.phase === 'error' ? `：${canvasSyncError(syncStatus.error, lang)}` : ''}</span>
+          {syncStatus.phase === 'error' && <button type="button" onClick={() => retrySync.current()}>{lang === 'en' ? 'Retry' : '重试'}</button>}
+        </div>
+      )}
     </div>
   )
 })
+
+function canvasSyncError(error: string | undefined, lang: 'zh' | 'en'): string {
+  const en = lang === 'en'
+  if (error?.includes('too-many-selected')) return en ? 'Select at most 16 shapes to edit with originals.' : '使用原图编辑时，请一次选择不超过 16 个元素。'
+  if (error?.includes('too-large')) return en ? 'An image exceeds the size limit. Reduce its size and retry.' : '图片超出大小限制，请缩小后重试。'
+  if (error?.includes('unsupported')) return en ? 'Use PNG, JPEG, WebP or GIF images.' : '请使用 PNG、JPEG、WebP 或 GIF 图片。'
+  if (error?.includes('host-unavailable')) return en ? 'Restart DSH to load the updated plugin, then retry.' : '请重启 DSH 加载新版插件后重试。'
+  return en ? 'Check the connection or re-import an unavailable image, then retry.' : '请检查连接；若原图已失效，请重新导入后重试。'
+}

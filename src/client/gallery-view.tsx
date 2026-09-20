@@ -102,6 +102,7 @@ const DICT = {
     confirmRegenerate: '开始生成',
     regenerating: '正在重新生成…',
     regenerateSuccess: '已生成新图片并收录到画廊',
+    regenerateSaveFailed: '图片已生成，但保存到图库失败，请重试',
     regenerateFailed: '重新生成失败',
     delete: '从画廊删除',
     confirmDelete: '确定要从画廊中删除这张图片吗？（不会影响原聊天记录）',
@@ -200,6 +201,7 @@ const DICT = {
     confirmRegenerate: 'Generate',
     regenerating: 'Regenerating…',
     regenerateSuccess: 'New image generated and added to gallery',
+    regenerateSaveFailed: 'Image generated, but saving to the gallery failed. Please retry.',
     regenerateFailed: 'Regeneration failed',
     delete: 'Delete from gallery',
     confirmDelete: 'Are you sure you want to remove this image from the gallery? (Chat history will not be affected)',
@@ -746,7 +748,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
         ...(currentSessionId ? { sessionId: currentSessionId } : {}),
       }
 
-      await saveGalleryItem(newItem)
+      const savedOk = await saveGalleryItem(newItem)
 
       if (activeTab !== 'gallery') {
         setActiveTab('gallery')
@@ -757,7 +759,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
 
       // Smoothly update preview to the newly created item and load its image blob
       openPreviewItem(newItem)
-      showToast(t('regenerateSuccess'))
+      showToast(savedOk ? t('regenerateSuccess') : t('regenerateSaveFailed'))
     } catch (err) {
       if (controller.signal.aborted) return
       showToast(err instanceof Error ? err.message : String(err))

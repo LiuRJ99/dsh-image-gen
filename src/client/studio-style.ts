@@ -122,6 +122,9 @@ export const STUDIO_STYLE = `
 
 /* tldraw infinite canvas surface (P0 spike) */
 .dsh-ig-tl-canvas{position:relative;flex:1 1 0;height:0;min-height:0;overflow:hidden;isolation:isolate}
+.dsh-ig-canvas-sync-status{position:absolute;z-index:500;bottom:48px;left:60px;right:16px;display:flex;align-items:center;justify-content:center;gap:8px;max-width:560px;margin:auto;padding:7px 12px;border:1px solid var(--dsh-ig-border);border-radius:10px;background:var(--dsh-ig-surface,#fff);color:var(--dsh-ig-text,#475569);box-shadow:0 2px 8px #0001;font-size:12px;pointer-events:none}
+.dsh-ig-canvas-sync-status[data-phase='error']{color:#b42318;border-color:#fecdca}
+.dsh-ig-canvas-sync-status button{pointer-events:auto;flex-shrink:0;border:1px solid currentColor;border-radius:6px;padding:3px 9px;background:transparent;color:inherit;cursor:pointer}
 
 /* ---- Right-sidebar seat variant (DSH 0.1.5 'sidebar.right.pane.tab') ----
    The seat is a narrow panel beside the conversation column, not a full

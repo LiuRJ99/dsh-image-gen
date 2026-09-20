@@ -74,7 +74,7 @@ const COPY = {
     selectHistory: '从左侧选择一张图片，或在右侧开始新的生成。', created: '生成时间', elapsed: '耗时', dimensions: '尺寸', output: '输出参数',
     closeReference: '移除参考图', uploadInvalid: '请选择有效的图片文件（最大 10MB）', imageLoadFailed: '图片读取失败',
     fullscreen: '大图全屏', close: '关闭', copyPpt: '复制 Prompt', copiedPrompt: '已复制 Prompt', copiedImage: '已复制图片',
-    favorite: '收藏', favorited: '已收藏', favoriteAdded: '已添加到收藏', favoriteRemoved: '已取消收藏',
+    favorite: '收藏', favorited: '已收藏', favoriteAdded: '已添加到收藏', favoriteRemoved: '已取消收藏', gallerySaveFailed: '保存到图库失败，请重试',
     loadMore: '加载更多 ({n})', deleteModalTitle: '从图库删除', deleteModalDesc: '确定从图库中删除这张图片吗？（原聊天记录不会受影响）',
     deleteWorkspaceFilesLabel: '同时删除工作区本地文件', confirm: '确定删除', cancel: '取消', deletedToast: '已从图库删除',
     referencesCount: '参考图 ({current}/{max})', addMoreRef: '+ 添加', maxReferencesExceeded: '最多支持添加 {max} 张参考图',
@@ -105,7 +105,7 @@ const COPY = {
     selectHistory: 'Select an image on the left, or start a new generation on the right.', created: 'Created', elapsed: 'Elapsed', dimensions: 'Dimensions', output: 'Output',
     closeReference: 'Remove reference', uploadInvalid: 'Choose a valid image file up to 10MB.', imageLoadFailed: 'Could not load image',
     fullscreen: 'Fullscreen', close: 'Close', copyPpt: 'Copy Prompt', copiedPrompt: 'Prompt copied', copiedImage: 'Image copied',
-    favorite: 'Favorite', favorited: 'Favorited', favoriteAdded: 'Added to favorites', favoriteRemoved: 'Removed from favorites',
+    favorite: 'Favorite', favorited: 'Favorited', favoriteAdded: 'Added to favorites', favoriteRemoved: 'Removed from favorites', gallerySaveFailed: 'Failed to save to the gallery, please retry',
     loadMore: 'Load more ({n})', deleteModalTitle: 'Delete from gallery', deleteModalDesc: 'Remove this image from the local gallery? (Chat history remains unaffected)',
     deleteWorkspaceFilesLabel: 'Also delete local workspace files', confirm: 'Delete', cancel: 'Cancel', deletedToast: 'Deleted from gallery',
     referencesCount: 'References ({current}/{max})', addMoreRef: '+ Add', maxReferencesExceeded: 'Up to {max} reference images allowed',
@@ -885,7 +885,9 @@ export const StudioView: FC<{
       ...(targetRoot ? { workspacePath: targetRoot } : {}),
       ...(workspace?.workspaceId ? { workspaceId: workspace.workspaceId } : {}),
     }
-    await saveGalleryItem(updatedItem)
+    if (!(await saveGalleryItem(updatedItem))) {
+      throw new Error(t('gallerySaveFailed'))
+    }
     return updatedItem
   }
 
@@ -990,11 +992,28 @@ export const StudioView: FC<{
       flash(nextFav ? t('favoriteAdded') : t('favoriteRemoved'))
     } else {
       const nextFav = !selected.isFavorite
-      setSelected(curr => (curr !== null && curr.id === targetId ? { ...curr, isFavorite: nextFav } : curr))
-      if (currentBatch) {
-        setCurrentBatch(prev => prev ? prev.map(i => i.id === targetId ? { ...i, isFavorite: nextFav } : i) : null)
+      if (!nextFav) {
+        // Un-favoriting an unsaved preview only reverts the in-memory heart.
+        setSelected(curr => (curr !== null && curr.id === targetId ? { ...curr, isFavorite: false } : curr))
+        if (currentBatch) {
+          setCurrentBatch(prev => prev ? prev.map(i => i.id === targetId ? { ...i, isFavorite: false } : i) : null)
+        }
+        flash(t('favoriteRemoved'))
+        return
       }
-      flash(nextFav ? t('favoriteAdded') : t('favoriteRemoved'))
+      // Favoriting an unsaved preview must persist it for real: save the
+      // record first, and only light the heart after the gallery write
+      // succeeded (so a failed write cannot silently drop the favorite).
+      try {
+        const updated = await saveGalleryEntry({ ...selected, isFavorite: true })
+        setSelected(curr => (curr !== null && curr.id === targetId ? updated : curr))
+        if (currentBatch) {
+          setCurrentBatch(prev => prev ? prev.map(i => i.id === targetId ? updated : i) : prev)
+        }
+        flash(t('favoriteAdded'))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t('gallerySaveFailed'))
+      }
     }
   }
 
@@ -1171,7 +1190,7 @@ export const StudioView: FC<{
             </div>
           )}
           {canvasSurface === 'infinite' ? (
-            <StudioTlCanvas />
+            <StudioTlCanvas lang={lang} />
           ) : (
           <div
             className={`dsh-ig-canvas ${isDragging ? 'is-dragging' : ''}`}
