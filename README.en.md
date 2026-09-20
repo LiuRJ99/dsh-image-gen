@@ -113,7 +113,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 After restarting DSH, open:
 
-**Settings → Plugins → Plugin Configuration → Image Generation**
+**Settings → Plugins → Image Generation**
 
 Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. Once the key is stored, click **Test connection** to verify it, or **Fetch models** to pull every image-capable model the provider offers—no manual lookups needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
 

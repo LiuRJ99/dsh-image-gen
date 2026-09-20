@@ -113,7 +113,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 重启 DSH 后进入：
 
-**设置 → 插件 → 插件配置 → 图像生成**
+**设置 → 插件 → 图像生成**
 
 选择 Provider，填写自己的 API Key，并按需调整模型、Endpoint / Base URL 与工作区保存选项。填好 Key 后可点击**「测试连接」**验证可用性，或点击**「拉取模型」**一键获取该厂商支持的全部生图模型，无需手动查文档。使用 ComfyUI 时，请填写 DSH Host 可访问的服务地址，并导入 **API Format Workflow JSON**。
 

@@ -147,7 +147,7 @@ interface SettingsFace {
   credentialEvents?: CredentialEvents | undefined
 }
 interface ImageCardFace { locale?: LocaleService | undefined; promoted: boolean }
-type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
+type SettingsCardProps = PropsRuntime<'settings.plugins.tab'> & InjectFace<SettingsFace>
 type ImageCardProps = PropsRuntime<'tool.call.toolview'> & InjectFace<ImageCardFace>
 interface ImageResultNodeProps {
   node: { data: { results: readonly ImageResultPresentation[] } }
@@ -832,12 +832,33 @@ export function apply(ctx: Context): void {
       return () => { credentialListeners.delete(callback) }
     },
   }
+  // The card is a page inside the Plugins settings section ('settings.plugins.tab')
+  // rather than a top-level settings entry ('settings.plugin.item' on <=0.1.5,
+  // 'settings.section' on 0.1.6+). DSH stacks every external section as another
+  // row in the settings rail, and this card is one provider picker plus a few
+  // switches — a whole rail row is the wrong weight for it. As a tab it sits
+  // beside the shipped plugin list / plugin manager pages, one click from the
+  // plugin list it configures.
+  //
+  // Both seats are registered so one build stays reachable everywhere: a host
+  // that ships the Plugins tab row mounts the tab, and a host that only knows
+  // the older per-plugin seat keeps the card there instead. On 0.1.6+ the old
+  // seat is gone, so the card lands on the tab and stops taking a rail row.
   const injectSettingsItem = (owner: Context): void => {
     const ownerRegister = owner.slots.register.bind(owner.slots) as unknown as (options: object, component: unknown) => () => void
-    owner.slots.inject('settings.plugin.item', () => ownerRegister({
+    const injectSettingsFace = (): SettingsFace => ({ scope, credentials: credentialsProxy, credentialsAvailable, locale, credentialEvents })
+    ;(owner.slots.inject as (key: string, factory: () => () => void) => void)('settings.plugins.tab', () => ownerRegister({
+      name: 'settings.plugins.tab',
+      id: IMAGE_GENERATION_NAMESPACE,
+      order: 30,
+      label: () => (locale?.getSnapshot?.()?.active?.startsWith('en') ? 'Image generation' : '图像生成'),
+      locale,
+      inject: injectSettingsFace,
+    }, ImageGenerationSettingsCard))
+    ;(owner.slots.inject as (key: string, factory: () => () => void) => void)('settings.plugin.item', () => ownerRegister({
       name: 'settings.plugin.item',
       key: IMAGE_GENERATION_NAMESPACE,
-      inject: (): SettingsFace => ({ scope, credentials: credentialsProxy, credentialsAvailable, locale, credentialEvents }),
+      inject: injectSettingsFace,
     }, ImageGenerationSettingsCard))
   }
   // Composer tool-row pill (DSH official slot: 'conversation.input.right', the

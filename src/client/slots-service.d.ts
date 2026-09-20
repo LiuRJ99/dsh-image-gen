@@ -11,7 +11,7 @@
  * `inject` (declaration-lifetime effects). The rest of the runtime wrapper
  * (install/renderSlot/snapshot/...) is host-internal and intentionally not
  * mirrored. Slot keys stay `string`: the DSH seat names this plugin targets
- * ('tool.call.toolview', 'conversation.view', 'settings.plugin.item',
+ * ('tool.call.toolview', 'conversation.view', 'settings.plugins.tab',
  * 'conversation.input.right', 'sidebar.right.pane.tab') arrive as plain
  * strings, and every registration site already narrows through its own cast.
  */
