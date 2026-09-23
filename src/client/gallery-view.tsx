@@ -29,6 +29,7 @@ import {
   saveGalleryItem,
   deleteGalleryItem,
   bulkDeleteGalleryItems,
+  bulkSetFavoriteGalleryItems,
   toggleFavoriteGalleryItem,
   isItemInWorkspace,
   type GalleryItem,
@@ -36,7 +37,7 @@ import {
 import { StudioView } from './studio-view.js'
 import { InspirationView } from './inspiration-view.js'
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
-import { copyImageBlob } from './browser-image-utils.js'
+import { copyImageBlob, createZipBlob, downloadBlobUrl, type ZipFileInput } from './browser-image-utils.js'
 import { conversationRegenerateRequest } from './conversation-regenerate.js'
 import { STUDIO_ROUTE, type StudioWorkspaceInfo, type StudioGenerateResponse } from '../shared.js'
 
@@ -113,13 +114,23 @@ const DICT = {
     prevImage: '上一张 (←)',
     nextImage: '下一张 (→)',
 
-    // 批量管理与删除
-    manage: '批量删除',
+    // 批量管理与操作
+    manage: '批量管理',
     exitManage: '退出选择',
     selectedCount: '已选 {n} 项',
     selectAll: '全选',
     invertSelect: '反选',
     clearSelect: '清空',
+    batchFavorite: '批量收藏',
+    batchUnfavorite: '批量取消收藏',
+    batchFavoritedToast: '已将 {count} 张图片加入收藏',
+    batchUnfavoritedToast: '已取消 {count} 张图片的收藏',
+    batchFavoriteFailed: '收藏操作失败，请重试',
+    batchDownload: '批量下载',
+    batchDownloading: '打包中 ({current}/{total})…',
+    batchDownloadSingleToast: '已下载 1 张图片',
+    batchDownloadZipToast: '已打包下载 {count} 张图片',
+    batchDownloadFailed: '批量下载失败，请重试',
     batchDelete: '批量删除',
     batchDeleteTitle: '确认批量删除选中的 {count} 张图片？',
     batchDeleteTitleSingle: '确认从画廊中删除这张图片？',
@@ -212,13 +223,23 @@ const DICT = {
     prevImage: 'Previous (←)',
     nextImage: 'Next (→)',
 
-    // Batch Management & Delete
-    manage: 'Batch Delete',
+    // Batch Management & Operations
+    manage: 'Batch Manage',
     exitManage: 'Done',
     selectedCount: '{n} selected',
     selectAll: 'Select All',
     invertSelect: 'Invert',
     clearSelect: 'Clear',
+    batchFavorite: 'Batch Favorite',
+    batchUnfavorite: 'Batch Unfavorite',
+    batchFavoritedToast: 'Added {count} images to favorites',
+    batchUnfavoritedToast: 'Removed {count} images from favorites',
+    batchFavoriteFailed: 'Favorite operation failed, please retry',
+    batchDownload: 'Batch Download',
+    batchDownloading: 'Packaging ({current}/{total})…',
+    batchDownloadSingleToast: 'Downloaded 1 image',
+    batchDownloadZipToast: 'Packaged & downloaded {count} images',
+    batchDownloadFailed: 'Batch download failed, please retry',
     batchDelete: 'Batch Delete',
     batchDeleteTitle: 'Delete {count} selected images?',
     batchDeleteTitleSingle: 'Delete this image from gallery?',
@@ -915,6 +936,120 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
     lastSelectedIndexRef.current = null
   }
 
+  // Selected items array
+  const selectedItems = useMemo(() => {
+    if (selectedIds.size === 0) return []
+    return items.filter((item) => selectedIds.has(item.id))
+  }, [items, selectedIds])
+
+  // Whether all selected items are currently favorited
+  const allSelectedAreFavorites = useMemo(() => {
+    if (selectedItems.length === 0) return false
+    return selectedItems.every((item) => Boolean(item.isFavorite))
+  }, [selectedItems])
+
+  // Batch favorite toggle handler (Optimistic UI + atomic IndexedDB transaction)
+  const handleBatchToggleFavorite = async () => {
+    if (selectedIds.size === 0) return
+    const targetFavorite = !allSelectedAreFavorites
+    const targetIds = Array.from(selectedIds)
+
+    // 1. Optimistic UI update
+    setItems((prev) =>
+      prev.map((item) => (selectedIds.has(item.id) ? { ...item, isFavorite: targetFavorite } : item))
+    )
+
+    // 2. Persist in IndexedDB in one transaction
+    try {
+      await bulkSetFavoriteGalleryItems(targetIds, targetFavorite)
+      showToast(
+        targetFavorite
+          ? t('batchFavoritedToast', { count: String(targetIds.length) })
+          : t('batchUnfavoritedToast', { count: String(targetIds.length) })
+      )
+    } catch (err) {
+      console.error('[dsh-image-gen] Batch favorite failed:', err)
+      void getGalleryItems().then((res) => setItems(res))
+      showToast(t('batchFavoriteFailed'))
+    }
+  }
+
+  // Batch download state
+  const [isDownloadingBatch, setIsDownloadingBatch] = useState(false)
+  const [batchDownloadProgress, setBatchDownloadProgress] = useState<string | null>(null)
+
+  // Batch download handler (single PNG or bundled zero-compression ZIP)
+  const handleBatchDownload = async () => {
+    if (selectedIds.size === 0 || isDownloadingBatch) return
+    const itemsToDownload = selectedItems
+    if (itemsToDownload.length === 0) return
+
+    setIsDownloadingBatch(true)
+
+    try {
+      // Single image: direct download
+      if (itemsToDownload.length === 1) {
+        const single = itemsToDownload[0]
+        if (!single) return
+        let blob = blobCache.get(single.id)
+        if (!blob) {
+          blob = await fetchAttachmentBlob(single.attachment)
+          blobCache.set(single.id, blob)
+        }
+        const objectUrl = URL.createObjectURL(blob)
+        downloadBlobUrl(objectUrl, `dsh-${single.provider}-${single.id}.png`)
+        URL.revokeObjectURL(objectUrl)
+        showToast(t('batchDownloadSingleToast'))
+        return
+      }
+
+      // Multiple images: bundle into ZIP without multi-file browser download blocks
+      const zipFiles: ZipFileInput[] = []
+      const usedNames = new Set<string>()
+
+      for (let i = 0; i < itemsToDownload.length; i++) {
+        const it = itemsToDownload[i]
+        if (!it) continue
+        setBatchDownloadProgress(`${i + 1}/${itemsToDownload.length}`)
+
+        let blob = blobCache.get(it.id)
+        if (!blob) {
+          blob = await fetchAttachmentBlob(it.attachment)
+          blobCache.set(it.id, blob)
+        }
+
+        const arrayBuffer = await blob.arrayBuffer()
+        const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
+        let baseName = `dsh-${it.provider}-${it.id.slice(0, 8)}.${ext}`
+        let count = 1
+        while (usedNames.has(baseName)) {
+          baseName = `dsh-${it.provider}-${it.id.slice(0, 8)}-${count}.${ext}`
+          count++
+        }
+        usedNames.add(baseName)
+
+        zipFiles.push({
+          name: baseName,
+          data: new Uint8Array(arrayBuffer),
+        })
+      }
+
+      const zipBlob = createZipBlob(zipFiles)
+      const zipUrl = URL.createObjectURL(zipBlob)
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      downloadBlobUrl(zipUrl, `dsh-gallery-${dateStr}.zip`)
+      URL.revokeObjectURL(zipUrl)
+
+      showToast(t('batchDownloadZipToast', { count: String(itemsToDownload.length) }))
+    } catch (err) {
+      console.error('[dsh-image-gen] Batch download failed:', err)
+      showToast(t('batchDownloadFailed'))
+    } finally {
+      setIsDownloadingBatch(false)
+      setBatchDownloadProgress(null)
+    }
+  }
+
   // Request single image deletion through the unified modal
   const requestSingleDelete = (item: GalleryItem, e?: MouseEvent) => {
     if (e) e.stopPropagation()
@@ -1124,10 +1259,10 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
               <option value="oldest">{t('sortOldest')}</option>
             </select>
 
-            {/* Batch Delete Mode Toggle */}
+            {/* Batch Manage Mode Toggle */}
             <button
               type="button"
-              className={`dsh-ig-studio-btn dsh-ig-studio-btn-danger ${isManageMode ? 'is-active' : ''}`}
+              className={`dsh-ig-studio-btn ${isManageMode ? 'is-active' : ''}`}
               title={isManageMode ? t('exitManage') : t('manage')}
               onClick={() => {
                 if (isManageMode) {
@@ -1137,7 +1272,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
                 }
               }}
             >
-              <Trash2 size={13} />
+              <CheckSquare size={13} />
               <span>{isManageMode ? t('exitManage') : t('manage')}</span>
             </button>
           </div>
@@ -1227,6 +1362,44 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
           </div>
 
           <div className="dsh-ig-batch-bar-right">
+            {/* 1. Batch Favorite Button */}
+            <button
+              type="button"
+              className={`dsh-ig-batch-btn ${allSelectedAreFavorites ? 'is-favorited' : ''}`}
+              disabled={selectedIds.size === 0}
+              onClick={() => void handleBatchToggleFavorite()}
+              title={allSelectedAreFavorites ? t('batchUnfavorite') : t('batchFavorite')}
+            >
+              <Heart
+                size={13}
+                fill={allSelectedAreFavorites ? '#ef4444' : 'none'}
+                color={allSelectedAreFavorites ? '#ef4444' : 'currentColor'}
+              />
+              <span>{allSelectedAreFavorites ? t('batchUnfavorite') : t('batchFavorite')}</span>
+            </button>
+
+            {/* 2. Batch Download Button */}
+            <button
+              type="button"
+              className="dsh-ig-batch-btn dsh-ig-batch-btn-download"
+              disabled={selectedIds.size === 0 || isDownloadingBatch}
+              onClick={() => void handleBatchDownload()}
+              title={t('batchDownload')}
+            >
+              <Download size={13} />
+              <span>
+                {isDownloadingBatch && batchDownloadProgress
+                  ? t('batchDownloading', {
+                      current: batchDownloadProgress.split('/')[0] ?? '',
+                      total: batchDownloadProgress.split('/')[1] ?? '',
+                    })
+                  : t('batchDownload')}
+              </span>
+            </button>
+
+            <span className="dsh-ig-batch-divider" />
+
+            {/* 3. Batch Delete Button */}
             <button
               type="button"
               className="dsh-ig-batch-btn dsh-ig-batch-btn-danger"
@@ -1237,6 +1410,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
               <span>{t('batchDelete')}{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
             </button>
 
+            {/* 4. Exit Manage Button */}
             <button
               type="button"
               className="dsh-ig-batch-btn dsh-ig-batch-btn-exit"

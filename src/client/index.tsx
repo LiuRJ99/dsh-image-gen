@@ -708,6 +708,10 @@ const STYLE = `
 .dsh-ig-batch-btn{appearance:none;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.08);color:#fff;border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:background .15s,border-color .15s,color .15s}
 .dsh-ig-batch-btn:hover:not(:disabled){background:rgba(255,255,255,0.2)}
 .dsh-ig-batch-btn:disabled{opacity:0.4;cursor:not-allowed}
+.dsh-ig-batch-btn.is-favorited{background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.4);color:#fca5a5}
+.dsh-ig-batch-btn.is-favorited:hover:not(:disabled){background:rgba(239,68,68,0.25)!important;border-color:rgba(239,68,68,0.6)!important;color:#fff!important}
+.dsh-ig-batch-btn-download:hover:not(:disabled){background:rgba(59,130,246,0.2)!important;border-color:rgba(59,130,246,0.5)!important;color:#93c5fd!important}
+.dsh-ig-batch-divider{width:1px;height:16px;background:rgba(255,255,255,0.18);margin:0 2px;display:inline-block}
 .dsh-ig-batch-btn-danger{background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.5);color:#fca5a5}
 .dsh-ig-batch-btn-danger:hover:not(:disabled){background:rgba(239,68,68,0.4)!important;border-color:rgba(239,68,68,0.8)!important;color:#fff!important}
 .dsh-ig-batch-btn-exit{border-color:transparent;background:transparent;color:rgba(255,255,255,0.7)}

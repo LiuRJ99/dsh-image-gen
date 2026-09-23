@@ -290,6 +290,32 @@ export async function bulkDeleteGalleryItems(ids: string[]): Promise<void> {
 }
 
 /**
+ * Bulk update favorite status for multiple gallery records in a single transaction.
+ */
+export async function bulkSetFavoriteGalleryItems(ids: string[], isFavorite: boolean): Promise<void> {
+  if (ids.length === 0) return
+  const db = await getDB()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    for (const id of ids) {
+      const getReq = store.get(id)
+      getReq.onsuccess = () => {
+        const item = getReq.result as GalleryItem | undefined
+        if (item && item.isFavorite !== isFavorite) {
+          item.isFavorite = isFavorite
+          store.put(item)
+        }
+      }
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'))
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+  })
+  notifyListeners()
+}
+
+/**
  * Clear all gallery records and reset tombstones.
  */
 export async function clearGallery(): Promise<void> {

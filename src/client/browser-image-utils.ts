@@ -104,3 +104,106 @@ export function formatRelativeTime(timestamp: number, lang: 'zh' | 'en'): string
   const d = new Date(timestamp)
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
+
+export interface ZipFileInput {
+  name: string
+  data: Uint8Array
+}
+
+const CRC_TABLE = new Uint32Array(256)
+for (let i = 0; i < 256; i++) {
+  let c = i
+  for (let k = 0; k < 8; k++) {
+    c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1)
+  }
+  CRC_TABLE[i] = c
+}
+
+function crc32(buf: Uint8Array): number {
+  let crc = 0xFFFFFFFF
+  for (let i = 0; i < buf.length; i++) {
+    const byte = buf[i] ?? 0
+    const entry = CRC_TABLE[(crc ^ byte) & 0xFF] ?? 0
+    crc = entry ^ (crc >>> 8)
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0
+}
+
+/**
+ * Create a standard zero-compression (Store mode 0) PKZip Blob from an array of files.
+ * Zero external dependencies, pure browser ArrayBuffer/Blob, fast and universally compatible with OS extractors.
+ */
+export function createZipBlob(files: ZipFileInput[]): Blob {
+  const parts: unknown[] = []
+  const centralRecords: Uint8Array[] = []
+  let offset = 0
+  const encoder = new TextEncoder()
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name)
+    const data = file.data
+    const crc = crc32(data)
+    const size = data.length
+
+    // Local file header (30 bytes)
+    const localHeader = new Uint8Array(30)
+    const lv = new DataView(localHeader.buffer)
+    lv.setUint32(0, 0x04034b50, true) // signature
+    lv.setUint16(4, 20, true)         // version needed: 2.0
+    lv.setUint16(6, 0, true)          // flags
+    lv.setUint16(8, 0, true)          // compression: 0 (Store)
+    lv.setUint16(10, 0, true)         // time
+    lv.setUint16(12, 0, true)         // date
+    lv.setUint32(14, crc, true)       // crc32
+    lv.setUint32(18, size, true)      // compressed size
+    lv.setUint32(22, size, true)      // uncompressed size
+    lv.setUint16(26, nameBytes.length, true) // filename length
+    lv.setUint16(28, 0, true)         // extra field length
+
+    parts.push(localHeader, nameBytes, data)
+
+    // Central directory header (46 bytes)
+    const cdRecord = new Uint8Array(46)
+    const cv = new DataView(cdRecord.buffer)
+    cv.setUint32(0, 0x02014b50, true) // signature
+    cv.setUint16(4, 20, true)         // version made by: 2.0
+    cv.setUint16(6, 20, true)         // version needed: 2.0
+    cv.setUint16(8, 0, true)          // flags
+    cv.setUint16(10, 0, true)         // compression: 0 (Store)
+    cv.setUint16(12, 0, true)         // time
+    cv.setUint16(14, 0, true)         // date
+    cv.setUint32(16, crc, true)       // crc32
+    cv.setUint32(20, size, true)      // compressed size
+    cv.setUint32(24, size, true)      // uncompressed size
+    cv.setUint16(28, nameBytes.length, true) // filename length
+    cv.setUint16(30, 0, true)         // extra field length
+    cv.setUint16(32, 0, true)         // comment length
+    cv.setUint16(34, 0, true)         // disk number start
+    cv.setUint16(36, 0, true)         // internal file attributes
+    cv.setUint32(38, 0, true)         // external file attributes
+    cv.setUint32(42, offset, true)    // relative offset of local header
+
+    centralRecords.push(cdRecord, nameBytes)
+    offset += localHeader.length + nameBytes.length + data.length
+  }
+
+  const cdOffset = offset
+  let cdSize = 0
+  for (const part of centralRecords) {
+    cdSize += part.byteLength
+  }
+
+  // End of central directory record (22 bytes)
+  const eocd = new Uint8Array(22)
+  const ev = new DataView(eocd.buffer)
+  ev.setUint32(0, 0x06054b50, true)
+  ev.setUint16(4, 0, true)            // disk number
+  ev.setUint16(6, 0, true)            // disk where CD starts
+  ev.setUint16(8, files.length, true) // total entries on disk
+  ev.setUint16(10, files.length, true)// total entries
+  ev.setUint32(12, cdSize, true)      // size of CD
+  ev.setUint32(16, cdOffset, true)    // offset of CD
+  ev.setUint16(20, 0, true)           // comment length
+
+  return new Blob([...parts, ...centralRecords, eocd] as unknown as BlobPart[], { type: 'application/zip' })
+}
