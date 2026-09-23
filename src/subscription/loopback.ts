@@ -12,6 +12,17 @@ const OK_HTML = '<!doctype html><meta charset="utf-8"><title>dsh-image-gen</titl
 const ERR_HTML = '<!doctype html><meta charset="utf-8"><title>dsh-image-gen</title><p>登录失败，请返回设置重试。</p>'
 
 /**
+ * Loopback addresses accepted by the request handler. On dual-stack systems
+ * Node reports IPv4-mapped IPv6 addresses as `::ffff:127.0.0.1`, so we must
+ * accept that form in addition to the canonical IPv4 and IPv6 loopback.
+ */
+const LOOPBACK_ADDRESSES: ReadonlySet<string> = new Set([
+  '127.0.0.1',
+  '::1',
+  '::ffff:127.0.0.1',
+])
+
+/**
  * Listen on the redirect_uri's port and resolve when the provider calls back.
  * Rejects on port conflicts, network errors, or when nothing arrives in time.
  */
@@ -31,6 +42,15 @@ export function startLoopback(options: {
 
   return new Promise<{ ok: true }>((resolve, reject) => {
     const server = http.createServer((req, res) => {
+      // Security: reject connections not originating from the local machine.
+      // The server listens on all interfaces (dual-stack) so both IPv4 and
+      // IPv6 browsers reach the callback, but only loopback is accepted. (#53)
+      const remote = req.socket.remoteAddress ?? ''
+      if (!LOOPBACK_ADDRESSES.has(remote)) {
+        res.writeHead(403)
+        res.end()
+        return
+      }
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${String(port)}`)
       // The provider may redirect to a suffixed path (e.g. /auth/callback/extra)
       if (!url.pathname.startsWith(path)) {
@@ -62,6 +82,10 @@ export function startLoopback(options: {
       server.close()
       reject(new Error('loopback timeout: no callback received'))
     }, timeoutMs)
-    server.listen(port, parsed.hostname)
+    // Listen without specifying a host so the OS binds dual-stack (both
+    // 127.0.0.1 and [::1]). This ensures the callback is reachable regardless
+    // of how the browser resolves 'localhost' on this machine. The handler-
+    // level loopback guard above rejects any non-local connection. (#53)
+    server.listen(port)
   })
 }
