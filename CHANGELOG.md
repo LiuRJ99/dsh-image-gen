@@ -7,6 +7,19 @@
 
 ---
 
+## [0.5.6] - 2026-09-24
+
+### Fixed
+
+- 为 `conversation.chat.turnTail` 列表插槽注册项补充稳定 `id`，修复 DSH `0.1.7-rc.1` Web 客户端启动时 `dsh-image-gen` 激活失败。
+- 用目标 Host 的真实 `SlotCore` 增加客户端注册回归测试。
+
+## [0.5.5] - 2026-09-24
+
+### Changed
+
+- 更新 DSH `0.1.7-rc.1` peer 与开发依赖，调整设置集成并更新 release 构建物料。
+
 ## [0.5.4] - 2026-09-14
 
 ### Fixed

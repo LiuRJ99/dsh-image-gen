@@ -326,6 +326,7 @@ export function apply(ctx: Context): void {
   })
   ctx.slots.inject('conversation.chat.turnTail', () => register({
     name: 'conversation.chat.turnTail',
+    id: 'dsh-image-gen',
     select: selectGeneratedImages,
     locale: IMAGE_GENERATION_NAMESPACE,
     inject: (): ImageCardFace => ({ locale }),
