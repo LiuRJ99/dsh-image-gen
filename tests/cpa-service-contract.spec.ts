@@ -30,7 +30,7 @@ describe('CPA image service contract', () => {
 
   it('exports plugin metadata', () => {
     expect(name).toBe('dsh-image-gen')
-    expect(version).toBe('0.5.4')
+    expect(version).toBe('0.5.5')
   })
 
   it('declares and uses the injected service without resolving credentials', async () => {
@@ -53,6 +53,8 @@ describe('CPA image service contract', () => {
       },
       webServer: { register: vi.fn() },
       logger: { warn: vi.fn() },
+      get: vi.fn(() => undefined),
+      on: vi.fn(),
       effect: vi.fn((effect: () => unknown) => effect()),
       inject: vi.fn((deps: string[], callback: (scope: { get(name: string): unknown }) => unknown) => {
         if (deps[0] === 'settings') return undefined
@@ -107,6 +109,8 @@ describe('CPA image service contract', () => {
         readImage: vi.fn(),
       },
       logger: { warn },
+      get: vi.fn(() => undefined),
+      on: vi.fn(),
       effect: vi.fn((effect: () => unknown) => effect()),
       inject: vi.fn(() => undefined),
     }

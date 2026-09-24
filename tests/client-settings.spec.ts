@@ -14,7 +14,7 @@ describe('dynamic CPA image model settings', () => {
   })
 
   it('persists the selected model while retaining the legacy engine field', () => {
-    expect(source).toContain("await props.scope.set('engine', engine)")
-    expect(source).toContain("await props.scope.set('model', model.trim())")
+    expect(source).toContain("{ op: 'set', path: ['engine'], value: engine }")
+    expect(source).toContain("{ op: 'set', path: ['model'], value: model.trim() }")
   })
 })

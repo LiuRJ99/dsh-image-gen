@@ -3,7 +3,7 @@ import { Config } from '../src/config.js'
 
 describe('Config Schema validation', () => {
   it('defaults to the GPT engine and preserves workspace defaults', () => {
-    expect(Config({})).toMatchObject({
+    expect(Config({}).get()).toMatchObject({
       engine: 'gpt',
       saveToWorkspace: true,
       workspaceFolder: 'dsh-image-gen',
@@ -15,11 +15,11 @@ describe('Config Schema validation', () => {
   })
 
   it('accepts the Gemini engine', () => {
-    expect(Config({ engine: 'gemini' }).engine).toBe('gemini')
+    expect(Config({ engine: 'gemini' }).get().engine).toBe('gemini')
   })
 
   it('accepts a CPA-owned concrete image model alongside the engine', () => {
-    expect(Config({ engine: 'gpt', model: 'gpt-image-2.5' }).model).toBe('gpt-image-2.5')
+    expect(Config({ engine: 'gpt', model: 'gpt-image-2.5' }).get().model).toBe('gpt-image-2.5')
   })
 
   it('strips legacy provider, credentialRef, and other undeclared fields', () => {
@@ -31,7 +31,7 @@ describe('Config Schema validation', () => {
       unexpected: true,
     } as never)
 
-    expect(validated).toEqual({
+    expect(validated.get()).toEqual({
       engine: 'gemini',
       saveToWorkspace: true,
       workspaceFolder: 'dsh-image-gen',

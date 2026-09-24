@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -36,9 +36,9 @@ interface ImageSettings {
   saveToWorkspace?: boolean
   workspaceFolder?: string
 }
-interface SettingsFace { scope: SettingsScope<ImageSettings>; locale?: LocaleService | undefined }
+interface SettingsFace { scope: ConfigForm<ImageSettings>; locale?: LocaleService | undefined }
 interface ImageCardFace { locale?: LocaleService | undefined }
-type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
+type SettingsCardProps = PropsRuntime<'settings.plugins.tab'> & InjectFace<SettingsFace>
 type ImageCardProps = PropsRuntime<'tool.call.toolview'> & InjectFace<ImageCardFace>
 
 const DICT = {
@@ -277,11 +277,11 @@ const STYLE = `
 `
 
 /** Required browser services. */
-export const inject = ['slots', 'connection', 'remote', 'settingsScope', 'locale', 'uiConversation']
+export const inject = ['slots', 'connection', 'remote', 'configForms', 'locale', 'uiConversation']
 
 /** Mount the settings card, generated-image card, and native conversation gallery view. */
 export function apply(ctx: Context): void {
-  const scope = ctx.settingsScope.bind<ImageSettings>({ namespace: IMAGE_GENERATION_NAMESPACE as never })
+  const scope = ctx.configForms.get<ImageSettings>(IMAGE_GENERATION_NAMESPACE)
   const locale = ctx.get('locale') as LocaleService | undefined
 
   ctx.effect(() => {
@@ -297,9 +297,11 @@ export function apply(ctx: Context): void {
   const register = ctx.slots.register.bind(ctx.slots) as unknown as (options: object, component: unknown) => () => void
 
   // 1. Settings item
-  ctx.slots.inject('settings.plugin.item', () => register({
-    name: 'settings.plugin.item',
-    key: IMAGE_GENERATION_NAMESPACE,
+  ctx.slots.inject('settings.plugins.tab', () => register({
+    name: 'settings.plugins.tab',
+    id: IMAGE_GENERATION_NAMESPACE,
+    order: 35,
+    label: '图像生成',
     inject: (): SettingsFace => ({ scope, locale }),
   }, ImageGenerationSettingsCard))
 
@@ -427,10 +429,13 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault(); setSaving(true); setMessage('')
     try {
-      await props.scope.set('engine', engine)
-      await props.scope.set('model', model.trim())
-      await props.scope.set('saveToWorkspace', saveToWorkspace)
-      await props.scope.set('workspaceFolder', workspaceFolder.trim())
+      const accepted = await props.scope.mutate([
+        { op: 'set', path: ['engine'], value: engine },
+        { op: 'set', path: ['model'], value: model.trim() },
+        { op: 'set', path: ['saveToWorkspace'], value: saveToWorkspace },
+        { op: 'set', path: ['workspaceFolder'], value: workspaceFolder.trim() },
+      ])
+      if (!accepted) throw new Error('settings write was refused')
       setMessage(t('saved'))
     } catch { console.warn('[dsh-image-gen] settings save failed'); setMessage(t('saveFailed')) } finally { setSaving(false) }
   }

@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import * as dshSettings from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool, type ToolResult } from '@deepseek-ai/dsh-tools'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService, type CpaImageModel, type ImageEngine } from './cpa-contract.js'
 import { Config } from './config.js'
@@ -25,7 +25,7 @@ export { DELETE_ROUTE, IMAGE_MODELS_ROUTE, IMAGE_ROUTE, INSPIRATION_ROUTE, WORKS
 /** Cordis plugin name. */
 export const name = 'dsh-image-gen'
 /** Cordis plugin version. */
-export const version = '0.5.4'
+export const version = '0.5.5'
 /** Host services required by the Bundle. */
 export const inject = ['tools', 'attachments', 'webServer']
 
@@ -386,9 +386,12 @@ export function editToolDefinitionForEngine(
 }
 
 /** Register settings, the image route, and the model-callable tool. */
-export function apply(ctx: Context, config: Config = {}): void {
-  let current: () => Config = () => config
-  let activeEngine: ImageEngine = config.engine ?? 'gpt'
+export function apply(ctx: Context, config: Config | { get(): Config } = {}): void {
+  const current = (): Config => {
+    const value = ctx.get('settings')?.describe().find(entry => entry.ns === IMAGE_GENERATION_NAMESPACE)?.value
+    return (value ?? ('get' in config ? config.get() : config)) as Config
+  }
+  let activeEngine: ImageEngine = current().engine ?? 'gpt'
   let cachedService: CpaImageGenerationService | undefined
   let toolDisposers: Array<() => void> = []
   const knownWorkspaceRoots = new Set<string>()
@@ -470,14 +473,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  installImageSettings(ctx, config, {
-    setSource: source => {
-      current = source
-      syncTool(source().engine ?? 'gpt')
-    },
-    onChange: () => {
-      syncTool(current().engine ?? 'gpt')
-    },
+  ctx.on('settings/document-updated', entryId => {
+    if (entryId === IMAGE_GENERATION_NAMESPACE) syncTool(current().engine ?? 'gpt')
   })
 
   // The service is optional at Bundle startup so routes can return a stable
@@ -596,37 +593,4 @@ async function saveGenerated(
 function imagePresentation(result: ToolResult) {
   const attachment = imageAttachmentFromMeta(result.meta)
   return attachment === undefined ? undefined : { card: 'generic' as const, title: 'Generated image', content: [{ type: 'image' as const, attachment }] }
-}
-
-/** Settings hooks shared by modern DSH settings and older relay hosts. */
-interface SettingsHooks {
-  setSource(source: () => Config): void
-  onChange(): void
-}
-
-interface LegacySettingsApi {
-  installSettingsSection?: (ctx: Context, namespace: unknown, schema: unknown, entry: unknown, hooks: SettingsHooks) => void
-  settingsNamespace?: (value: string) => unknown
-}
-
-/**
- * Keep the fork compatible with both the 0.1.2 settings service and the older
- * top-level relay without changing the CPA-only configuration surface. The
- * fallback is deliberately best-effort: tools still register if settings are
- * unavailable, and no credential/provider fields are added to Config.
- */
-function installImageSettings(ctx: Context, config: Config, hooks: SettingsHooks): void {
-  const namespace = dshSettings as typeof dshSettings & LegacySettingsApi
-  const modernInstall = namespace.SettingsProvider?.prototype?.installSection
-  if (typeof modernInstall === 'function') {
-    ctx.inject(['settings'], settingsCtx => {
-      settingsCtx.settings.installSection(ctx, IMAGE_GENERATION_NAMESPACE, Config, config, hooks)
-    })
-    return
-  }
-  if (typeof namespace.installSettingsSection === 'function' && typeof namespace.settingsNamespace === 'function') {
-    namespace.installSettingsSection(ctx, namespace.settingsNamespace(IMAGE_GENERATION_NAMESPACE), Config, config, hooks)
-    return
-  }
-  ctx.logger.warn('dsh-image-gen: neither settings API generation is available; using composition defaults')
 }

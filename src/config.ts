@@ -37,7 +37,7 @@ const ConfigSchema = z.object({
  * Keep the schema as an object for DSH serialization/rendering, while using
  * schemastery's public strict resolver to drop legacy and unknown fields.
  */
-export const Config: z<Config> = new Proxy(ConfigSchema, {
+export const Config = new Proxy(ConfigSchema.volatile(), {
   apply(target, _thisArg, args) {
     return z.resolve(args[0], target, args[1], true)[0]
   },
