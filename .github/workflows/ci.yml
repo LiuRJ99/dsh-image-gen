@@ -12,6 +12,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The CPA provider is private and is a local link in this monorepo. CI
+      # checks out the pinned lowest-supported 0.4.x contract sibling so frozen
+      # installs are honest and Adapter compatibility is checked against an
+      # older Provider, not only against the current feature checkout.
+      # Fork PRs need the repository/org CPA_PROVIDER_READ_TOKEN policy to read
+      # this private sibling; otherwise run the adapter checks in the internal CI.
+      - uses: actions/checkout@v4
+        with:
+          repository: LiuRJ99/dsh-cpa-plugin
+          ref: a5e9d1bf1dd93bd4f8790980a1ccca7926b9efc1
+          token: ${{ secrets.CPA_PROVIDER_READ_TOKEN || github.token }}
+          path: .ci/dsh-cpa-plugin
+      - name: Link the pinned CPA provider sibling
+        run: ln -s "$GITHUB_WORKSPACE/.ci/dsh-cpa-plugin" "$GITHUB_WORKSPACE/../dsh-cpa-plugin"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.7.0
@@ -19,8 +33,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm test
       - run: pnpm run build
       - run: pnpm run pack:check
+      - name: Build a clean package artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/dsh-image-gen-artifacts"
+          pnpm run pack:artifact -- --pack-destination "$RUNNER_TEMP/dsh-image-gen-artifacts"
