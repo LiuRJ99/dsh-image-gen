@@ -38,7 +38,7 @@ interface ImageSettings {
 }
 interface SettingsFace { scope: ConfigForm<ImageSettings>; locale?: LocaleService | undefined }
 interface ImageCardFace { locale?: LocaleService | undefined }
-type SettingsCardProps = PropsRuntime<'settings.plugins.tab'> & InjectFace<SettingsFace>
+type SettingsCardProps = PropsRuntime<'settings.section'> & InjectFace<SettingsFace>
 type ImageCardProps = PropsRuntime<'tool.call.toolview'> & InjectFace<ImageCardFace>
 
 const DICT = {
@@ -296,9 +296,9 @@ export function apply(ctx: Context): void {
 
   const register = ctx.slots.register.bind(ctx.slots) as unknown as (options: object, component: unknown) => () => void
 
-  // 1. Settings item
-  ctx.slots.inject('settings.plugins.tab', () => register({
-    name: 'settings.plugins.tab',
+  // 1. First-level Settings section
+  ctx.slots.inject('settings.section', () => register({
+    name: 'settings.section',
     id: IMAGE_GENERATION_NAMESPACE,
     order: 35,
     label: '图像生成',
@@ -356,7 +356,7 @@ export function apply(ctx: Context): void {
 
 /** Edit the selected image engine and workspace output settings. */
 export function ImageGenerationSettingsCard(props: SettingsCardProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const [snapshot, setSnapshot] = useState(() => props.scope.getSnapshot())
   const [lang, setLang] = useState(() => (props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh'))
   const [engine, setEngine] = useState<ImageEngine>('gpt')
@@ -442,7 +442,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   }
 
   return (
-    <li className={`dsh-ig-card ${open ? 'dsh-ig-card-open' : ''}`}>
+    <section className={`dsh-ig-card ${open ? 'dsh-ig-card-open' : ''}`}>
       <button type="button" className="dsh-ig-head" aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
         <span className="dsh-ig-head-text">
           <span className="dsh-ig-title">{t('title')}</span>
@@ -500,7 +500,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
           </div>
         </form>
       ) : null}
-    </li>
+    </section>
   )
 }
 

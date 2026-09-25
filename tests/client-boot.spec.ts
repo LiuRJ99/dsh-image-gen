@@ -8,7 +8,7 @@ describe('DSH 0.1.7 client boot', () => {
     slots.register({
       name: 'root',
       children: {
-        'settings.plugins.tab': { kind: 'list', scope: 'root' },
+        'settings.section': { kind: 'list', scope: 'root' },
         'tool.call.toolview': { kind: 'keyed', scope: 'session' },
         'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
       },
@@ -26,6 +26,7 @@ describe('DSH 0.1.7 client boot', () => {
     } as unknown as Parameters<typeof apply>[0]
 
     expect(() => apply(ctx)).not.toThrow()
+    expect(slots.entries('settings.section')).toHaveLength(1)
     expect(slots.entries('conversation.chat.turnTail')).toHaveLength(1)
   })
 })

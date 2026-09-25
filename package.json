@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",

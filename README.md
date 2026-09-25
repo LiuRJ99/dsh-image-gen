@@ -32,9 +32,9 @@
 
 ---
 
-## Fork 增强特性（v0.5.4）
+## Fork 增强特性（v0.5.7）
 
-> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.4`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
+> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.7`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
 
 ### 1. 本 Fork 安装方式
 
@@ -42,19 +42,19 @@
 
 ```bash
 # 先安装并验证 CPA Provider，再安装本 Adapter
-dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.5"
+dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.8"
 
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.4/dsh-image-gen-0.5.4.tgz \
-  -o /stable/path/dsh-image-gen-0.5.4.tgz
-dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.4.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.7/dsh-image-gen-0.5.7.tgz \
+  -o /stable/path/dsh-image-gen-0.5.7.tgz
+dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.7.tgz
 ```
 
 不要使用裸包名 `dsh-image-gen` 安装：npm 上的同名包属于上游项目，不是本 fork。
 
 ### 2. 与上游的差异
 
-| | 上游 | 本 fork `v0.5.4` |
+| | 上游 | 本 fork `v0.5.7` |
 |---|---|---|
 | Provider 归属 | 自带 Provider 与 BYOK 配置 | 只做 Adapter，模型/协议/凭据由 CPA Provider 持有 |
 | 双引擎路由 | — | 统一承接 GPT `images/generations` 与 Gemini `chat/completions` |
@@ -102,14 +102,14 @@ flowchart LR
 先安装并验证 CPA Provider，再安装 Adapter：
 
 ```bash
-# 1. 安装 CPA Provider (v0.4.5)
-dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.5"
+# 1. 安装 CPA Provider (v0.4.8)
+dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.8"
 
-# 2. 下载并安装经过验证的 v0.5.4 Release Tarball
+# 2. 下载并安装经过验证的 v0.5.7 Release Tarball
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.4/dsh-image-gen-0.5.4.tgz \
-  -o /tmp/dsh-image-gen-0.5.4.tgz
-dsh plugin --profile web add /tmp/dsh-image-gen-0.5.4.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.7/dsh-image-gen-0.5.7.tgz \
+  -o /tmp/dsh-image-gen-0.5.7.tgz
+dsh plugin --profile web add /tmp/dsh-image-gen-0.5.7.tgz
 ```
 
 没有 Provider service contract 时，image-gen 不可用。服务端缩略图使用 DSH Host 已提供的 `sharp` peer，不要再向 Web profile 单独安装一份 `sharp`，以免加载重复的原生 `libvips`。
