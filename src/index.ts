@@ -13,7 +13,7 @@ import { serveImageModels } from './image-model-route.js'
 import { serveInspirationRoute } from './inspiration-route.js'
 import { IMAGE_ROUTE, imageAttachmentFromMeta, serveDelete, serveImage, serveWorkspaces } from './image-route.js'
 import { resolveReferenceImages, type ReferenceImageAgent } from './reference-image.js'
-import { CPA_GENERATE_ROUTE, DELETE_ROUTE, IMAGE_GENERATION_NAMESPACE, IMAGE_MODELS_ROUTE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, attachmentMeta } from './shared.js'
+import { CPA_GENERATE_ROUTE, DELETE_ROUTE, IMAGE_SETTINGS_ENTRY_ID, IMAGE_MODELS_ROUTE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, attachmentMeta } from './shared.js'
 import { deleteImageFromWorkspace, getDshWorkspaceRoots, getDshWorkspacesFull, saveImageToWorkspace } from './workspace-save.js'
 
 export { gptSizeFromAspectRatio } from './engine-options.js'
@@ -388,7 +388,7 @@ export function editToolDefinitionForEngine(
 /** Register settings, the image route, and the model-callable tool. */
 export function apply(ctx: Context, config: Config | { get(): Config } = {}): void {
   const current = (): Config => {
-    const value = ctx.get('settings')?.describe().find(entry => entry.ns === IMAGE_GENERATION_NAMESPACE)?.value
+    const value = ctx.get('settings')?.describe().find(entry => entry.ns === IMAGE_SETTINGS_ENTRY_ID)?.value
     return (value ?? ('get' in config ? config.get() : config)) as Config
   }
   let activeEngine: ImageEngine = current().engine ?? 'gpt'
@@ -474,7 +474,7 @@ export function apply(ctx: Context, config: Config | { get(): Config } = {}): vo
   }
 
   ctx.on('settings/document-updated', entryId => {
-    if (entryId === IMAGE_GENERATION_NAMESPACE) syncTool(current().engine ?? 'gpt')
+    if (entryId === IMAGE_SETTINGS_ENTRY_ID) syncTool(current().engine ?? 'gpt')
   })
 
   // The service is optional at Bundle startup so routes can return a stable

@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import {
   IMAGE_GENERATION_NAMESPACE,
+  IMAGE_SETTINGS_ENTRY_ID,
   IMAGE_MODELS_ROUTE,
   IMAGE_ROUTE,
   imageAttachment,
@@ -281,7 +282,7 @@ export const inject = ['slots', 'connection', 'remote', 'configForms', 'locale',
 
 /** Mount the settings card, generated-image card, and native conversation gallery view. */
 export function apply(ctx: Context): void {
-  const scope = ctx.configForms.get<ImageSettings>(IMAGE_GENERATION_NAMESPACE)
+  const scope = ctx.configForms.get<ImageSettings>(IMAGE_SETTINGS_ENTRY_ID)
   const locale = ctx.get('locale') as LocaleService | undefined
 
   ctx.effect(() => {

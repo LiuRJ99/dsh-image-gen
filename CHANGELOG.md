@@ -1,5 +1,11 @@
 # 变更记录 (CHANGELOG)
 
+## [0.5.8] - 2026-10-08
+
+### Fixed
+
+- 图像生成设置改为读取和更新 `image-gen` 插件 entry id，保留 `image-generation` 作为 UI/locale 命名空间，修复 DSH 0.2 下保存配置后 Host 仍使用旧引擎的问题。可选 Sidebar peer 警告保持不变。
+
 所有对 `dsh-image-gen` 项目的重要更新都将记录在此文件中。
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，

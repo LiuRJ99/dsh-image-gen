@@ -19,7 +19,9 @@ export const INSPIRATION_ROUTE = '/plugins/dsh-image-gen/inspiration'
 /** Full immutable snapshot ref used by remote Inspiration refresh and cache keys. */
 export const INSPIRATION_SOURCE_REF = 'c7d293963b21c60bf338003915438cc5c39dd3ca'
 export const INSPIRATION_CACHE_NAMESPACE = `v1-${INSPIRATION_SOURCE_REF}`
-/** Namespace persisted through DSH Settings. */
+/** Profile entry id addressed by DSH 0.2 Settings. */
+export const IMAGE_SETTINGS_ENTRY_ID = 'image-gen'
+/** UI and locale namespace. */
 export const IMAGE_GENERATION_NAMESPACE = 'image-generation'
 
 /** Engines exposed by the CPA image-generation service. */
