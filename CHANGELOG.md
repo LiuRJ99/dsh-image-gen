@@ -1,5 +1,10 @@
 # 变更记录 (CHANGELOG)
 
+## [0.5.9] - 2026-10-09
+
+- 可选 Better Sidebar peer 明确覆盖已验收的 `0.24.1`，保留 `^0.21.1` 支持。Gallery 挂载与 Taskboard 并存验证通过。本次不改变 CPA 图片编辑实现。
+- Include the verified Better Sidebar `0.24.1` in the optional peer range while retaining `^0.21.1` support. CPA image-edit behavior is unchanged.
+
 ## [0.5.8] - 2026-10-08
 
 ### Fixed
