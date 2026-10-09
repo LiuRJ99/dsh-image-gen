@@ -70,6 +70,8 @@ const DICT = {
     regenerate: '重新生成',
     regenerating: '生成中…',
     regenerateSuccess: '已生成新图片',
+    retryGallerySave: '重试保存到图库',
+    gallerySaveFailed: '图片已生成，但未保存到图库；图片仍可下载，可重试保存。',
     regenerateFailed: '重新生成失败',
     usePrompt: '使用 Prompt',
     totalCount: '共 {count} 张生成图片',
@@ -137,6 +139,8 @@ const DICT = {
     regenerate: 'Regenerate',
     regenerating: 'Generating…',
     regenerateSuccess: 'New image generated',
+    retryGallerySave: 'Retry gallery save',
+    gallerySaveFailed: 'Image generated, but it could not be saved to the gallery. Download it and retry.',
     regenerateFailed: 'Regeneration failed',
     usePrompt: 'Use prompt',
     totalCount: '{count} images total',
@@ -248,6 +252,8 @@ export interface GalleryViewTabProps {
 export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible: _visible }) => {
   const [activeTab, setActiveTab] = useState<GalleryTab>('gallery')
   const [items, setItems] = useState<GalleryItem[]>([])
+  const [pendingGalleryItem, setPendingGalleryItem] = useState<GalleryItem | null>(null)
+  const [retryingGallerySave, setRetryingGallerySave] = useState(false)
   const [search, setSearch] = useState('')
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [workspaceOnly, setWorkspaceOnly] = useState(() => safeStorageRead(STORAGE_WORKSPACE_ONLY_KEY) === 'true')
@@ -408,6 +414,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
   }
 
   const generateThroughCpa = async (prompt: string, engine: ImageEngine, source?: GalleryItem): Promise<GalleryItem> => {
+    if (pendingGalleryItem !== null) throw new Error(t('gallerySaveFailed'))
     if (generatingRef.current) throw new Error('generation-in-progress')
     generatingRef.current = true
     setGenerating(true)
@@ -451,7 +458,10 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
         ...(scope?.sessionId === undefined ? {} : { sessionId: scope.sessionId }),
         createdAt: typeof payload?.createdAt === 'number' ? payload.createdAt : Date.now(),
       })
-      await saveGalleryItem(item)
+      if (!await saveGalleryItem(item)) {
+        setPendingGalleryItem(item)
+        throw new Error(t('gallerySaveFailed'))
+      }
       reloadItems()
       return item
     } finally {
@@ -502,13 +512,16 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [previewId])
 
+  const visibleGalleryItems = useMemo(() => pendingGalleryItem === null ? items
+    : [pendingGalleryItem, ...items.filter(item => item.id !== pendingGalleryItem.id)], [items, pendingGalleryItem])
+
   const workspaceFilteredItems = useMemo(() => {
-    return items.filter((item) => {
+    return visibleGalleryItems.filter((item) => {
       if (favoritesOnly && item.isFavorite !== true) return false
       if (workspaceOnly && activeWorkspace !== null && !isItemInWorkspace(item, activeWorkspace)) return false
       return true
     })
-  }, [items, favoritesOnly, workspaceOnly, activeWorkspace])
+  }, [visibleGalleryItems, favoritesOnly, workspaceOnly, activeWorkspace])
 
   const processedItems = useMemo(
     () => processGalleryItems(workspaceFilteredItems, { search, selectedEngine, selectedRatio, sortOption }),
@@ -567,6 +580,17 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
 
   return (
     <div className="dsh-ig-gallery-page">
+      {pendingGalleryItem !== null ? <div className="dsh-ig-error" role="status">
+        {t('gallerySaveFailed')}{' '}
+        <button type="button" className="dsh-ig-action-btn" disabled={retryingGallerySave} onClick={() => {
+          setRetryingGallerySave(true)
+          void saveGalleryItem(pendingGalleryItem).then(saved => {
+            if (saved) { setPendingGalleryItem(null); reloadItems() }
+            else showToast(t('gallerySaveFailed'))
+          }).finally(() => setRetryingGallerySave(false))
+        }}>{t('retryGallerySave')}</button>
+      </div> : null}
+
       {/* Top Toolbar */}
       <header className="dsh-ig-gallery-page-header">
         <div className="dsh-ig-gallery-page-top">
@@ -574,7 +598,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = ({ locale, scope, visible
             <span className="dsh-ig-gallery-page-title">🖼️ {t('galleryTitle')}</span>
             {activeTab === 'gallery' ? (
               <span className="dsh-ig-gallery-page-count">
-                {t('totalCount', { count: String(items.length) })}
+                {t('totalCount', { count: String(visibleGalleryItems.length) })}
               </span>
             ) : null}
           </div>

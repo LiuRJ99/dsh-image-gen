@@ -407,7 +407,7 @@ export function subscribeGallery(listener: GalleryListener): () => void {
  */
 export async function saveGalleryItem(
   item: Omit<GalleryItem, 'createdAt'> & { createdAt?: number | undefined }
-): Promise<void> {
+): Promise<boolean> {
   try {
     const db = await getDB()
     const candidate = normalizeGalleryItem({
@@ -416,8 +416,10 @@ export async function saveGalleryItem(
     })
     const changed = await upsertGalleryItem(db, candidate)
     if (changed) notifyListeners()
+    return true
   } catch (err) {
     console.warn('[dsh-image-gen] Failed to save gallery item to IndexedDB:', err)
+    return false
   }
 }
 

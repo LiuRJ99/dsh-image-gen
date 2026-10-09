@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 type PackageManifest = {
+  version: string
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
@@ -36,6 +37,6 @@ describe('runtime native dependency contract', () => {
     expect(manifest.files).toContain('src/inspiration/data/awesome-gpt-image-2.json')
     expect(manifest.files).toContain('src/inspiration/data/awesome-gpt-image-2.version.txt')
     expect(manifest.scripts).toMatchObject({ typecheck: expect.any(String), test: expect.any(String), build: expect.any(String), 'pack:check': expect.any(String), 'pack:artifact': expect.any(String) })
-    expect(codexManifest).toMatchObject({ name: 'dsh-image-gen', version: '0.5.6' })
+    expect(codexManifest).toMatchObject({ name: 'dsh-image-gen', version: manifest.version })
   })
 })

@@ -1,5 +1,11 @@
 # 变更记录 (CHANGELOG)
 
+## [0.5.10] - 2026-10-09
+
+- Selectively adapted upstream persistence-error handling: failed gallery writes are reported and can be retried without another generation request. Unsaved generated images remain visible and downloadable, including after gallery refresh notifications.
+- 选择性吸收上游图库持久化错误处理：保存失败可见，可重试保存且不会再次请求模型；未保存图片在图库刷新后仍可查看和下载。保留 CPA、工作区保存、删除标记及 Sidebar 0.24.1 集成。
+- 对齐插件清单版本，增加真实 IndexedDB 事务与 React 页面重试回归测试。
+
 ## [0.5.9] - 2026-10-09
 
 - 可选 Better Sidebar peer 明确覆盖已验收的 `0.24.1`，保留 `^0.21.1` 支持。Gallery 挂载与 Taskboard 并存验证通过。本次不改变 CPA 图片编辑实现。

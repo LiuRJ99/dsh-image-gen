@@ -224,6 +224,8 @@ const DICT = {
     savedToPath: '已保存到',
     loading: '正在加载图片…',
     loadFailed: '图片读取失败 ({status})',
+    gallerySaveFailed: '未保存到图库；图片仍可下载。',
+    retryGallerySave: '重试保存',
   },
   en: {
     generatedTitle: 'Generated image',
@@ -236,6 +238,8 @@ const DICT = {
     savedToPath: 'Saved to',
     loading: 'Loading image…',
     loadFailed: 'Failed to load image ({status})',
+    gallerySaveFailed: 'Not saved to the gallery. You can still download the image.',
+    retryGallerySave: 'Retry save',
   },
 } as const
 
@@ -335,6 +339,10 @@ export function SingleGeneratedImageView({
     originalDimensions: attachment.originalDimensions,
   })
 
+  const [gallerySaveFailed, setGallerySaveFailed] = useState(false)
+  const [gallerySaving, setGallerySaving] = useState(false)
+  const [galleryRetry, setGalleryRetry] = useState(0)
+
   // Auto-collect into gallery IndexedDB
   useEffect(() => {
     const item = normalizeGalleryItem({
@@ -350,8 +358,16 @@ export function SingleGeneratedImageView({
       ...(savedTo === undefined ? {} : { savedTo }),
       createdAt,
     })
-    void saveGalleryItem(item)
-  }, [attachmentKey, createdAt, prompt, engine, model, output, aspectRatio, imageSize, saveError, savedTo])
+    let cancelled = false
+    setGallerySaving(true)
+    void saveGalleryItem(item).then(saved => {
+      if (!cancelled) {
+        setGallerySaveFailed(!saved)
+        setGallerySaving(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [attachmentKey, createdAt, prompt, engine, model, output, aspectRatio, imageSize, saveError, savedTo, galleryRetry])
 
   useEffect(() => {
     if (!previewOpen) return
@@ -427,6 +443,10 @@ export function SingleGeneratedImageView({
       <div className="dsh-ig-result-title" title={normalizedMetadata.normalizationError}>
         {t(operation === 'edit' ? 'editedTitle' : 'generatedTitle')} · {galleryEngineLabel(normalizedMetadata.engine)}
       </div>
+      {gallerySaveFailed ? <div className="dsh-ig-error" role="status">
+        {t('gallerySaveFailed')}{' '}
+        <button type="button" className="dsh-ig-action-btn" disabled={gallerySaving} onClick={() => setGalleryRetry(value => value + 1)}>{t('retryGallerySave')}</button>
+      </div> : null}
       {typeof saveError === 'string' ? <div className="dsh-ig-error">{saveError}</div> : null}
       {savedTo !== undefined ? (
         <div className="dsh-ig-savedto">
