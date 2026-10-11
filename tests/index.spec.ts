@@ -64,6 +64,26 @@ function toolByName(tools: ToolDefinition[], name: string): ToolDefinition {
 }
 
 describe('image tool registration', () => {
+  it('forwards compatible quality and generation extras through single, batch and edit tools', async () => {
+    const { ctx, tools } = harnessContext()
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ b64_json: 'iVBORw0KGgo=' }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    apply(ctx, { provider: 'openai-compat', openaiCompatBaseURL: 'https://relay.example/v1', openaiCompatModel: 'relay', openaiCompatQuality: 'high', openaiCompatExtraBody: { watermark: false }, openaiCompatEditFormat: 'jsonImageUrlArray', openaiCompatEditSizeMode: 'selected', saveToWorkspace: false })
+    const exec = { signal: new AbortController().signal } as never
+    await toolByName(tools, 'generate_image').execute({ prompt: 'one', size: '2048x1152' }, exec)
+    await toolByName(tools, 'generate_images').execute({ prompts: ['two', 'three'], size: '2048x1152', quality: 'low' }, exec)
+    expect(fetchMock.mock.calls.slice(0, 3).map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { model: 'relay', prompt: 'one', size: '2048x1152', quality: 'high', watermark: false },
+      { model: 'relay', prompt: 'two', size: '2048x1152', quality: 'low', watermark: false },
+      { model: 'relay', prompt: 'three', size: '2048x1152', quality: 'low', watermark: false },
+    ])
+    vi.mocked(ctx.attachments.readImage).mockResolvedValue({ data: new Uint8Array([137, 80, 78, 71]), ref: attachment('source') } as never)
+    await toolByName(tools, 'edit_image').execute({ prompt: 'edit', size: '2048x1152', quality: 'medium' }, execWithUserImages('source'))
+    const editBody = JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))
+    expect(editBody).toMatchObject({ size: '2048x1152', quality: 'medium' })
+    expect(editBody).not.toHaveProperty('watermark')
+    vi.unstubAllGlobals()
+  })
   beforeEach(() => { vi.clearAllMocks() })
   afterEach(() => { vi.unstubAllGlobals() })
 

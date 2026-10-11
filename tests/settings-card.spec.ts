@@ -70,6 +70,10 @@ function formHarness(lang = 'zh', initialValue: Record<string, unknown> = { open
     typeURL: (value: string) => find(element => element.props.type === 'url').props.onChange({ target: { value } }),
     typeKey: (value: string) => find(element => element.props.type === 'password').props.onChange({ target: { value } }),
     keyValue: () => find(element => element.props.type === 'password').props.value,
+    field: (label: string, value: string) => {
+      const field = find(element => element.type === 'label' && text(element).startsWith(label))
+      elements(field).find(element => ['input', 'textarea', 'select'].includes(String(element.type)))!.props.onChange({ target: { value } })
+    },
     disabled: (label: string) => find(element => element.type === 'button' && text(element) === label).props.disabled,
     click: (label: string) => find(element => element.type === 'button' && text(element) === label).props.onClick(),
     save: () => find(element => element.type === 'form').props.onSubmit({ preventDefault() {} }),
@@ -80,6 +84,44 @@ beforeEach(() => { hooks.values = []; hooks.cursor = 0; hooks.scopeEffects = [] 
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('settings card credential actions', () => {
+  it.each([
+    { openaiCompatBaseURL: 'https://token.sensenova.cn/v1', openaiCompatModel: 'sensenova-u1.5-lite' },
+    { openaiCompatBaseURL: 'https://workspace-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', openaiCompatModel: 'qwen-image-3.0' },
+  ])('exposes JSON edit fields for a recognized official endpoint without a manual format switch', async config => {
+    const form = formHarness('zh', config)
+    expect(form.rowText()).toContain('自动：官方接口 JSON 格式')
+    form.field('附加 JSON 字段', '{"watermark":false,"prompt_extend":false}')
+    form.save()
+    await vi.waitFor(() => expect(form.setSetting).toHaveBeenCalledWith('openaiCompatEditExtra', { watermark: false, prompt_extend: false }))
+  })
+  it('saves independent resolution, quality and generation JSON fields', async () => {
+    const form = formHarness()
+    form.field('自定义分辨率表', '{"16:9":{"2K":"2048x1152"}}')
+    form.field('默认生成质量', ' high ')
+    form.field('可选生成质量', 'low, high, high')
+    form.field('文生图附加字段', '{"watermark":false,"prompt_extend":false}')
+    form.save()
+    await vi.waitFor(() => expect(form.setSetting).toHaveBeenCalledWith('openaiCompatExtraBody', { watermark: false, prompt_extend: false }))
+    expect(form.setSetting).toHaveBeenCalledWith('openaiCompatSizes', { '16:9': { '2K': '2048x1152' } })
+    expect(form.setSetting).toHaveBeenCalledWith('openaiCompatQuality', 'high')
+    expect(form.setSetting).toHaveBeenCalledWith('openaiCompatQualityOptions', ['low', 'high'])
+  })
+  it.each(['[]', '{broken'])('rejects invalid generation JSON %s before any settings or key write', async invalid => {
+    const form = formHarness()
+    form.typeKey('test-draft')
+    form.field('文生图附加字段', invalid)
+    form.save()
+    await vi.waitFor(() => expect(form.rowText()).toContain('合法的 JSON 对象'))
+    expect(form.setSetting).not.toHaveBeenCalled()
+    expect(form.setKey).not.toHaveBeenCalled()
+  })
+  it('rejects unsupported official sizes before saving any field', async () => {
+    const form = formHarness('zh', { openaiModel: 'gpt-image-2' }, 'openai')
+    form.field('自定义分辨率表', '{"1:1":{"4K":"4096x4096"}}')
+    form.save()
+    await vi.waitFor(() => expect(form.rowText()).toContain('尺寸'))
+    expect(form.setSetting).not.toHaveBeenCalled()
+  })
   it.each(['拉取模型', '测试连接'])('asks to save before %s without sending a request or storing the draft', async action => {
     const fetch = vi.fn(async (_url: string, _init: RequestInit) => ({ ok: true, json: async (): Promise<Record<string, unknown>> => ({ ok: false, reason: 'missing-key' }) }))
     vi.stubGlobal('fetch', fetch)

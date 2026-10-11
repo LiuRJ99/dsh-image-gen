@@ -4,7 +4,7 @@
  * Supports tombstones to ensure deleted items are never resurrected when revisiting conversations.
  */
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { ImageProvider } from '../shared.js'
+import type { ImageProvider, StudioWatermark } from '../shared.js'
 
 export interface GalleryItem {
   id: string
@@ -16,6 +16,9 @@ export interface GalleryItem {
   createdAt: number
   aspectRatio?: string | undefined
   imageSize?: string | undefined
+  resolution?: string | undefined
+  generationQuality?: string | undefined
+  watermark?: StudioWatermark | undefined
   output?: string | undefined
   /** Workflow seed reported by the ComfyUI provider. Optional so records written by older versions stay readable; the object store is schemaless, so no IndexedDB version bump is needed. */
   seed?: number | undefined

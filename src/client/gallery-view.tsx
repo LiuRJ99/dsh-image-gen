@@ -845,7 +845,7 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
         previewItem,
         regeneratePrompt,
         previewItem.aspectRatio
-          ? { ratio: previewItem.aspectRatio, quality: previewItem.imageSize || 'standard' }
+          ? { ratio: previewItem.aspectRatio, quality: previewItem.imageSize || 'standard', resolution: previewItem.resolution, generationQuality: previewItem.generationQuality, watermark: previewItem.watermark }
           : undefined,
       )
       if (activeWorkspace?.path) {
@@ -880,6 +880,9 @@ export const GalleryViewTab: FC<GalleryViewTabProps> = (props) => {
         createdAt: payload.createdAt,
         aspectRatio: request.ratio,
         imageSize: request.quality,
+        resolution: request.resolution,
+        generationQuality: request.generationQuality,
+        watermark: request.watermark,
         output: payload.output,
         ...(payload.savedTo ? { savedTo: payload.savedTo } : {}),
         ...(activeWorkspace?.path ? { workspacePath: activeWorkspace.path } : {}),

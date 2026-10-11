@@ -6,7 +6,6 @@ import {
   IMAGE_SIZES,
   resolveProvider,
   withProviderOverrides,
-  type ArkOutputOptions,
   type AspectRatio,
   type Config,
   type ImageSize,
@@ -22,6 +21,7 @@ import {
   DEFAULT_SUBSCRIPTION_MODELS,
   SUBSCRIPTION_PROVIDERS,
   isSubscriptionProvider,
+  studioWatermarkCapability,
   type CloudImageProvider,
   type StudioConfigResponse,
   type StudioGenerateRequest,
@@ -34,6 +34,8 @@ import {
 } from './shared.js'
 
 import { CLOUD_CAPABILITIES, RATIO_LABELS, SUBSCRIPTION_CAPABILITIES } from './capabilities.js'
+import { compatGenerationExtraBody, compatQualityOptions, compatRequestQuality, officialQualityOptions, officialSizeTable, validateOfficialSize, PROVIDER_DEFAULT_QUALITY } from './openai-output.js'
+import { compatEditExtraBody, selectedWatermark, watermarkProfile } from './watermark.js'
 
 const LEGACY_OPENAI_TABLE: Record<string, Record<string, string>> = {
   '1:1': { '1K': '1024x1024' },
@@ -181,6 +183,7 @@ function subscriptionStudioProfile(provider: SubscriptionProvider, signedIn: boo
     qualityOptions: cap.qualityOptions,
     defaultRatio: cap.defaultRatio,
     defaultQuality: cap.defaultQuality,
+    ...watermarkProfile({}, provider, DEFAULT_SUBSCRIPTION_MODELS[provider]),
   }
 }
 
@@ -213,15 +216,9 @@ export async function generateFromStudio(
   assertAllowed(profile, input)
   const active = resolveProvider(withProviderOverrides(config, input.provider, input.model))
   if (active.provider === 'comfyui') throw new Error('ComfyUI 暂未接入工作台')
+  if (isSubscriptionProvider(active.provider)) throw new Error('订阅生图应通过订阅渠道执行')
   // ComfyUI is rejected above; subscription channels were routed earlier; narrow for the closures below.
-  const wired = active as
-    | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
-    | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
-    | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; editFormat: 'multipart' | 'jsonImageUrlArray' | 'formReferenceImages'; editExtra: Record<string, unknown> }
-    | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; arkOptions: ArkOutputOptions }
-    | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
-    | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
-    | { provider: 'zhipu'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
+  const wired = active
   const credential = await requireApiKey(ctx, input.provider)
 
   const rawRefs = input.references ?? (input.reference ? [input.reference] : [])
@@ -249,32 +246,47 @@ export async function generateFromStudio(
       // openai-compat keeps its configured relay table; the others resolve via
       // the capability table. xAI speaks aspect_ratio+resolution, not size.
       const p = wired.provider
-      const size = p === 'openai-compat' ? openAIRequestSize(config, input.ratio, input.quality)
+      const officialTable = p === 'openai' ? officialSizeTable(config, wired.model) : undefined
+      const officialResolution = input.resolution ?? (officialTable
+        ? openAICompatTable({ openaiCompatSizes: officialTable }).find(group => group.ratio === input.ratio)?.tiers[0]?.tier
+        : undefined) ?? '1K'
+      const size = p === 'openai-compat' ? openAIRequestSize(config, input.ratio, input.resolution ?? input.quality)
+        : p === 'openai' ? openAIRequestSize({ openaiCompatSizes: officialTable! }, input.ratio, officialResolution)
         : p === 'xai' ? undefined
         : CLOUD_CAPABILITIES[p].sizeFor?.(input.ratio, input.quality)
-      const quality = p === 'openai' ? (input.quality === 'auto' ? undefined : input.quality)
+      if (p === 'openai' && size !== undefined) validateOfficialSize(wired.model, size)
+      const requestedQuality = input.generationQuality ?? input.quality
+      const quality = p === 'openai' ? (requestedQuality === 'auto' ? undefined : requestedQuality)
+        : p === 'openai-compat' ? compatRequestQuality(config, input.generationQuality)
         : p === 'zhipu' ? 'hd'
         : undefined
-      const extraBody = p === 'xai' ? { aspect_ratio: input.ratio, resolution: input.quality } : undefined
+      const extraBody = p === 'xai' ? { aspect_ratio: input.ratio, resolution: input.quality }
+        : p === 'openai-compat' ? input.mode === 'generate'
+          ? compatGenerationExtraBody(config, input.watermark) : compatEditExtraBody(config, input.watermark)
+        : undefined
       generated = input.mode === 'edit'
-        ? await editOpenAICompatibleImage({ apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, sourceImages, ...(size === undefined ? {} : { size }), maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(quality === undefined ? {} : { quality }), ...(extraBody === undefined ? {} : { extraBody }), ...(p === 'openai-compat' ? { editFormat: wired.editFormat, editExtra: wired.editExtra } : p === 'xai' ? { editFormat: 'xaiJson' as const } : {}) })
+        ? await editOpenAICompatibleImage({ apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, sourceImages, ...(size === undefined ? {} : { size }), maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(quality === undefined ? {} : { quality }), ...(extraBody === undefined ? {} : { extraBody }), ...(p === 'openai-compat' ? { editFormat: wired.editFormat, editExtra: wired.editExtra, editSizeMode: config.openaiCompatEditSizeMode ?? 'auto' } : p === 'xai' ? { editFormat: 'xaiJson' as const } : {}) })
         : await generateOpenAICompatibleImage({ provider: p, apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, ...(size === undefined ? {} : { size }), maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(quality === undefined ? {} : { quality }), ...(extraBody === undefined ? {} : { extraBody }) })
       output = size ?? `${input.ratio}, ${input.quality}`
     } else if (wired.provider === 'seedream') {
       const size = CLOUD_CAPABILITIES.seedream.sizeFor?.(input.ratio, input.quality) ?? input.quality
+      const arkOptions = { ...wired.arkOptions, watermark: selectedWatermark(input.watermark, wired.arkOptions.watermark)! }
       generated = input.mode === 'edit'
-        ? await editSeedreamImage({ apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, arkOptions: wired.arkOptions })
-        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, arkOptions: wired.arkOptions })
+        ? await editSeedreamImage({ apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, arkOptions })
+        : await generateOpenAICompatibleImage({ provider: 'seedream', apiKey: credential, baseURL: wired.baseURL, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, arkOptions })
       output = size
-    } else {
+    } else if (wired.provider === 'dashscope') {
       if (input.mode === 'edit' && sourceImages.length > 3) {
         throw new Error('DashScope (通义万相) 图生图目前最多支持 3 张参考图，请精简后重试')
       }
       const size = CLOUD_CAPABILITIES.dashscope.sizeFor?.(input.ratio, input.quality) ?? '1024x1024'
+      const watermark = selectedWatermark(input.watermark)
       generated = input.mode === 'edit'
-        ? await editDashScopeImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
-        : await generateDashScopeImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal })
+        ? await editDashScopeImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, sourceImages, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(watermark === undefined ? {} : { watermark }) })
+        : await generateDashScopeImage({ apiKey: credential, endpoint: wired.endpoint, model: wired.model, prompt: input.prompt, size, maxBytes: ctx.attachments.imageLimits.maxImageBytes, signal, ...(watermark === undefined ? {} : { watermark }) })
       output = size
+    } else {
+      throw new Error('当前渠道未接入 API 工作台')
     }
 
     if (!ctx.attachments.imageLimits.mediaTypes.includes(generated.mediaType)) {
@@ -494,13 +506,19 @@ function subscriptionResponse(
 }
 
 export function studioProfile(config: Config, provider: CloudImageProvider, configured: boolean): StudioProviderProfile {
+  const result = cloudStudioProfile(config, provider, configured)
+  return { ...result, ...watermarkProfile(config, provider, result.model) }
+}
+
+function cloudStudioProfile(config: Config, provider: CloudImageProvider, configured: boolean): StudioProviderProfile {
   let active: ReturnType<typeof resolveProvider>
   try {
     active = resolveProvider(withProviderOverrides(config, provider))
-  } catch {
+  } catch (cause) {
     // Unconfigured openai-compat row: expose an empty model until the relay
-    // settings are filled in; generation still fails loudly with guidance.
-    return profile(provider, '', configured, ['1:1', '3:2', '2:3'].map(option), [{ value: 'standard', label: '标准（推荐）' }], '1:1', 'standard')
+    // settings are filled in, while retaining the same output controls.
+    if (provider !== 'openai-compat') throw cause
+    return compatibleStudioProfile(config, '', false)
   }
   if (active.provider === 'comfyui') throw new Error('Invalid cloud provider profile')
   const model = active.model
@@ -509,16 +527,39 @@ export function studioProfile(config: Config, provider: CloudImageProvider, conf
     return profile(provider, model, configured, cap.ratioOptions, cap.qualityOptions, cap.defaultRatio, cap.defaultQuality)
   }
   if (provider === 'openai-compat') {
-    // Empty table keeps the historical profile (quality `standard`) so
-    // persisted selections and existing callers stay valid.
-    if (config.openaiCompatSizes === undefined || Object.keys(config.openaiCompatSizes).length === 0) {
-      return profile(provider, model, configured, ['1:1', '3:2', '2:3'].map(option), [{ value: 'standard', label: '标准（推荐）' }], '1:1', 'standard')
-    }
-    return openAICompatStudioProfile(config, model, configured)
+    return compatibleStudioProfile(config, model, configured)
+  }
+  if (provider === 'openai') {
+    const table = officialSizeTable(config, model)
+    const order = Object.keys(table)
+    const groups = openAICompatTable({ openaiCompatSizes: table }).sort((a, b) => order.indexOf(a.ratio) - order.indexOf(b.ratio))
+    const resolutionOptions = Object.fromEntries(groups.map(group => [group.ratio, group.tiers.map(entry => ({ value: entry.tier, label: `${entry.tier} · ${entry.size}` }))]))
+    const defaultRatio = groups.some(group => group.ratio === '1:1') ? '1:1' : groups[0]?.ratio ?? '1:1'
+    return { ...profile(provider, model, configured, groups.map(group => option(group.ratio)), officialQualityOptions(model), defaultRatio, 'auto'),
+      resolutionOptions, defaultResolution: resolutionOptions[defaultRatio]?.[0]?.value ?? '1K' }
   }
   // Every remaining cloud row reads its picker shape from the capability table.
   const cap = CLOUD_CAPABILITIES[provider as Exclude<CloudImageProvider, 'openai-compat'>]
   return profile(provider, model, configured, cap.ratioOptions, cap.qualityOptions, cap.defaultRatio, cap.defaultQuality)
+}
+
+/** Output capabilities remain visible before credentials, address or model are configured. */
+function compatibleStudioProfile(config: Config, model: string, configured: boolean): StudioProviderProfile {
+  const groups = openAICompatTable(config)
+  const qualityProfile = {
+    generationQualityOptions: compatQualityOptions(config),
+    defaultGenerationQuality: compatRequestQuality(config) ?? PROVIDER_DEFAULT_QUALITY,
+    resolutionOptions: Object.fromEntries(groups.map(group => [group.ratio, group.tiers.map(entry => ({ value: entry.tier, label: `${entry.tier} · ${entry.size}` }))])),
+  }
+  // Empty table keeps the historical resolution value for persisted selections.
+  if (config.openaiCompatSizes === undefined || Object.keys(config.openaiCompatSizes).length === 0) {
+    return {
+      ...profile('openai-compat', model, configured, ['1:1', '3:2', '2:3'].map(option), [{ value: 'standard', label: '标准（推荐）' }], '1:1', 'standard'),
+      ...qualityProfile,
+      resolutionOptions: Object.fromEntries(groups.map(group => [group.ratio, [{ value: 'standard', label: `标准 · ${group.tiers[0]!.size}` }]])),
+    }
+  }
+  return { ...openAICompatStudioProfile(config, model, configured), ...qualityProfile }
 }
 
 function profile(
@@ -561,7 +602,13 @@ function option(value: string): StudioOption {
 function assertAllowed(profile: StudioProviderProfile, input: StudioGenerateRequest): void {
   if (input.model !== profile.model) throw new Error('模型配置已变化，请刷新工作台后重试')
   if (!profile.ratioOptions.some(option => option.value === input.ratio)) throw new Error('该 Provider 不支持所选比例')
-  if (!profile.qualityOptions.some(option => option.value === input.quality)) throw new Error('该 Provider 不支持所选清晰度')
+  const selectedQuality = input.provider === 'openai' ? input.generationQuality ?? input.quality : input.resolution ?? input.quality
+  if (!profile.qualityOptions.some(option => option.value === selectedQuality)) throw new Error('该 Provider 不支持所选清晰度')
+  if (input.resolution !== undefined && profile.resolutionOptions !== undefined && !profile.resolutionOptions[input.ratio]?.some(option => option.value === input.resolution)) throw new Error('该比例不支持所选分辨率')
+  if (input.generationQuality !== undefined && input.provider === 'openai-compat' && !profile.generationQualityOptions?.some(option => option.value === input.generationQuality)) throw new Error('该 Provider 不支持所选生成质量')
+  if ((input.resolution !== undefined || input.generationQuality !== undefined) && input.provider !== 'openai' && input.provider !== 'openai-compat') throw new Error('该 Provider 不支持独立的 OpenAI 输出参数')
+  if (input.watermark !== undefined && input.watermark !== 'default'
+    && studioWatermarkCapability(profile, input.mode).status !== 'supported') throw new Error('该渠道尚未确认当前操作的水印控制，请刷新工作台')
   if (input.mode === 'edit' && !profile.supportsEditing) throw new Error('该 Provider 暂不支持图生图')
 }
 

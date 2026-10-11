@@ -175,6 +175,7 @@ body[data-ds-dark-theme] .dsh-ig-workbench{--ig-danger:#f08c8c;--ig-warn:#e5b76a
 .dsh-ig-page-in-sidebar .dsh-ig-workbench-grid.is-sidebar-collapsed{grid-template-columns:minmax(0,1fr) minmax(206px,264px)}
 .dsh-ig-page-in-sidebar .dsh-ig-workbench-grid.is-generate-collapsed{grid-template-columns:minmax(150px,190px) minmax(0,1fr)}
 .dsh-ig-page-in-sidebar .dsh-ig-workbench-grid.is-sidebar-collapsed.is-generate-collapsed{grid-template-columns:minmax(0,1fr)}
+.dsh-ig-field-grid.is-output-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 .dsh-ig-page-in-sidebar .dsh-ig-recent-item{min-width:0}
 .dsh-ig-page-in-sidebar .dsh-ig-generate-panel .dsh-ig-field-grid{grid-template-columns:1fr}
 .dsh-ig-page-in-sidebar .dsh-ig-tl-canvas{min-height:280px}

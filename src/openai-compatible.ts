@@ -57,7 +57,7 @@ export async function generateOpenAICompatibleImage(input: {
 }
 
 /** How the edits endpoint expects its request body (#41). */
-export type CompatEditFormat = 'multipart' | 'jsonImageUrlArray' | 'formReferenceImages' | 'xaiJson'
+export type CompatEditFormat = 'multipart' | 'jsonImageUrlArray' | 'formReferenceImages' | 'xaiJson' | 'qwenJson'
 
 export async function editOpenAICompatibleImage(input: {
   apiKey: string
@@ -75,6 +75,7 @@ export async function editOpenAICompatibleImage(input: {
    * `images: [{ image_url }]` objects. Defaults to the standard multipart.
    */
   editFormat?: CompatEditFormat
+  editSizeMode?: 'auto' | 'selected'
   /**
    * Channel-specific extra fields merged into the JSON edit body last (so
    * they can override the defaults above), e.g. SenseNova's
@@ -90,6 +91,23 @@ export async function editOpenAICompatibleImage(input: {
    */
   extraBody?: Readonly<Record<string, unknown>>
 }): Promise<GeneratedCompatibleImage> {
+  if (input.editFormat === 'qwenJson') {
+    // Qwen's official compatible API edits through images/generations, using image URLs directly.
+    const response = await fetch(imageEndpoint(input.baseURL, 'generations'), {
+      method: 'POST', redirect: 'error', signal: input.signal,
+      headers: { authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: input.model,
+        prompt: input.prompt,
+        image: input.sourceImages.map(toDataUrl),
+        ...(input.size === undefined ? {} : { size: input.size }),
+        ...(input.quality === undefined ? {} : { quality: input.quality }),
+        ...(input.editExtra ?? {}),
+        ...(input.extraBody ?? {}),
+      }),
+    })
+    return parseImageResponse(response, 'openai-compat', input)
+  }
   if (input.editFormat === 'xaiJson') {
     const references = input.sourceImages.map(image => ({ type: 'image_url', url: toDataUrl(image) }))
     const response = await fetch(imageEndpoint(input.baseURL, 'edits'), {
@@ -111,11 +129,9 @@ export async function editOpenAICompatibleImage(input: {
       images: input.sourceImages.map(sourceImage => ({ image_url: toDataUrl(sourceImage) })),
       prompt: input.prompt,
       n: 1,
-      // Channels of this shape (SenseNova) document `size: "auto"` as the
-      // only accepted value on the edits endpoint, so the caller's
-      // generation size is deliberately NOT forwarded here. editExtra
-      // (merged last) can still override it for other channels.
-      size: 'auto' as const,
+      // Preserve SenseNova's auto default; other JSON relays can opt into
+      // selected dimensions. editExtra remains the final channel override.
+      size: input.editSizeMode === 'selected' ? (input.size ?? 'auto') : 'auto',
       response_format: 'url',
       ...(input.quality === undefined ? {} : { quality: input.quality }),
       ...(input.editExtra ?? {}),

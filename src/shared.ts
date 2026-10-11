@@ -248,6 +248,14 @@ export interface StudioOption {
   label: string
 }
 
+export const STUDIO_WATERMARK_VALUES = ['default', 'off', 'on'] as const
+export type StudioWatermark = typeof STUDIO_WATERMARK_VALUES[number]
+
+export interface StudioWatermarkCapability {
+  status: 'supported' | 'unknown' | 'unavailable'
+  reason?: 'channel-unconfirmed' | 'model-unconfirmed' | 'account-unconfirmed' | 'edit-format' | 'no-api-control'
+}
+
 /** Browser-safe provider description. Credentials and endpoints never cross this boundary. */
 export interface StudioProviderProfile {
   provider: StudioProvider
@@ -259,6 +267,21 @@ export interface StudioProviderProfile {
   qualityOptions: StudioOption[]
   defaultRatio: string
   defaultQuality: string
+  /** Independent pixel tiers for OpenAI-shaped APIs, keyed by ratio. */
+  resolutionOptions?: Record<string, StudioOption[]>
+  defaultResolution?: string
+  /** Additional quality picker for compatible channels whose legacy quality means resolution. */
+  generationQualityOptions?: StudioOption[]
+  defaultGenerationQuality?: string
+  /** Generation options retained for clients predating operation-specific capabilities. */
+  watermarkOptions?: StudioOption[]
+  watermarkCapabilities?: Record<'generate' | 'edit', StudioWatermarkCapability>
+}
+
+export function studioWatermarkCapability(profile: StudioProviderProfile | undefined, mode: 'generate' | 'edit'): StudioWatermarkCapability {
+  return profile?.watermarkCapabilities?.[mode]
+    ?? (mode === 'generate' && profile?.watermarkOptions?.length
+      ? { status: 'supported' } : { status: 'unknown', reason: 'channel-unconfirmed' })
 }
 
 /** Lightweight workspace description exposed to the client for scoping. */
@@ -299,6 +322,10 @@ export interface StudioGenerateRequest {
   prompt: string
   ratio: string
   quality: string
+  /** Optional independent resolution; older clients continue using the legacy quality field. */
+  resolution?: string
+  generationQuality?: string
+  watermark?: StudioWatermark
   reference?: StudioReference
   references?: StudioReference[]
   count?: number | undefined

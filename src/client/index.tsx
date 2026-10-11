@@ -1,6 +1,7 @@
 // Must stay the first import: it shims CSS.supports before tldraw's
 // module-scope environment probe runs (#40); see css-supports-shim.ts.
 import './tl/css-supports-shim.js'
+import { compatEditFormat } from '../watermark.js'
 import { useEffect, useState, useRef, type ChangeEvent, type FormEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -69,6 +70,8 @@ import {
   type ConversationImageRevisionChain,
 } from './conversation-image-revisions.js'
 import { conversationRegenerateRequest } from './conversation-regenerate.js'
+import { parseExtraFields, parseSizeTable } from './output-settings.js'
+import { DEFAULT_COMPAT_QUALITIES, validateOfficialSize } from '../openai-output.js'
 import { ImageProviderPill, PROVIDER_PILL_STYLE, type ProviderPillFace } from './provider-pill.js'
 import { writeSetting } from './settings-write.js'
 
@@ -89,8 +92,14 @@ interface ImageSettings {
   googleEndpoint?: string
   openaiBaseURL?: string
   openaiModel?: string
+  openaiSizes?: Record<string, Record<string, string>>
   openaiCompatBaseURL?: string
   openaiCompatModel?: string
+  openaiCompatSizes?: Record<string, Record<string, string>>
+  openaiCompatQuality?: string
+  openaiCompatQualityOptions?: string[]
+  openaiCompatExtraBody?: Record<string, unknown>
+  openaiCompatEditSizeMode?: 'auto' | 'selected'
   /** Edit-request shape for the openai-compat relay (#41); see src/config.ts. */
   openaiCompatEditFormat?: 'multipart' | 'jsonImageUrlArray' | 'formReferenceImages'
   /** Extra JSON fields merged into the JSON edit body; ignored in multipart mode. */
@@ -253,9 +262,10 @@ const DICT = {
     endpointHintOpenAICompat: '中转站/自建服务的 OpenAI 兼容 /v1 地址（必填），例如 https://your-relay.example.com/v1。',
     editFormat: '图生图请求形态',
     editFormatMultipart: '标准 multipart（OpenAI 官方）',
+    editFormatAutomatic: '自动：官方接口 JSON 格式',
     editFormatJsonImageUrlArray: 'JSON images 数组（商汤等中转）',
     editFormatFormReferenceImages: 'multipart + reference_images JSON 数组（base64）',
-    editFormatHint: '文生图不受影响。仅当中转站的图生图接口使用自有契约（如商汤 SenseNova 的 JSON images 数组，或要求 reference_images base64 数组的中转）时才需要切换。',
+    editFormatHint: '商汤、通义已确认的官方接口自动使用对应 JSON 格式；其他中转按接口文档选择。文生图不受影响。',
     editExtra: '附加 JSON 字段',
     editExtraPlaceholder: '{"watermark": false, "prompt_extend": true}',
     editExtraHint: '仅 JSON 形态生效；会合并到请求体末尾，可覆盖默认字段。留空表示不附加。',
@@ -272,6 +282,17 @@ const DICT = {
     arkBackgroundTransparent: '透明',
     arkBackgroundHint: '仅图生图有效，且要求参考图本身带透明通道；文生图会被方舟拒绝，因此这一项只在图生图时发出。',
     editExtraInvalid: '附加 JSON 字段必须是合法的 JSON 对象。',
+    sizeTable: '自定义分辨率表（JSON）',
+    sizeTableHint: '格式为「比例 → 档位 → 像素尺寸」。留空使用默认尺寸；例如 {"16:9":{"2K":"2048x1152"}}。',
+    sizeTableInvalid: '分辨率表须为「比例 → 数字档位（如 2K）→ 非空尺寸字符串」的 JSON 对象。',
+    defaultQuality: '默认生成质量',
+    defaultQualityHint: '留空不发送 quality。该参数与分辨率独立，上游须支持所填值。',
+    qualityOptions: '可选生成质量（逗号分隔）',
+    generateExtra: '文生图附加字段（JSON）',
+    generateExtraHint: '仅文生图生效，合并到请求体末尾，可覆盖 size 和 quality。关闭商汤水印可填 {"watermark":false}。',
+    editSizeMode: 'JSON 图生图尺寸',
+    editSizeAuto: '自动（兼容商汤）',
+    editSizeSelected: '使用所选分辨率',
     endpointHintSeedream: '火山方舟兼容的 /api/v3 地址。',
     endpointHintDashScope: '阿里云百炼 DashScope 官方接口地址。',
     endpointHintXAI: 'xAI 官方 api.x.ai 的 /v1 地址。',
@@ -406,9 +427,10 @@ const DICT = {
     endpointHintOpenAICompat: 'OpenAI-compatible /v1 base URL of your relay or self-hosted service (required), e.g. https://your-relay.example.com/v1.',
     editFormat: 'Edit request format',
     editFormatMultipart: 'Standard multipart (official OpenAI)',
+    editFormatAutomatic: 'Automatic: official JSON contract',
     editFormatJsonImageUrlArray: 'JSON images array (SenseNova etc.)',
     editFormatFormReferenceImages: 'Multipart with a reference_images JSON array (base64)',
-    editFormatHint: 'Text-to-image is unaffected. Only switch when the relay runs image edits on its own contract (e.g. SenseNova\'s JSON images array, or a relay that takes reference_images as a base64 JSON array); size is pinned to "auto" in the JSON images format (the only value SenseNova\'s edits endpoint accepts) and can be overridden via extra fields.',
+    editFormatHint: 'Recognized official SenseNova and Qwen endpoints automatically use their JSON edit contracts. Choose other relay formats according to their documentation. Text-to-image is unaffected.',
     editExtra: 'Extra JSON fields',
     editExtraPlaceholder: '{"watermark": false, "prompt_extend": true}',
     editExtraHint: 'Only used with the JSON format; merged into the request body last and may override defaults. Leave empty for none.',
@@ -425,6 +447,17 @@ const DICT = {
     arkBackgroundTransparent: 'Transparent',
     arkBackgroundHint: 'Image-to-image only, and every reference image must already carry an alpha channel; Ark rejects it for text-to-image, so it is sent on edits alone.',
     editExtraInvalid: 'Extra JSON fields must be a valid JSON object.',
+    sizeTable: 'Custom resolution table (JSON)',
+    sizeTableHint: 'Aspect ratio → tier → pixel size. Leave empty for defaults; e.g. {"16:9":{"2K":"2048x1152"}}.',
+    sizeTableInvalid: 'Use a JSON object mapping ratios to numeric tiers (e.g. 2K) and nonempty size strings.',
+    defaultQuality: 'Default generation quality',
+    defaultQualityHint: 'Leave empty to omit quality. Independent of resolution; the upstream must support this value.',
+    qualityOptions: 'Available generation qualities (comma-separated)',
+    generateExtra: 'Generation extra fields (JSON)',
+    generateExtraHint: 'Generation only. Merged last; can override size and quality. Use {"watermark":false} for SenseNova.',
+    editSizeMode: 'JSON edit dimensions',
+    editSizeAuto: 'Auto (SenseNova compatible)',
+    editSizeSelected: 'Use selected resolution',
     endpointHintSeedream: 'Volcengine Ark compatible /api/v3 base URL.',
     endpointHintDashScope: 'Official Aliyun DashScope endpoint.',
     endpointHintXAI: 'Official xAI api.x.ai /v1 base URL.',
@@ -1117,6 +1150,11 @@ interface ProviderRowState {
   editFormat: 'multipart' | 'jsonImageUrlArray' | 'formReferenceImages'
   /** openai-compat only: extra JSON fields for the JSON edit body, as user text. */
   editExtraText: string
+  sizeTableText: string
+  generationQuality: string
+  qualityOptionsText: string
+  generateExtraText: string
+  editSizeMode: 'auto' | 'selected'
   /** seedream only: Ark output controls. Other rows keep the defaults. */
   outputFormat: 'png' | 'jpeg'
   watermark: boolean
@@ -1145,6 +1183,11 @@ function emptyProviderRow(): ProviderRowState {
     timeoutSeconds: DEFAULT_COMFYUI_TIMEOUT_MS / 1000,
     editFormat: 'multipart',
     editExtraText: '',
+    sizeTableText: '',
+    generationQuality: '',
+    qualityOptionsText: DEFAULT_COMPAT_QUALITIES.join(', '),
+    generateExtraText: '',
+    editSizeMode: 'auto',
     outputFormat: 'jpeg',
     watermark: true,
     background: 'opaque',
@@ -1219,6 +1262,7 @@ function rowsFromSettings(value: ImageSettings | undefined): Record<Provider, Pr
       ...emptyProviderRow(),
       model: modelOf(provider, value),
       baseURL: baseURLOf(provider, value),
+      ...(provider === 'openai' ? { sizeTableText: editExtraTextOf(value?.openaiSizes) } : {}),
       ...(provider === 'comfyui' ? {
         workflows: resolveComfyUIWorkflows(value ?? {}),
         activeWorkflow: activeComfyUIWorkflow(value ?? {})?.name ?? '',
@@ -1227,6 +1271,11 @@ function rowsFromSettings(value: ImageSettings | undefined): Record<Provider, Pr
       ...(provider === 'openai-compat' ? {
         editFormat: parseEditFormat(value?.openaiCompatEditFormat),
         editExtraText: editExtraTextOf(value?.openaiCompatEditExtra),
+        sizeTableText: editExtraTextOf(value?.openaiCompatSizes),
+        generationQuality: value?.openaiCompatQuality ?? '',
+        qualityOptionsText: (value?.openaiCompatQualityOptions ?? DEFAULT_COMPAT_QUALITIES).join(', '),
+        generateExtraText: editExtraTextOf(value?.openaiCompatExtraBody),
+        editSizeMode: value?.openaiCompatEditSizeMode === 'selected' ? 'selected' : 'auto',
       } : {}),
       ...(provider === 'seedream' ? {
         outputFormat: value?.seedreamOutputFormat === 'png' ? 'png' : 'jpeg',
@@ -1537,23 +1586,22 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
         // broken.
         await Promise.resolve()
       } else {
-        // Validate the compat edit extras BEFORE any write: a broken JSON
-        // object must not half-save (model/baseURL persisted, extras rejected).
-        let editExtra: Record<string, unknown> = {}
-        if (provider === 'openai-compat') {
-          const extraText = row.editExtraText.trim()
-          if (extraText.length > 0) {
-            let parsed: unknown
-            try { parsed = JSON.parse(extraText) } catch { throw new Error(t('editExtraInvalid')) }
-            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error(t('editExtraInvalid'))
-            editExtra = parsed as Record<string, unknown>
-          }
-        }
+        // Validate all output controls before writing model, address or extras.
+        const editExtra = provider === 'openai-compat' ? parseExtraFields(row.editExtraText, t('editExtraInvalid')) : {}
+        const sizeTable = provider === 'openai' || provider === 'openai-compat' ? parseSizeTable(row.sizeTableText, t('sizeTableInvalid')) : {}
+        const generateExtra = provider === 'openai-compat' ? parseExtraFields(row.generateExtraText, t('editExtraInvalid')) : {}
+        if (provider === 'openai') for (const tiers of Object.values(sizeTable)) for (const size of Object.values(tiers)) validateOfficialSize(row.model, size)
         await saveSetting(modelFieldOf(provider), row.model)
         await saveSetting(baseURLFieldOf(provider), row.baseURL)
+        if (provider === 'openai') await saveSetting('openaiSizes', sizeTable)
         if (provider === 'openai-compat') {
           await saveSetting('openaiCompatEditFormat', row.editFormat)
           await saveSetting('openaiCompatEditExtra', editExtra)
+          await saveSetting('openaiCompatSizes', sizeTable)
+          await saveSetting('openaiCompatQuality', row.generationQuality.trim())
+          await saveSetting('openaiCompatQualityOptions', [...new Set(row.qualityOptionsText.split(',').map(value => value.trim()).filter(Boolean))])
+          await saveSetting('openaiCompatExtraBody', generateExtra)
+          await saveSetting('openaiCompatEditSizeMode', row.editSizeMode)
         }
         if (provider === 'seedream') {
           await saveSetting('seedreamOutputFormat', row.outputFormat)
@@ -1781,6 +1829,10 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
 
   const renderCloudBody = (provider: CloudImageProvider) => {
     const row = rows[provider]
+    const officialEditFormat = provider === 'openai-compat'
+      ? compatEditFormat({ openaiCompatBaseURL: row.baseURL, openaiCompatModel: row.model }) : 'multipart'
+    const automaticEditFormat = officialEditFormat !== 'multipart'
+    const editFormat = automaticEditFormat ? officialEditFormat : row.editFormat
     const keyRef = cloudCredentialRef(provider) ?? ''
     const keyReadOnly = row.keyInfo?.writable === false
     const keyUnavailable = !credentialsAvailable()
@@ -1852,10 +1904,11 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               <span className="dsh-ig-label">{t('editFormat')}</span>
               <select
                 className="dsh-ig-input"
-                value={row.editFormat}
+                value={automaticEditFormat ? '__official__' : row.editFormat}
                 onChange={event => { updateRow(provider, { editFormat: parseEditFormat(event.target.value) }) }}
-                disabled={!settingsWritable}
+                disabled={!settingsWritable || automaticEditFormat}
               >
+                {automaticEditFormat ? <option value="__official__">{t('editFormatAutomatic')}</option> : null}
                 <option value="multipart">{t('editFormatMultipart')}</option>
                 <option value="jsonImageUrlArray">{t('editFormatJsonImageUrlArray')}</option>
                 <option value="formReferenceImages">{t('editFormatFormReferenceImages')}</option>
@@ -1906,7 +1959,41 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               </label>
             </>
           ) : null}
-          {provider === 'openai-compat' && row.editFormat === 'jsonImageUrlArray' ? (
+          {provider === 'openai' || provider === 'openai-compat' ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('sizeTable')}</span>
+              <textarea className="dsh-ig-input dsh-ig-textarea" value={row.sizeTableText} onChange={event => { updateRow(provider, { sizeTableText: event.target.value }) }} rows={3} disabled={!settingsWritable} />
+              <span className="dsh-ig-hint">{t('sizeTableHint')}</span>
+            </label>
+          ) : null}
+          {provider === 'openai-compat' ? (
+            <>
+              <label className="dsh-ig-field">
+                <span className="dsh-ig-label">{t('defaultQuality')}</span>
+                <input className="dsh-ig-input" value={row.generationQuality} onChange={event => { updateRow(provider, { generationQuality: event.target.value }) }} placeholder="high" disabled={!settingsWritable} />
+                <span className="dsh-ig-hint">{t('defaultQualityHint')}</span>
+              </label>
+              <label className="dsh-ig-field">
+                <span className="dsh-ig-label">{t('qualityOptions')}</span>
+                <input className="dsh-ig-input" value={row.qualityOptionsText} onChange={event => { updateRow(provider, { qualityOptionsText: event.target.value }) }} disabled={!settingsWritable} />
+              </label>
+              <label className="dsh-ig-field">
+                <span className="dsh-ig-label">{t('generateExtra')}</span>
+                <textarea className="dsh-ig-input dsh-ig-textarea" value={row.generateExtraText} onChange={event => { updateRow(provider, { generateExtraText: event.target.value }) }} placeholder={'{"watermark":false}'} rows={2} disabled={!settingsWritable} />
+                <span className="dsh-ig-hint">{t('generateExtraHint')}</span>
+              </label>
+            </>
+          ) : null}
+          {provider === 'openai-compat' && (editFormat === 'jsonImageUrlArray' || editFormat === 'qwenJson') ? (
+            <>
+            {editFormat === 'jsonImageUrlArray' ? (
+            <label className="dsh-ig-field">
+              <span className="dsh-ig-label">{t('editSizeMode')}</span>
+              <select className="dsh-ig-input" value={row.editSizeMode} onChange={event => { updateRow(provider, { editSizeMode: event.target.value === 'selected' ? 'selected' : 'auto' }) }} disabled={!settingsWritable}>
+                <option value="auto">{t('editSizeAuto')}</option><option value="selected">{t('editSizeSelected')}</option>
+              </select>
+            </label>
+            ) : null}
             <label className="dsh-ig-field">
               <span className="dsh-ig-label">{t('editExtra')}</span>
               <textarea
@@ -1919,6 +2006,7 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
               />
               <span className="dsh-ig-hint">{t('editExtraHint')}</span>
             </label>
+            </>
           ) : null}
           <div className="dsh-ig-row-actions">
             <p className={`dsh-ig-status${row.messageIsError ? ' dsh-ig-status-error' : ''}`} role="status">{row.message || testResultText(row.testResult)}</p>
@@ -2394,7 +2482,7 @@ function ImageResultCard({
       const request = conversationRegenerateRequest(
         activeResult,
         regeneratePrompt,
-        selectedRevision === undefined ? undefined : { ratio: selectedRevision.ratio, quality: selectedRevision.quality },
+        selectedRevision === undefined ? undefined : { ratio: selectedRevision.ratio, quality: selectedRevision.quality, resolution: selectedRevision.resolution, generationQuality: selectedRevision.generationQuality, watermark: selectedRevision.watermark },
       )
       const response = await fetch(STUDIO_ROUTE, {
         method: 'POST',
@@ -2416,6 +2504,9 @@ function ImageResultCard({
         createdAt: payload.createdAt,
         ratio: request.ratio,
         quality: request.quality,
+        ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
+        ...(request.generationQuality === undefined ? {} : { generationQuality: request.generationQuality }),
+        ...(request.watermark === undefined ? {} : { watermark: request.watermark }),
       }
       const savedOk = await saveGalleryItem({
         id: String(revision.attachment.attachmentId),
@@ -2426,6 +2517,9 @@ function ImageResultCard({
         createdAt: revision.createdAt,
         aspectRatio: revision.ratio,
         imageSize: revision.quality,
+        resolution: revision.resolution,
+        generationQuality: revision.generationQuality,
+        watermark: revision.watermark,
         output: revision.output,
         ...(savedTo ? { savedTo } : {}),
         ...(sessionId ? { sessionId } : {}),

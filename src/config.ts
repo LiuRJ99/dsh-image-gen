@@ -1,5 +1,7 @@
 /** User-facing configuration for supported image providers. */
 import z from '@deepseek-ai/schemastery'
+import { compatEditFormat } from './watermark.js'
+import type { CompatEditFormat } from './openai-compatible.js'
 
 import {
   ARK_BACKGROUND_MODES,
@@ -88,9 +90,19 @@ export interface Config {
   googleEndpoint?: string
   openaiBaseURL?: string
   openaiModel?: string
+  /** Official model size table: ratio -> resolution tier -> pixels. Empty uses model presets. */
+  openaiSizes?: Record<string, Record<string, string>>
   /** OpenAI-compatible relay settings; independent from the official OpenAI row. */
   openaiCompatBaseURL?: string
   openaiCompatModel?: string
+  /** Default quality; empty preserves the upstream default by omitting the field. */
+  openaiCompatQuality?: string
+  /** Quality values accepted by this relay; independent of resolution tiers. */
+  openaiCompatQualityOptions?: string[]
+  /** Generation-only JSON fields, merged last (e.g. watermark: false). */
+  openaiCompatExtraBody?: Record<string, unknown>
+  /** JSON edit sizing stays auto unless the relay supports selected dimensions. */
+  openaiCompatEditSizeMode?: 'auto' | 'selected'
   /**
    * Request shape the relay's images/edits endpoint expects (#41). Most
     * relays take OpenAI's multipart form; some (e.g. SenseNova) accept the
@@ -103,7 +115,7 @@ export interface Config {
   /**
    * Extra JSON fields merged into the JSON edit body last (can override the
    * built-in defaults), e.g. SenseNova's `watermark`/`prompt_extend`.
-   * Ignored unless `openaiCompatEditFormat` is `jsonImageUrlArray`.
+   * Used by JSON edit formats, including automatically recognized official contracts.
    */
   openaiCompatEditExtra?: Record<string, unknown>
   /**
@@ -182,8 +194,13 @@ export const Config = z.object({
   googleEndpoint: volatile(z.string().default(DEFAULT_GOOGLE_ENDPOINT)),
   openaiBaseURL: volatile(z.string().default(DEFAULT_OPENAI_BASE_URL)),
   openaiModel: volatile(z.string().default(DEFAULT_OPENAI_MODEL)),
+  openaiSizes: volatile(z.dict(z.dict(z.string())).default({})),
   openaiCompatBaseURL: volatile(z.string().default('')),
   openaiCompatModel: volatile(z.string().default('')),
+  openaiCompatQuality: volatile(z.string().default('')),
+  openaiCompatQualityOptions: volatile(z.array(z.string()).default(['auto', 'low', 'medium', 'high'])),
+  openaiCompatExtraBody: volatile(z.dict(z.any()).default({})),
+  openaiCompatEditSizeMode: volatile(z.union(['auto', 'selected']).default('auto')),
   openaiCompatEditFormat: volatile(z.union([z.const('multipart'), z.const('jsonImageUrlArray'), z.const('formReferenceImages')]).default('multipart')),
   openaiCompatEditExtra: volatile(z.dict(z.any()).default({})),
   openaiCompatSizes: volatile(z.dict(z.dict(z.string())).default({})),
@@ -213,7 +230,7 @@ export const Config = z.object({
 export function resolveProvider(config: Config):
   | { provider: 'google'; apiKeyEnv: string; model: string; endpoint: string; aspectRatio: AspectRatio; imageSize: ImageSize }
   | { provider: 'openai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
-  | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; editFormat: 'multipart' | 'jsonImageUrlArray' | 'formReferenceImages'; editExtra: Record<string, unknown> }
+  | { provider: 'openai-compat'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; editFormat: CompatEditFormat; editExtra: Record<string, unknown> }
   | { provider: 'seedream'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string; arkOptions: ArkOutputOptions }
   | { provider: 'dashscope'; apiKeyEnv: string; model: string; endpoint: string; imageSize: string }
   | { provider: 'xai'; apiKeyEnv: string; model: string; baseURL: string; imageSize: string }
@@ -233,7 +250,7 @@ export function resolveProvider(config: Config):
       if (model === undefined || model.length === 0) {
         throw new Error('OpenAI 兼容 provider requires a model name; set it in Settings > Plugins > Image generation.')
       }
-      return { provider: 'openai-compat', apiKeyEnv: OPENAI_COMPAT_API_KEY_ENV, model, baseURL, imageSize: '1024x1024', editFormat: config.openaiCompatEditFormat ?? 'multipart', editExtra: config.openaiCompatEditExtra ?? {} }
+      return { provider: 'openai-compat', apiKeyEnv: OPENAI_COMPAT_API_KEY_ENV, model, baseURL, imageSize: '1024x1024', editFormat: compatEditFormat(config), editExtra: config.openaiCompatEditExtra ?? {} }
     }
     case 'seedream': {
       const seedreamBackground = config.seedreamBackground ?? 'opaque'

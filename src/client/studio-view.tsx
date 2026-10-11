@@ -32,11 +32,13 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, STUDIO_ROUTE, isSubscriptionProvider, type CloudImageProvider, type StudioConfigResponse, type StudioGenerateResponse, type StudioGeneratedItem, type StudioProvider, type StudioProviderProfile, type StudioReference } from '../shared.js'
+import { DELETE_ROUTE, SAVE_WORKSPACE_ROUTE, STUDIO_ROUTE, isSubscriptionProvider, studioWatermarkCapability, type CloudImageProvider, type StudioConfigResponse, type StudioGenerateResponse, type StudioGeneratedItem, type StudioProvider, type StudioProviderProfile, type StudioReference, type StudioWatermark } from '../shared.js'
 import { deleteGalleryItem, getGalleryItems, saveGalleryItem, subscribeGallery, toggleFavoriteGalleryItem, type GalleryItem, saveFavoritePrompt, getFavoritePrompts, deleteFavoritePrompt, subscribeFavorites, addFavoriteFolder, getFavoriteFolders, deleteFavoriteFolder, moveFavoritePrompt, updateFavoritePrompt, type FavoritePrompt, type FavoriteFolder } from './gallery-store.js'
 import { evictAttachmentCache, fetchAttachmentBlob } from './image-cache.js'
 import { copyImageBlob, downloadBlobUrl, formatRelativeTime } from './browser-image-utils.js'
-import { buildComparisonTargets, comparisonOptionUnion, initialComparisonProviders } from './multi-model-compare.js'
+import { buildComparisonTargets, comparisonOptionUnion, comparisonOutputOptions, initialComparisonProviders } from './multi-model-compare.js'
+import { PROVIDER_DEFAULT_QUALITY } from '../openai-output.js'
+import { WatermarkControl } from './watermark-control.js'
 import { clearStudioTlCanvases, StudioTlCanvas } from './tl/studio-tl-canvas.js'
 import { pushTlLandings } from './tl/tl-canvas-bridge.js'
 import type { LocaleService } from './gallery-view.js'
@@ -206,6 +208,9 @@ export const StudioView: FC<{
   const [model, setModel] = useState('')
   const [ratio, setRatio] = useState('1:1')
   const [quality, setQuality] = useState('1K')
+  const [resolution, setResolution] = useState('1K')
+  const [generationQuality, setGenerationQuality] = useState(PROVIDER_DEFAULT_QUALITY)
+  const [watermark, setWatermark] = useState<StudioWatermark>('default')
   const [prompt, setPrompt] = useState('')
   const [references, setReferences] = useState<StudioReferenceItem[]>([])
   const [count, setCount] = useState(1)
@@ -487,16 +492,27 @@ export const StudioView: FC<{
     () => (config?.providers ?? []).filter(item => item.configured && (mode === 'generate' || item.supportsEditing)),
     [config, mode],
   )
+  const selectedComparisonProfiles = useMemo(() => comparisonProfiles.filter(profile => comparisonProviders.includes(profile.provider)), [comparisonProfiles, comparisonProviders])
+  const comparisonResolutionOpts = useMemo(() => comparisonOutputOptions(selectedComparisonProfiles, ratio, 'resolution'), [selectedComparisonProfiles, ratio])
+  const comparisonGenerationQualityOpts = useMemo(() => localizeQualityOptions(comparisonOutputOptions(selectedComparisonProfiles, ratio, 'generationQuality'), lang), [selectedComparisonProfiles, ratio, lang])
+  const comparisonResolution = comparisonResolutionOpts.some(option => option.value === resolution) ? resolution : comparisonResolutionOpts[0]?.value ?? 'standard'
+  const comparisonGenerationQuality = comparisonGenerationQualityOpts.some(option => option.value === generationQuality) ? generationQuality : comparisonGenerationQualityOpts[0]?.value ?? PROVIDER_DEFAULT_QUALITY
   const comparisonTargets = useMemo(
-    () => buildComparisonTargets(comparisonProfiles, comparisonProviders, ratio, quality),
-    [comparisonProfiles, comparisonProviders, ratio, quality],
+    () => buildComparisonTargets(comparisonProfiles, comparisonProviders, ratio, quality, { resolution: comparisonResolution, generationQuality: comparisonGenerationQuality }),
+    [comparisonProfiles, comparisonProviders, ratio, quality, comparisonResolution, comparisonGenerationQuality],
   )
+  const resolutionOpts = provider === 'openai' ? activeProfile?.resolutionOptions?.[ratio] ?? [] : []
+  const singleQualityOpts = provider === 'openai-compat' ? activeProfile?.resolutionOptions?.[ratio] ?? activeProfile?.qualityOptions ?? [] : activeProfile?.qualityOptions ?? []
+  const selectedQuality = singleQualityOpts.some(option => option.value === quality) ? quality : singleQualityOpts[0]?.value ?? quality
+  const selectedResolution = resolutionOpts.some(option => option.value === resolution) ? resolution : resolutionOpts[0]?.value
+  const selectedGenerationQuality = activeProfile?.generationQualityOptions?.some(option => option.value === generationQuality) ? generationQuality : activeProfile?.defaultGenerationQuality ?? PROVIDER_DEFAULT_QUALITY
+  const watermarkCapability = studioWatermarkCapability(activeProfile, mode)
+  const comparisonWatermarkCapabilities = selectedComparisonProfiles.map(profile => studioWatermarkCapability(profile, mode))
+  const comparisonWatermarkCapability = comparisonWatermarkCapabilities.find(capability => capability.status === 'supported')
+    ?? comparisonWatermarkCapabilities.find(capability => capability.status === 'unknown')
+    ?? studioWatermarkCapability(selectedComparisonProfiles[0], mode)
   const comparisonRatioOpts = useMemo(
     () => localizeRatioOptions(comparisonOptionUnion(comparisonProfiles, 'ratioOptions'), lang),
-    [comparisonProfiles, lang],
-  )
-  const comparisonQualityOpts = useMemo(
-    () => localizeQualityOptions(comparisonOptionUnion(comparisonProfiles, 'qualityOptions'), lang),
     [comparisonProfiles, lang],
   )
 
@@ -505,6 +521,9 @@ export const StudioView: FC<{
     setModel(profile.model)
     setRatio(profile.defaultRatio)
     setQuality(profile.defaultQuality)
+    setResolution(profile.defaultResolution ?? profile.defaultQuality)
+    setGenerationQuality(profile.defaultGenerationQuality ?? profile.defaultQuality)
+    setWatermark('default')
     setError(null)
   }
 
@@ -548,6 +567,24 @@ export const StudioView: FC<{
     setBatchKind(null)
     setSelected(null)
     resetFit()
+  }
+
+  const prepareRegeneration = (item: GalleryItem) => {
+    setMode('generate')
+    setComparisonEnabled(false)
+    setPrompt(item.prompt)
+    const profile = config?.providers.find(entry => entry.provider === item.provider)
+    if (!profile) return
+    applyProvider(profile)
+    const nextRatio = profile.ratioOptions.some(option => option.value === item.aspectRatio) ? item.aspectRatio! : profile.defaultRatio
+    setRatio(nextRatio)
+    if (profile.qualityOptions.some(option => option.value === item.imageSize)) {
+      setQuality(item.imageSize!)
+      if (profile.provider === 'openai') setGenerationQuality(item.imageSize!)
+    }
+    if (profile.resolutionOptions?.[nextRatio]?.some(option => option.value === item.resolution)) setResolution(item.resolution!)
+    if (profile.generationQualityOptions?.some(option => option.value === item.generationQuality)) setGenerationQuality(item.generationQuality!)
+    if (item.watermark && studioWatermarkCapability(profile, 'generate').status === 'supported') setWatermark(item.watermark)
   }
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -836,6 +873,9 @@ export const StudioView: FC<{
               prompt: prompt.trim(),
               ratio: target.ratio,
               quality: target.quality,
+              ...(target.resolution === undefined ? {} : { resolution: target.resolution }),
+              ...(target.generationQuality === undefined ? {} : { generationQuality: target.generationQuality }),
+              ...(studioWatermarkCapability(target.profile, mode).status === 'supported' ? { watermark } : {}),
               ...(workspace?.path ? { workspaceRoot: workspace.path } : {}),
               ...(referencesPayload === undefined ? {} : { references: referencesPayload }),
             }),
@@ -864,6 +904,9 @@ export const StudioView: FC<{
           createdAt: value.payload.createdAt + idx,
           aspectRatio: value.target.ratio,
           imageSize: value.target.quality,
+          resolution: value.target.resolution,
+          generationQuality: value.target.generationQuality,
+          watermark: studioWatermarkCapability(value.target.profile, mode).status === 'supported' ? watermark : undefined,
           output: value.payload.output,
           ...(value.payload.savedTo ? { savedTo: value.payload.savedTo } : {}),
           ...(workspace?.path ? { workspacePath: workspace.path } : {}),
@@ -896,7 +939,10 @@ export const StudioView: FC<{
         method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          mode, provider, model, prompt: prompt.trim(), ratio, quality,
+          mode, provider, model, prompt: prompt.trim(), ratio, quality: selectedQuality,
+          ...(selectedResolution === undefined ? {} : { resolution: selectedResolution }),
+          ...(provider === 'openai-compat' ? { generationQuality: selectedGenerationQuality } : {}),
+          ...(watermarkCapability.status === 'supported' ? { watermark } : {}),
           ...(count > 1 ? { count } : {}),
           ...(workspace?.path ? { workspaceRoot: workspace.path } : {}),
           ...(referencesPayload === undefined ? {} : {
@@ -923,7 +969,10 @@ export const StudioView: FC<{
         model: payload.model,
         createdAt: payload.createdAt + idx,
         aspectRatio: ratio,
-        imageSize: quality,
+        imageSize: selectedQuality,
+        resolution: selectedResolution,
+        generationQuality: provider === 'openai-compat' ? selectedGenerationQuality : undefined,
+        watermark: watermarkCapability.status === 'supported' ? watermark : undefined,
         output: gen.output,
         ...(gen.savedTo ? { savedTo: gen.savedTo } : {}),
         ...(workspace?.path ? { workspacePath: workspace.path } : {}),
@@ -1502,7 +1551,7 @@ export const StudioView: FC<{
           </div>
           )}
           {selected !== null && canvasSurface === 'preview' && <>
-            <div className="dsh-ig-result-strip"><span>{t('result')}</span><div><button type="button" onClick={() => void continueEdit()}><PencilLine size={15} />{t('continueEdit')}</button><button type="button" onClick={() => { setMode('generate'); setPrompt(selected.prompt) }}><RefreshCw size={15} />{t('regenerate')}</button></div></div>
+            <div className="dsh-ig-result-strip"><span>{t('result')}</span><div><button type="button" onClick={() => void continueEdit()}><PencilLine size={15} />{t('continueEdit')}</button><button type="button" onClick={() => prepareRegeneration(selected)}><RefreshCw size={15} />{t('regenerate')}</button></div></div>
             <div className="dsh-ig-result-actions">
               <p>{selected.prompt}</p>
               <div>
@@ -1668,18 +1717,30 @@ export const StudioView: FC<{
                         <button key={item.provider} type="button" className={target ? 'is-selected' : ''} aria-pressed={Boolean(target)} onClick={() => toggleComparisonProvider(item.provider)}>
                           <span className="dsh-ig-model-checkmark">{target ? <Check size={12} /> : null}</span>
                           <span className="dsh-ig-model-copy"><strong>{item.label}</strong><small title={item.model}>{item.model}</small></span>
-                          {target && <span className="dsh-ig-model-settings">{target.ratio} · {target.quality}{target.adjusted ? <em>{t('compareAdjusted')}</em> : null}</span>}
+                          {target && <span className="dsh-ig-model-settings">{[target.ratio, target.resolution, target.quality === target.resolution ? undefined : target.quality, target.generationQuality === PROVIDER_DEFAULT_QUALITY ? undefined : target.generationQuality].filter(Boolean).join(' · ')}{target.adjusted ? <em>{t('compareAdjusted')}</em> : null}</span>}
                         </button>
                       )
                     })}
                   </div>
                   <p>{t('compareParameterHint')}</p>
                 </div>
-                <div className="dsh-ig-field-grid"><FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={comparisonRatioOpts} /><FieldSelect label={t('quality')} value={quality} onChange={setQuality} options={comparisonQualityOpts} /></div>
+                <div className="dsh-ig-field-grid is-output-grid">
+                  <FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={comparisonRatioOpts} />
+                  {comparisonResolutionOpts.length > 0 ? <FieldSelect label={lang === 'en' ? 'Resolution' : '分辨率'} value={comparisonResolution} onChange={setResolution} options={comparisonResolutionOpts} /> : null}
+                  {comparisonGenerationQualityOpts.length > 0 ? <FieldSelect label={lang === 'en' ? 'Generation quality' : '生成质量'} value={comparisonGenerationQuality} onChange={setGenerationQuality} options={comparisonGenerationQualityOpts} /> : null}
+                  <WatermarkControl capability={comparisonWatermarkCapability} value={watermark} onChange={setWatermark} lang={lang} />
+                </div>
+                {comparisonWatermarkCapability.status === 'supported' ? <div className="dsh-ig-inline-note">{lang === 'en' ? 'Watermark applies only to models with confirmed support for this operation.' : '水印选项仅用于已确认支持当前操作的模型。'}</div> : null}
                 {comparisonTargets.some(target => target.profile.provider === 'chatgpt-sub') && <div className="dsh-ig-inline-note">{t('subscriptionParameterHint')}</div>}
               </> : <>
                 <div className="dsh-ig-field-grid"><FieldSelect label={t('provider')} value={provider} onChange={changeProvider} options={config.providers.map(item => ({ value: item.provider, label: `${item.label}${item.configured ? '' : ` · ${t('unconfigured')}`}` }))} /><FieldSelect label={t('model')} value={model} onChange={setModel} options={activeProfile === undefined ? [] : [{ value: activeProfile.model, label: activeProfile.model }]} /></div>
-                <div className="dsh-ig-field-grid"><FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={localizeRatioOptions(activeProfile?.ratioOptions ?? [], lang)} /><FieldSelect label={t('quality')} value={quality} onChange={setQuality} options={localizeQualityOptions(activeProfile?.qualityOptions ?? [], lang)} /></div>
+                <div className="dsh-ig-field-grid is-output-grid">
+                  <FieldSelect label={t('ratio')} value={ratio} onChange={setRatio} options={localizeRatioOptions(activeProfile?.ratioOptions ?? [], lang)} />
+                  {resolutionOpts.length > 0 ? <FieldSelect label={lang === 'en' ? 'Resolution' : '分辨率'} value={selectedResolution ?? ''} onChange={setResolution} options={resolutionOpts} /> : null}
+                  <FieldSelect label={['openai', 'chatgpt-sub', 'zhipu'].includes(provider) ? (lang === 'en' ? 'Generation quality' : '生成质量') : (lang === 'en' ? 'Resolution' : '分辨率')} value={selectedQuality} onChange={value => { setQuality(value); if (provider === 'openai') setGenerationQuality(value); else setResolution(value) }} options={provider === 'openai-compat' ? singleQualityOpts : localizeQualityOptions(singleQualityOpts, lang)} />
+                  {activeProfile?.generationQualityOptions ? <FieldSelect label={lang === 'en' ? 'Generation quality' : '生成质量'} value={selectedGenerationQuality} onChange={setGenerationQuality} options={localizeQualityOptions(activeProfile.generationQualityOptions, lang)} /> : null}
+                  <WatermarkControl capability={watermarkCapability} value={watermark} onChange={setWatermark} lang={lang} />
+                </div>
                 {provider === 'chatgpt-sub' && <div className="dsh-ig-inline-note">{t('subscriptionParameterHint')}</div>}
                 <div className="dsh-ig-field"><label>{t('count')}</label><div className="dsh-ig-count-row">{[1, 2, 3, 4].map(option => <button key={option} type="button" className={`dsh-ig-count-pill ${count === option ? 'is-active' : ''}`} onClick={() => setCount(option)}>{t('countUnit', { n: String(option) })}</button>)}</div></div>
               </>}
@@ -1971,7 +2032,7 @@ function localizeRatioOptions(options: Array<{ value: string; label: string }>, 
 function localizeQualityOptions(options: Array<{ value: string; label: string }>, lang: 'zh' | 'en'): Array<{ value: string; label: string }> {
   return options.map(opt => ({
     value: opt.value,
-    label: LOCALIZED_QUALITIES[opt.value]?.[lang] ?? opt.label,
+    label: opt.value === PROVIDER_DEFAULT_QUALITY ? (lang === 'en' ? 'Provider default (omit)' : '渠道默认（不发送）') : LOCALIZED_QUALITIES[opt.value]?.[lang] ?? opt.label,
   }))
 }
 

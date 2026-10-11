@@ -9,6 +9,7 @@ export interface DashScopeImageOptions {
   model: string
   prompt: string
   size?: string
+  watermark?: boolean
   maxBytes: number
   signal?: AbortSignal
 }
@@ -47,6 +48,7 @@ export async function generateDashScopeImage(options: DashScopeImageOptions): Pr
       },
       parameters: {
         ...(formattedSize === undefined ? {} : { size: formattedSize }),
+        ...(options.watermark === undefined ? {} : { watermark: options.watermark }),
       },
     },
     operation: 'generation',
@@ -76,6 +78,7 @@ export async function editDashScopeImage(options: DashScopeEditOptions): Promise
       parameters: {
         prompt_extend: true,
         ...(formattedSize === undefined ? {} : { size: formattedSize }),
+        ...(options.watermark === undefined ? {} : { watermark: options.watermark }),
       },
     },
     operation: 'editing',

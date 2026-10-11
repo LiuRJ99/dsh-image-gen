@@ -544,7 +544,7 @@ describe('conversation and gallery image regeneration', () => {
     })
     expect(conversationRegenerateRequest({
       provider: 'openai', model: DEFAULT_OPENAI_MODEL, output: '1536x1024',
-    }, 'another version')).toMatchObject({ ratio: '3:2', quality: 'standard' })
+    }, 'another version')).toMatchObject({ ratio: '3:2', quality: 'auto' })
     expect(conversationRegenerateRequest({
       provider: 'dashscope', model: DEFAULT_DASHSCOPE_MODEL, output: '928*1664',
     }, 'another version')).toMatchObject({ ratio: '9:16', quality: 'standard' })
@@ -1098,6 +1098,21 @@ describe('openai-compat size table', () => {
     expect(openAIRequestSize({}, '3:2', 'standard')).toBe('1536x1024')
   })
 
+  it.each([{}, { openaiCompatBaseURL: 'https://relay.example/v1' }, { openaiCompatModel: 'image-2' }])('exposes independent quality before relay setup is complete: %j', config => {
+    const incomplete = studioProfile(config, 'openai-compat', true)
+    expect(incomplete).toMatchObject({ model: '', configured: false, defaultGenerationQuality: '__default__' })
+    expect(incomplete.generationQualityOptions?.map(option => option.value)).toEqual(['__default__', 'auto', 'low', 'medium', 'high'])
+    expect(incomplete.resolutionOptions?.['1:1']).toEqual([{ value: 'standard', label: '标准 · 1024x1024' }])
+  })
+
+  it('retains custom sizes and quality even before the relay model is configured', () => {
+    const incomplete = studioProfile({ openaiCompatSizes: table, openaiCompatQuality: 'best', openaiCompatQualityOptions: ['draft', 'best'] }, 'openai-compat', false)
+    expect(incomplete.ratioOptions.map(option => option.value)).toEqual(['1:1', '16:9'])
+    expect(incomplete.resolutionOptions?.['16:9']?.map(option => option.label)).toEqual(['1K · 1536x864', '2K · 2048x1152', '4K · 3840x2160'])
+    expect(incomplete.generationQualityOptions?.map(option => option.value)).toEqual(['__default__', 'draft', 'best'])
+    expect(incomplete.defaultGenerationQuality).toBe('best')
+  })
+
   it('derives ratio and tier options from the configured table', () => {
     const derived = studioProfile({ openaiCompatSizes: table, openaiCompatModel: 'image-2', openaiCompatBaseURL: 'https://relay.example/v1' }, 'openai-compat', true)
     expect(derived.ratioOptions.map(option => option.value)).toEqual(['1:1', '16:9'])
@@ -1145,6 +1160,172 @@ describe('openai-compat size table', () => {
 
   it('keeps the legacy trio mapping for ratios outside the table', () => {
     expect(openAIRequestSize({ openaiCompatSizes: table }, '2:3', '1K')).toBe('1024x1536')
+  })
+})
+
+describe('OpenAI studio dimensions, quality and generation extras (#73, #74)', () => {
+  const signal = new AbortController().signal
+  const relayConfig = { openaiCompatModel: 'relay-image', openaiCompatBaseURL: 'https://relay.example/v1', openaiCompatSizes: { '16:9': { '2K': '2048x1152' } }, saveToWorkspace: false }
+  afterEach(() => vi.unstubAllGlobals())
+  const setup = () => {
+    const ctx = studioCtx()
+    ctx.credentials.resolve.mockResolvedValue({ value: 'test-key' })
+    const fetch = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ b64_json: TINY_PNG }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetch)
+    return { ctx, fetch }
+  }
+  it('changes quality without changing the selected official pixel dimensions', async () => {
+    const { ctx, fetch } = setup()
+    for (const quality of ['low', 'high']) await generateFromStudio(ctx, { saveToWorkspace: false }, { mode: 'generate', provider: 'openai', model: DEFAULT_OPENAI_MODEL, prompt: 'landscape', ratio: '16:9', quality, resolution: '2K' }, signal)
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { model: DEFAULT_OPENAI_MODEL, prompt: 'landscape', size: '2048x1152', quality: 'low' },
+      { model: DEFAULT_OPENAI_MODEL, prompt: 'landscape', size: '2048x1152', quality: 'high' },
+    ])
+  })
+  it('forwards false and nested generation fields after the normal request fields', async () => {
+    const { ctx, fetch } = setup()
+    await generateFromStudio(ctx, { ...relayConfig, openaiCompatQuality: 'high', openaiCompatExtraBody: { watermark: false, prompt_extend: false, vendor: { strength: 0 }, quality: 'low' } }, { mode: 'generate', provider: 'openai-compat', model: 'relay-image', prompt: 'lake', ratio: '16:9', quality: '2K', count: 2 }, signal)
+    for (const [, init] of fetch.mock.calls) expect(JSON.parse(String(init?.body))).toMatchObject({ size: '2048x1152', quality: 'low', watermark: false, prompt_extend: false, vendor: { strength: 0 } })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+  it('preserves omission for existing compatible configurations', async () => {
+    const { ctx, fetch } = setup()
+    await generateFromStudio(ctx, relayConfig, { mode: 'generate', provider: 'openai-compat', model: 'relay-image', prompt: 'lake', ratio: '16:9', quality: '2K' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ model: 'relay-image', prompt: 'lake', size: '2048x1152' })
+  })
+  it.each(['multipart', 'formReferenceImages', 'jsonImageUrlArray'] as const)('forwards quality through %s edits without leaking generation extras', async editFormat => {
+    const { ctx, fetch } = setup()
+    await generateFromStudio(ctx, { ...relayConfig, openaiCompatEditFormat: editFormat, openaiCompatEditSizeMode: 'selected', openaiCompatExtraBody: { watermark: false } }, { mode: 'edit', provider: 'openai-compat', model: 'relay-image', prompt: 'lake', ratio: '16:9', quality: '2K', generationQuality: 'high', reference: { mediaType: 'image/png', data: TINY_PNG } }, signal)
+    const body = fetch.mock.calls[0]?.[1]?.body
+    const fields = body instanceof FormData ? Object.fromEntries(body.entries()) : JSON.parse(String(body))
+    expect(fields).toMatchObject({ quality: 'high', size: '2048x1152' })
+    expect(fields).not.toHaveProperty('watermark')
+  })
+  it('keeps auto sizing for SenseNova JSON edits by default', async () => {
+    const { ctx, fetch } = setup()
+    await generateFromStudio(ctx, { ...relayConfig, openaiCompatEditFormat: 'jsonImageUrlArray', openaiCompatEditExtra: { watermark: false } }, { mode: 'edit', provider: 'openai-compat', model: 'relay-image', prompt: 'lake', ratio: '16:9', quality: '2K', generationQuality: 'high', reference: { mediaType: 'image/png', data: TINY_PNG } }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ size: 'auto', quality: 'high', watermark: false })
+  })
+  it('rejects unsupported official dimensions before fetching', async () => {
+    const { ctx, fetch } = setup()
+    await expect(generateFromStudio(ctx, { openaiSizes: { '1:1': { '4K': '4096x4096' } }, saveToWorkspace: false }, { mode: 'generate', provider: 'openai', model: DEFAULT_OPENAI_MODEL, prompt: 'lake', ratio: '1:1', quality: 'high', resolution: '4K' }, signal)).rejects.toThrow('尺寸')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('uses the lowest custom official tier for legacy requests without resolution', async () => {
+    const { ctx, fetch } = setup()
+    await generateFromStudio(ctx, { openaiSizes: { '16:9': { '4K': '3840x2160', '2K': '2048x1152' } }, saveToWorkspace: false }, { mode: 'generate', provider: 'openai', model: DEFAULT_OPENAI_MODEL, prompt: 'lake', ratio: '16:9', quality: 'high' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ size: '2048x1152', quality: 'high' })
+  })
+  it('parses independent fields while accepting legacy requests', () => {
+    const request = { mode: 'generate', provider: 'openai', model: DEFAULT_OPENAI_MODEL, prompt: 'lake', ratio: '16:9', quality: 'high' }
+    expect(parseStudioGenerateRequest(request)).not.toHaveProperty('resolution')
+    expect(parseStudioGenerateRequest({ ...request, resolution: '2K', generationQuality: 'high' })).toMatchObject({ resolution: '2K', generationQuality: 'high' })
+    expect(() => parseStudioGenerateRequest({ ...request, resolution: 2 })).toThrow('分辨率')
+  })
+  it('shows watermark choices for the known official contract and existing configured fields', () => {
+    const official = { openaiCompatBaseURL: 'https://token.sensenova.cn/v1', openaiCompatModel: 'sensenova-u1.5-lite' }
+    expect(studioProfile(official, 'openai-compat', false).watermarkOptions?.map(option => option.value)).toEqual(['default', 'off', 'on'])
+    expect(studioProfile({ ...relayConfig, openaiCompatModel: 'sensenova-u1.5-lite' }, 'openai-compat', true)).not.toHaveProperty('watermarkOptions')
+    expect(studioProfile({ ...relayConfig, openaiCompatExtraBody: { watermark: false } }, 'openai-compat', true).watermarkOptions).toHaveLength(3)
+  })
+  it('sends an explicit official watermark choice on every image in a batch, without adding it by default', async () => {
+    const { ctx, fetch } = setup()
+    const config = { openaiCompatBaseURL: 'https://token.sensenova.cn/v1', openaiCompatModel: 'sensenova-u1.5-lite', saveToWorkspace: false }
+    const request = { mode: 'generate' as const, provider: 'openai-compat' as const, model: config.openaiCompatModel, prompt: 'lake', ratio: '1:1', quality: 'standard' }
+    await generateFromStudio(ctx, config, { ...request, watermark: 'default' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).not.toHaveProperty('watermark')
+    fetch.mockClear()
+    await generateFromStudio(ctx, config, { ...request, watermark: 'off', count: 2 }, signal)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    for (const [, init] of fetch.mock.calls) expect(JSON.parse(String(init?.body))).toMatchObject({ watermark: false })
+    fetch.mockClear()
+    await generateFromStudio(ctx, { ...config, openaiCompatExtraBody: { watermark: false } }, { ...request, watermark: 'on' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ watermark: true })
+  })
+  it.each([
+    { extra: { watermark: true, prompt_extend: false }, expected: { watermark: false, prompt_extend: false } },
+    { extra: { watermark_enabled: true, vendor: { strength: 0 } }, expected: { watermark_enabled: false, vendor: { strength: 0 } } },
+    { extra: { parameters: { watermark: true, seed: 0 } }, expected: { parameters: { watermark: false, seed: 0 } } },
+  ])('overrides only the configured watermark field: $extra', async ({ extra, expected }) => {
+    const { ctx, fetch } = setup()
+    const config = { ...relayConfig, openaiCompatExtraBody: extra }
+    const request = { mode: 'generate' as const, provider: 'openai-compat' as const, model: 'relay-image', prompt: 'lake', ratio: '16:9', quality: '2K' }
+    await generateFromStudio(ctx, config, { ...request, watermark: 'off' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject(expected)
+    await generateFromStudio(ctx, config, { ...request, watermark: 'default' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject(extra)
+    expect(config.openaiCompatExtraBody).toEqual(extra)
+  })
+  it('rejects unconfigured watermark requests and edit overrides before fetching', async () => {
+    const { ctx, fetch } = setup()
+    const request = { mode: 'generate' as const, provider: 'openai-compat' as const, model: 'relay-image', prompt: 'lake', ratio: '16:9', quality: '2K', watermark: 'off' as const }
+    await expect(generateFromStudio(ctx, relayConfig, request, signal)).rejects.toThrow('水印控制')
+    await expect(generateFromStudio(ctx, { ...relayConfig, openaiCompatExtraBody: { watermark: false } }, { ...request, mode: 'edit', reference: { mediaType: 'image/png', data: TINY_PNG } }, signal)).rejects.toThrow('水印控制')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('accepts the three watermark choices and rejects invalid wire values', () => {
+    const request = { mode: 'generate', provider: 'openai-compat', model: 'relay', prompt: 'lake', ratio: '1:1', quality: 'standard' }
+    for (const watermark of ['default', 'off', 'on']) expect(parseStudioGenerateRequest({ ...request, watermark }).watermark).toBe(watermark)
+    for (const watermark of [false, 'false', '', 'unknown']) expect(() => parseStudioGenerateRequest({ ...request, watermark })).toThrow('水印选项')
+  })
+})
+
+describe('workbench watermark request mapping', () => {
+  const signal = new AbortController().signal
+  afterEach(() => vi.unstubAllGlobals())
+  const channels = [
+    { provider: 'seedream' as const, config: { seedreamWatermark: false, seedreamModel: 'doubao-seedream-4-0-250828' }, model: 'doubao-seedream-4-0-250828', field: 'watermark' },
+    { provider: 'dashscope' as const, config: {}, model: 'qwen-image-3.0', field: 'parameters.watermark' },
+    { provider: 'openai-compat' as const, config: { openaiCompatBaseURL: 'https://token.sensenova.cn/v1', openaiCompatModel: 'sensenova-u1.5-lite' }, model: 'sensenova-u1.5-lite', field: 'watermark' },
+    { provider: 'openai-compat' as const, config: { openaiCompatBaseURL: 'https://workspace-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', openaiCompatModel: 'qwen-image-3.0' }, model: 'qwen-image-3.0', field: 'watermark' },
+  ]
+  it.each(channels.flatMap(channel => ['generate', 'edit'].map(mode => ({ ...channel, mode: mode as 'generate' | 'edit' }))))('$provider $model $mode preserves defaults and overrides both boolean values', async channel => {
+    const ctx = studioCtx()
+    ctx.credentials.resolve.mockResolvedValue({ value: 'test-key' })
+    const fetch = vi.fn(async (url: unknown, _init?: RequestInit) => {
+      if (String(url) === 'https://result.example/image.png') return new Response(Buffer.from(TINY_PNG, 'base64'), { headers: { 'content-type': 'image/png' } })
+      const body = channel.provider === 'dashscope'
+        ? { output: { choices: [{ message: { content: [{ image: 'https://result.example/image.png' }] } }] } }
+        : { data: [{ b64_json: TINY_PNG }] }
+      return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const profile = studioProfile(channel.config, channel.provider, true)
+    const request = { mode: channel.mode, provider: channel.provider, model: channel.model, prompt: 'lake', ratio: profile.defaultRatio, quality: profile.defaultQuality,
+      ...(channel.mode === 'edit' ? { references: [{ mediaType: 'image/png' as const, data: TINY_PNG }, { mediaType: 'image/png' as const, data: TINY_PNG }] } : {}) }
+    for (const watermark of ['default', 'off', 'on'] as const) {
+      fetch.mockClear()
+      await generateFromStudio(ctx, { ...channel.config, saveToWorkspace: false }, { ...request, watermark, count: 2 }, signal)
+      const submissions = fetch.mock.calls.filter(([, init]) => init?.method === 'POST')
+      expect(submissions).toHaveLength(2)
+      for (const [url, init] of submissions) {
+        const body = JSON.parse(String(init?.body))
+        if (watermark === 'default' && channel.provider !== 'seedream') expect(body).not.toHaveProperty(channel.field)
+        else expect(body).toHaveProperty(channel.field, watermark === 'on')
+        if (channel.mode === 'edit') {
+          const images = channel.provider === 'dashscope' ? body.input.messages[0].content.filter((item: { image?: string }) => item.image)
+            : channel.model === 'sensenova-u1.5-lite' ? body.images : body.image
+          expect(images).toHaveLength(2)
+          expect(String(url)).toContain(channel.model === 'sensenova-u1.5-lite' ? '/images/edits'
+            : channel.provider === 'dashscope' ? '/multimodal-generation/generation' : '/images/generations')
+        }
+      }
+    }
+  })
+  it('keeps JSON edit defaults and unrelated nested fields while overriding a relay watermark', async () => {
+    const ctx = studioCtx()
+    ctx.credentials.resolve.mockResolvedValue({ value: 'test-key' })
+    const fetch = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ b64_json: TINY_PNG }] })))
+    vi.stubGlobal('fetch', fetch)
+    const config = { openaiCompatBaseURL: 'https://relay.example/v1', openaiCompatModel: 'custom', openaiCompatEditFormat: 'jsonImageUrlArray' as const,
+      openaiCompatExtraBody: { watermark: true, generationOnly: 123 }, openaiCompatEditExtra: { parameters: { watermark: true, seed: 0 }, prompt_extend: false } }
+    const request = { mode: 'edit' as const, provider: 'openai-compat' as const, model: 'custom', prompt: 'lake', ratio: '1:1', quality: 'standard', reference: { mediaType: 'image/png' as const, data: TINY_PNG } }
+    await generateFromStudio(ctx, config, { ...request, watermark: 'off' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ size: 'auto', parameters: { watermark: false, seed: 0 }, prompt_extend: false })
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).not.toHaveProperty('generationOnly')
+    await generateFromStudio(ctx, config, { ...request, watermark: 'default' }, signal)
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject(config.openaiCompatEditExtra)
+    expect(config.openaiCompatEditExtra.parameters.watermark).toBe(true)
   })
 })
 

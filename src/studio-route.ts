@@ -4,6 +4,7 @@ import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { parseImageAttachmentRef } from './reference-image.js'
 import {
   STUDIO_PROVIDERS,
+  STUDIO_WATERMARK_VALUES,
   SUBSCRIPTION_TIMEOUT_MS,
   isSubscriptionProvider,
   type StudioConfigResponse,
@@ -120,6 +121,10 @@ export function parseStudioGenerateRequest(value: unknown): StudioGenerateReques
   const model = requiredText(input.model, '请选择模型', 200)
   const ratio = requiredText(input.ratio, '请选择比例', 32)
   const quality = requiredText(input.quality, '请选择清晰度', 32)
+  const resolution = input.resolution === undefined ? undefined : requiredText(input.resolution, '请选择分辨率', 32)
+  const generationQuality = input.generationQuality === undefined ? undefined : requiredText(input.generationQuality, '请选择生成质量', 100)
+  const watermark = input.watermark === undefined ? undefined : STUDIO_WATERMARK_VALUES.find(value => value === input.watermark)
+  if (input.watermark !== undefined && watermark === undefined) throw new Error('请选择有效的水印选项')
   const rawReferences = Array.isArray(input.references)
     ? input.references
     : input.reference !== undefined
@@ -145,6 +150,9 @@ export function parseStudioGenerateRequest(value: unknown): StudioGenerateReques
     prompt,
     ratio,
     quality,
+    ...(resolution === undefined ? {} : { resolution }),
+    ...(generationQuality === undefined ? {} : { generationQuality }),
+    ...(watermark === undefined ? {} : { watermark }),
     ...(count !== undefined ? { count } : {}),
     ...(references.length > 0 ? { references, reference: references[0] } : {}),
     ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),

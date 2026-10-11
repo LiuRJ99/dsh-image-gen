@@ -1,5 +1,5 @@
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { STUDIO_PROVIDERS, type StudioProvider } from '../shared.js'
+import { STUDIO_PROVIDERS, STUDIO_WATERMARK_VALUES, type StudioProvider, type StudioWatermark } from '../shared.js'
 
 /** One regenerated version displayed in place of an original conversation image. */
 export interface ConversationImageRevision {
@@ -11,6 +11,9 @@ export interface ConversationImageRevision {
   createdAt: number
   ratio: string
   quality: string
+  resolution?: string
+  generationQuality?: string
+  watermark?: StudioWatermark
 }
 
 export interface ConversationImageRevisionChain {
@@ -96,6 +99,9 @@ function isRevision(value: unknown): value is ConversationImageRevision {
     && Number.isFinite(candidate.createdAt)
     && typeof candidate.ratio === 'string'
     && typeof candidate.quality === 'string'
+    && (candidate.resolution === undefined || typeof candidate.resolution === 'string')
+    && (candidate.generationQuality === undefined || typeof candidate.generationQuality === 'string')
+    && (candidate.watermark === undefined || STUDIO_WATERMARK_VALUES.some(value => value === candidate.watermark))
 }
 
 function isAttachment(value: unknown): value is ImageAttachmentRef {

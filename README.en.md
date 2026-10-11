@@ -316,8 +316,8 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | Provider | Aspect ratios | Quality tiers |
 | :--- | :--- | :--- |
 | Google Gemini | 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 4:5 · 5:4 · 16:9 · 9:16 · 21:9 | 1K / 2K / 4K |
-| OpenAI Images | 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 16:9 · 9:16 | auto / low / medium / high |
-| OpenAI Compatible | Driven by `openaiCompatSizes` (default 1:1 · 3:2 · 2:3) | Same table (default standard) |
+| OpenAI Images | gpt-image-2 family: 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 16:9 · 9:16 | Resolution: 1K / 2K (also 4K for landscape/portrait widescreen); separate quality: auto / low / medium / high |
+| OpenAI Compatible | Driven by `openaiCompatSizes` (default 1:1 · 3:2 · 2:3) | Resolution from the size table; separate configurable quality, omitted by default |
 | ByteDance Seedream | auto · 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 16:9 · 9:16 · 21:9 | 2K / 3K / 4K |
 | Aliyun DashScope | 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 16:9 · 9:16 | standard |
 | xAI Grok Imagine | auto · 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 16:9 · 9:16 · 21:9 | 1K / 2K |
@@ -327,7 +327,11 @@ Bring private image generation on your local GPU directly into Agent conversatio
 | Google subscription | auto · 1:1 · 3:2 · 2:3 · 4:3 · 3:4 · 4:5 · 5:4 · 16:9 · 9:16 · 21:9 | standard / HD (4K) |
 
 > An `auto` ratio lets the model pick the framing from the prompt; tiers the upstream dropped (e.g. Seedream 5.0's 1K) are never exposed.
-> OpenAI Compatible (relay) pickers are driven by the `openaiCompatSizes` setting, shaped as ratio → tier → pixels, e.g. `{ "16:9": { "2K": "2048x1152" } }`; an empty table keeps the legacy 1:1 / 3:2 / 2:3 + standard behavior.
+> Studio exposes separate aspect ratio, resolution, and generation quality controls for OpenAI and compatible providers. Resolution labels show pixel dimensions. Comparison and regeneration preserve these separate parameters.
+> Official OpenAI size presets can be customized with `openaiSizes`, shaped as ratio → tier → pixels, e.g. `{ "16:9": { "2K": "2048x1152", "4K": "3840x2160" } }`. For the gpt-image-2 family, dimensions must be multiples of 16, the longest edge at most 3840, aspect ratio within 1:3–3:1, and total pixels within 655360–8294400. Outputs above 3686400 pixels have experimental upstream support. See the [official API reference](https://developers.openai.com/api/reference/resources/images/methods/generate). Older GPT Image models retain their three standard sizes.
+> Compatible providers use `openaiCompatSizes` in the same format; an empty table retains the legacy sizes. `openaiCompatQuality` sets the default generation quality (empty means omitted), and `openaiCompatQualityOptions` sets Studio choices. Choosing “Provider default (omit)” omits quality for that request. Conversation tools also accept independent `size` and `quality` parameters.
+> “Generation extra fields” maps to `openaiCompatExtraBody`, e.g. `{ "watermark": false }`. These fields apply only to generation, merge after standard fields, and can override matching keys; `false` and nested objects are preserved. Editing continues to use `openaiCompatEditExtra`. For JSON image URL array edits, `openaiCompatEditSizeMode` defaults to `auto`; set it to `selected` to send the selected dimensions. EditExtra can still override size.
+> The workbench shows “Visible watermark: Channel default / Off / On” beside ratio and resolution, checking generation and editing separately. Seedream, native DashScope Qwen Image, and recognized official SenseNova and Qwen compatible endpoints enable it automatically; recognized compatible endpoints also select their JSON edit contracts automatically. SenseNova matches `https://token.sensenova.cn/v1` and `sensenova-u1.5-lite`; Qwen matches official workspace hosts under `/compatible-mode/v1` with Qwen Image 3.0/3.0 Pro or 2.1 Pro/Turbo. Other compatible channels can bind a boolean `watermark`, `watermark_enabled`, or `parameters.watermark` through the matching operation's extra fields; editing requires a JSON format. Unknown channels and Zhipu display a disabled “Support unconfirmed” control; interfaces without a confirmed switch also show an explanation. A model name alone does not identify an unknown relay. Channel default preserves configured fields or omits the parameter; an explicit choice overrides only the watermark field and is retained for batches, comparison models supporting the operation, and regeneration.
 
 </details>
 
