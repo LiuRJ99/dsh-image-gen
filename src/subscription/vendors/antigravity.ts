@@ -35,12 +35,14 @@ export const ANTIGRAVITY_CLIENT_SECRET = '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'
 export const ANTIGRAVITY_REDIRECT_URI = 'http://localhost:51121/oauth-callback'
 
 /**
- * Endpoint fallback order for generation, mirroring the reference (daily
- * sandbox first, then autopush, then prod).
+ * Preserve the working sandbox routes, then try ordinary daily (consumer
+ * accounts) before the production compatibility fallback. A Gmail address
+ * alone does not establish which backend an account can use.
  */
 export const ANTIGRAVITY_ENDPOINTS = [
   'https://daily-cloudcode-pa.sandbox.googleapis.com',
   'https://autopush-cloudcode-pa.sandbox.googleapis.com',
+  'https://daily-cloudcode-pa.googleapis.com',
   'https://cloudcode-pa.googleapis.com',
 ] as const
 
@@ -49,6 +51,7 @@ const LOAD_ENDPOINTS = [
   'https://cloudcode-pa.googleapis.com',
   'https://daily-cloudcode-pa.sandbox.googleapis.com',
   'https://autopush-cloudcode-pa.sandbox.googleapis.com',
+  'https://daily-cloudcode-pa.googleapis.com',
 ] as const
 
 /** The image model served through this channel: Nano Banana 2. */
@@ -103,7 +106,7 @@ async function fetchVersionText(url: string, maxChars?: number): Promise<string 
   }
 }
 
-/** Hardcoded fallback project when Antigravity returns none (workspace accounts). */
+/** Legacy compatibility project: not an account project or proof of entitlement. */
 const DEFAULT_PROJECT_ID = 'rising-fact-p41fc'
 
 /** Generation timeout mirroring the reference implementation. */
@@ -149,11 +152,10 @@ export function antigravityAuthorizeUrl(cfg: AntigravityConfig, pkce: Pkce): str
  * plain SDK identity here, mirroring its project.js loadHeaders.
  */
 function loadHeaders(projectId: string): Record<string, string> {
-  const platform = process.platform === 'win32' ? 'WINDOWS' : process.platform === 'darwin' ? 'MACOS' : 'LINUX'
   return {
     'User-Agent': 'google-api-nodejs-client/9.15.1',
     'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
-    'Client-Metadata': JSON.stringify({ ideType: 'ANTIGRAVITY', platform, pluginType: 'GEMINI', ...(projectId.length > 0 ? { duetProject: projectId } : {}) }),
+    'Client-Metadata': JSON.stringify(clientMetadata(projectId)),
   }
 }
 
@@ -165,11 +167,10 @@ function loadHeaders(projectId: string): Record<string, string> {
  */
 function contentHeaders(projectId: string): Record<string, string> {
   const uaPlatform = process.platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7' : 'Windows NT 10.0; Win64; x64'
-  const platform = process.platform === 'win32' ? 'WINDOWS' : process.platform === 'darwin' ? 'MACOS' : 'LINUX'
   return {
     'User-Agent': `Mozilla/5.0 (${uaPlatform}) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/${getAntigravityVersion()} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
     'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
-    'Client-Metadata': JSON.stringify({ ideType: 'ANTIGRAVITY', platform, pluginType: 'GEMINI', ...(projectId.length > 0 ? { duetProject: projectId } : {}) }),
+    'Client-Metadata': JSON.stringify(clientMetadata(projectId)),
   }
 }
 
@@ -231,41 +232,110 @@ export async function antigravityRefresh(blob: SubscriptionBlob): Promise<Subscr
   }
 }
 
+export interface AntigravityProjectContext {
+  projectId: string
+  source: 'account' | 'fallback'
+  /** Bounded, redacted discovery outcomes, retained for generation failures. */
+  diagnostics: string[]
+}
+
+/** Compatibility helper for callers that only need the project string. */
+export async function antigravityResolveProject(blob: SubscriptionBlob, signal?: AbortSignal): Promise<string> {
+  return (await antigravityResolveProjectContext(blob, signal)).projectId
+}
+
 /**
- * Resolve the managed project id for the logged-in account. Most accounts
- * have one; when loadCodeAssist reports none, the hardcoded fallback keeps
- * generation working (mirrors the reference's ensureProjectContext).
- * Returns '' only when every endpoint fails, letting generate() throw then.
+ * Discover an actual account project, preserving HTTP and eligibility failures.
+ * Keep the legacy fallback for accounts whose image route still accepts it;
+ * UNSUPPORTED_CLIENT here describes Code Assist, not a universal image ban.
+ * Do not invoke onboarding or accept account terms during image generation.
  */
-export async function antigravityResolveProject(blob: SubscriptionBlob): Promise<string> {
-  const metadata = { ideType: 'ANTIGRAVITY', platform: platformOf(), pluginType: 'GEMINI' }
+export async function antigravityResolveProjectContext(blob: SubscriptionBlob, signal?: AbortSignal): Promise<AntigravityProjectContext> {
+  signal?.throwIfAborted()
+  const metadata = clientMetadata('')
+  const diagnostics: string[] = []
   for (const base of LOAD_ENDPOINTS) {
+    const label = `loadCodeAssist ${new URL(base).hostname}`
     try {
       const response = await fetch(`${base}/v1internal:loadCodeAssist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${blob.accessToken}`, ...loadHeaders('') },
         body: JSON.stringify({ metadata }),
-        signal: AbortSignal.timeout(25_000),
+        signal: signal === undefined ? AbortSignal.timeout(25_000) : AbortSignal.any([signal, AbortSignal.timeout(25_000)]),
       })
-      if (!response.ok) continue
-      const payload = await response.json().catch(() => null) as { cloudaicompanionProject?: unknown } | null
-      if (payload === null) continue
+      if (!response.ok) {
+        diagnostics.push(`${label}: ${httpDiagnostic(response.status, await response.text().catch(() => ''), blob)}`)
+        continue
+      }
+      const payload = recordOf(await response.json().catch(() => null))
+      if (payload === undefined) {
+        diagnostics.push(`${label}: HTTP ${String(response.status)}, invalid response`)
+        continue
+      }
       const project = payload.cloudaicompanionProject
+      const projectRecord = recordOf(project)
       const id = typeof project === 'string' ? project
-        : typeof project === 'object' && project !== null && typeof (project as { id?: unknown }).id === 'string' ? (project as { id: string }).id
+        : typeof projectRecord?.id === 'string' ? projectRecord.id
         : ''
-      if (id.length > 0) return id
-    } catch {
-      // try the next endpoint
+      if (id.trim().length > 0) return { projectId: id.trim(), source: 'account', diagnostics }
+      diagnostics.push(`${label}: HTTP ${String(response.status)}, ${missingProjectDiagnostic(payload, blob)}`)
+    } catch (error) {
+      if (signal?.aborted === true) throw error
+      diagnostics.push(`${label}: ${diagnosticText(error instanceof Error ? error.message : 'request failed', blob)}`)
     }
   }
-  return DEFAULT_PROJECT_ID
+  return { projectId: DEFAULT_PROJECT_ID, source: 'fallback', diagnostics }
 }
 
+/** Google ClientMetadata.Platform enum, shared by request body and headers. */
 function platformOf(): string {
-  if (process.platform === 'win32') return 'WINDOWS'
-  if (process.platform === 'darwin') return 'MACOS'
-  return 'LINUX'
+  if (process.platform === 'win32' && process.arch === 'x64') return 'WINDOWS_AMD64'
+  if (process.platform === 'darwin' && process.arch === 'x64') return 'DARWIN_AMD64'
+  if (process.platform === 'darwin' && process.arch === 'arm64') return 'DARWIN_ARM64'
+  if (process.platform === 'linux' && process.arch === 'x64') return 'LINUX_AMD64'
+  if (process.platform === 'linux' && process.arch === 'arm64') return 'LINUX_ARM64'
+  return 'PLATFORM_UNSPECIFIED'
+}
+
+function clientMetadata(projectId: string): Record<string, string> {
+  return { ideType: 'ANTIGRAVITY', platform: platformOf(), pluginType: 'GEMINI', ...(projectId.length > 0 ? { duetProject: projectId } : {}) }
+}
+
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+/** Upstream errors may echo request identity; redact before bounding the text. */
+function diagnosticText(value: unknown, blob: SubscriptionBlob): string {
+  let text = typeof value === 'string' ? value : ''
+  for (const secret of [blob.accessToken, blob.refreshToken, blob.accountId, blob.email]) {
+    if (secret.length > 0) text = text.replaceAll(secret, '[redacted]')
+  }
+  return text.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]').replace(/\s+/g, ' ').trim().slice(0, 200)
+}
+
+function httpDiagnostic(status: number, text: string, blob: SubscriptionBlob): string {
+  let detail = text
+  try {
+    const error = recordOf(recordOf(JSON.parse(text))?.error)
+    if (typeof error?.message === 'string') detail = `${typeof error.status === 'string' ? `${error.status}: ` : ''}${error.message}`
+  } catch { /* Non-JSON error bodies still provide a bounded diagnostic. */ }
+  const safe = diagnosticText(detail, blob)
+  return `HTTP ${String(status)}${safe.length > 0 ? `: ${safe}` : ''}`
+}
+
+function missingProjectDiagnostic(payload: Record<string, unknown>, blob: SubscriptionBlob): string {
+  const reasons = Array.isArray(payload.ineligibleTiers) ? payload.ineligibleTiers.flatMap(value => {
+    const tier = recordOf(value)
+    return typeof tier?.reasonCode === 'string' ? [`${tier.reasonCode}${typeof tier.reasonMessage === 'string' ? `: ${tier.reasonMessage}` : ''}`] : []
+  }) : []
+  const allowed = Array.isArray(payload.allowedTiers) ? payload.allowedTiers.flatMap(value => {
+    const tier = recordOf(value)
+    return typeof tier?.id === 'string' ? [tier.id] : []
+  }) : []
+  const current = recordOf(payload.paidTier)?.id ?? recordOf(payload.currentTier)?.id
+  const detail = [...reasons, ...(typeof current === 'string' ? [`tier=${current}`] : []), ...(allowed.length > 0 ? [`allowedTiers=${allowed.join(',')}`] : [])]
+  return `未返回账号项目${detail.length > 0 ? `; ${diagnosticText(detail.join('; '), blob)}` : ''}`
 }
 
 /**
@@ -324,12 +394,14 @@ export interface AntigravityImageResult {
 export async function antigravityGenerateImage(options: {
   blob: SubscriptionBlob
   projectId: string
+  projectContext?: AntigravityProjectContext
   prompt: string
   aspectRatio?: string
   hd?: boolean
   referenceImages?: ReadonlyArray<{ data: Uint8Array; mediaType: string }>
   signal?: AbortSignal
 }): Promise<AntigravityImageResult> {
+  options.signal?.throwIfAborted()
   // Content requests carry the browser UA with the client version, which the
   // license check keys on; warm the fetched version before building headers.
   await initAntigravityVersion()
@@ -340,7 +412,7 @@ export async function antigravityGenerateImage(options: {
     ...(options.referenceImages !== undefined ? { referenceImages: options.referenceImages } : {}),
   })
   const body = antigravityEnvelope(options.projectId, inner)
-  let lastError = 'no endpoint succeeded'
+  const failures: string[] = []
   for (const base of ANTIGRAVITY_ENDPOINTS) {
     const url = `${base}/v1internal:streamGenerateContent?alt=sse`
     const timeoutSignal = AbortSignal.timeout(IMAGE_TIMEOUT_MS)
@@ -359,25 +431,26 @@ export async function antigravityGenerateImage(options: {
       })
       if (!response.ok) {
         const text = await response.text().catch(() => '')
-        lastError = `HTTP ${String(response.status)}: ${text.slice(0, 200)}`
-        // License/quota/network-class failures move on to the next endpoint.
-        if (response.status === 403 || response.status === 404 || response.status === 429 || response.status >= 500) continue
-        throw new Error(`antigravity ${lastError}`)
+        failures.push(`${new URL(base).hostname}: ${httpDiagnostic(response.status, text, options.blob)}`)
+        continue
       }
       const text = await response.text()
       const parsed = parseSseImage(text)
       if (parsed !== undefined) return parsed
       // Endpoint answered but with no image; remember why and try the next.
       const reason = parseSseError(text)
-      lastError = reason !== undefined ? reason : 'response contained no image'
+      failures.push(`${new URL(base).hostname}: ${diagnosticText(reason ?? 'response contained no image', options.blob)}`)
       continue
     } catch (error) {
       if (options.signal?.aborted === true) throw error
-      lastError = error instanceof Error ? error.message : String(error)
+      failures.push(`${new URL(base).hostname}: ${diagnosticText(error instanceof Error ? error.message : 'request failed', options.blob)}`)
       continue
     }
   }
-  throw new Error(`antigravity image generation failed: ${lastError}`)
+  const discovery = options.projectContext?.source === 'fallback'
+    ? ['项目发现未返回账号项目，已尝试兼容项目。', ...options.projectContext.diagnostics]
+    : []
+  throw new Error(`antigravity image generation failed: ${[...discovery, ...failures].join(' | ')}`)
 }
 
 /** Scan an SSE body for the first image part in any data: line. */
