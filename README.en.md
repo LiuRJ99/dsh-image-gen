@@ -115,11 +115,17 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 ### 2. Configure a Provider
 
-After restarting DSH, open:
+After restarting DSH, click the **Plugins** icon in the left sidebar, then click **dsh-image-gen** under **Installed** — the Image Generation settings form lives on the plugin's detail page:
 
-**Settings → Plugins → Image Generation**
+**Plugins panel → Installed → dsh-image-gen**
 
-> On DSH 0.1.5 and earlier the entry is **Settings → Plugins → Plugin Configuration → Image Generation**; the same plugin build supports both.
+<div align="center">
+  <img src="docs/assets/readme/plugins-entry.webp" alt="Click Plugins in the left sidebar, then dsh-image-gen under Installed" width="100%" />
+  <br />
+  <sub>Click the Plugins icon in the left sidebar, then dsh-image-gen under Installed to open its detail page.</sub>
+</div>
+
+> DSH 0.1.5 and earlier have no Plugins panel; the entry there is **Settings → Plugins → Plugin Configuration → Image Generation**. The same plugin build supports both.
 
 Choose a Provider, enter your API key, and adjust the model, Endpoint / Base URL, and workspace-save options as needed. Once the key is stored, click **Test connection** to verify it, or **Fetch models** to pull every image-capable model the provider offers—no manual lookups needed. For ComfyUI, enter an address reachable by the DSH Host and import an **API Format Workflow JSON** file.
 
@@ -142,10 +148,10 @@ Keep the character and composition unchanged, then add black sunglasses to the c
 <br />
 
 <div align="center">
-  <img src="docs/assets/readme/provider-settings.webp" alt="DSH Plugin Settings" width="46%" />
+  <img src="docs/assets/readme/plugin-detail.webp" alt="Provider settings form on the dsh-image-gen detail page" width="46%" />
   <img src="docs/assets/readme/chat-example.webp" alt="Chat generation and editing example" width="46%" />
   <br />
-  <sub>Left: Provider Settings · Right: In-chat generation, editing, and continuous refinement.</sub>
+  <sub>Left: Provider settings on the plugin detail page · Right: In-chat generation, editing, and continuous refinement.</sub>
 </div>
 
 <br />
@@ -353,7 +359,7 @@ Bring private image generation on your local GPU directly into Agent conversatio
 <details>
 <summary><strong>What should I do if “Image Generation” is missing after installation?</strong></summary>
 
-The settings entry depends on the DSH version: 0.1.6 and newer place it at **Settings → Plugins → Image Generation**, while 0.1.5 and earlier place it at **Settings → Plugins → Plugin Configuration → Image Generation**.
+The settings entry depends on the DSH version: 0.1.6 and newer place it on the plugin's detail page (click **Plugins** in the left sidebar, then dsh-image-gen under **Installed**), while 0.1.5 and earlier place it at **Settings → Plugins → Plugin Configuration → Image Generation**.
 
 If it is missing in both places, fully restart the current DSH Profile, then inspect the plugin configuration:
 

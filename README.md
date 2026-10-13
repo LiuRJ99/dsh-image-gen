@@ -115,11 +115,17 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 
 ### 2. 配置 Provider
 
-重启 DSH 后进入：
+重启 DSH 后，点击左侧边栏的 **「插件」** 图标打开插件面板，在 **「已安装」** 分区点击 **dsh-image-gen**，进入插件详情页即可看到「图像生成」配置表单：
 
-**设置 → 插件 → 图像生成**
+**插件面板 → 已安装 → dsh-image-gen**
 
-> DSH 0.1.5 及更早版本的入口为「设置 → 插件 → 插件配置 → 图像生成」，插件已同时兼容两种入口。
+<div align="center">
+  <img src="docs/assets/readme/plugins-entry.webp" alt="在左侧边栏点击「插件」，于「已安装」分区点击 dsh-image-gen 进入详情页" width="100%" />
+  <br />
+  <sub>点击左侧边栏「插件」图标，在「已安装」分区点击 dsh-image-gen 进入插件详情页。</sub>
+</div>
+
+> DSH 0.1.5 及更早版本没有插件面板，入口仍为「设置 → 插件 → 插件配置 → 图像生成」；插件已同时兼容两种入口。
 
 选择 Provider，填写自己的 API Key，并按需调整模型、Endpoint / Base URL 与工作区保存选项。填好 Key 后可点击**「测试连接」**验证可用性，或点击**「拉取模型」**一键获取该厂商支持的全部生图模型，无需手动查文档。使用 ComfyUI 时，请填写 DSH Host 可访问的服务地址，并导入 **API Format Workflow JSON**。
 
@@ -142,10 +148,10 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 <br />
 
 <div align="center">
-  <img src="docs/assets/readme/provider-settings.webp" alt="DSH 插件配置界面" width="46%" />
+  <img src="docs/assets/readme/plugin-detail.webp" alt="dsh-image-gen 插件详情页中的 Provider 配置表单" width="46%" />
   <img src="docs/assets/readme/chat-example.webp" alt="对话生图与风格重构效果" width="46%" />
   <br />
-  <sub>左：Provider 配置 · 右：在 DSH 对话中直接生图、图生图与连续编辑。</sub>
+  <sub>左：插件详情页中的 Provider 配置 · 右：在 DSH 对话中直接生图、图生图与连续编辑。</sub>
 </div>
 
 <br />
@@ -353,7 +359,7 @@ pnpm dsh plugin --profile web add ./dsh-image-gen
 <details>
 <summary><strong>安装后找不到“图像生成”设置怎么办？</strong></summary>
 
-设置入口随 DSH 版本不同：0.1.6 及以上位于「设置 → 插件 → 图像生成」，0.1.5 及更早位于「设置 → 插件 → 插件配置 → 图像生成」。
+设置入口随 DSH 版本不同：0.1.6 及以上位于插件详情页（点击左侧边栏「插件」图标，在「已安装」分区进入 dsh-image-gen），0.1.5 及更早位于「设置 → 插件 → 插件配置 → 图像生成」。
 
 若两处都没有，先完全重启当前 DSH Profile，再检查插件配置：
 
