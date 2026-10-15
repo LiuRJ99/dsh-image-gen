@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",
@@ -124,7 +124,7 @@
     "@deepseek-ai/dsh-timeout": ">=0.1.7-rc.1 <0.2.0",
     "@deepseek-ai/dsh-tools": ">=0.1.7-rc.1 <0.2.0",
     "@deepseek-ai/schemastery": "3.18.4",
-    "dsh-better-sidebar": "^0.21.1 || 0.24.1",
+    "dsh-better-sidebar": "^0.21.1 || 0.24.1 || 0.26.0",
     "react": ">=18.2.0 <19",
     "sharp": "^0.35.4"
   },

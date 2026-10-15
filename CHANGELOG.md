@@ -1,5 +1,11 @@
 # 变更记录 (CHANGELOG)
 
+## [0.5.11] - 2026-10-15
+
+- Adapt the initial subscription synchronization from upstream `585d4e9`: re-read settings after subscribing so an initial Host update cannot be lost between render and effect setup.
+- Extend the optional Sidebar peer to exact `0.26.0`; retain CPA-only generation, gallery persistence retries and workspace metadata.
+- Align runtime and plugin manifest versions. All 149 tests, typecheck, build and package contract checks passed.
+
 ## [0.5.10] - 2026-10-09
 
 - Selectively adapted upstream persistence-error handling: failed gallery writes are reported and can be retried without another generation request. Unsaved generated images remain visible and downloadable, including after gallery refresh notifications.

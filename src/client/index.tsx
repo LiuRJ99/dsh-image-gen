@@ -370,7 +370,13 @@ export function ImageGenerationSettingsCard(props: SettingsCardProps) {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
-  useEffect(() => props.scope.subscribe(() => { setSnapshot(props.scope.getSnapshot()) }), [props.scope])
+  useEffect(() => {
+    const sync = (): void => { setSnapshot(props.scope.getSnapshot()) }
+    const unsubscribe = props.scope.subscribe(sync)
+    // The initial Host update can arrive between render and subscription.
+    sync()
+    return unsubscribe
+  }, [props.scope])
   useEffect(() => {
     return props.locale?.subscribe?.(() => {
       setLang(props.locale?.getSnapshot?.()?.active?.startsWith('en') ? 'en' : 'zh')

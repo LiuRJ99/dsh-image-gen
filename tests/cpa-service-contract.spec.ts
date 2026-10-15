@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService } from '../src/cpa-contract.js'
@@ -30,7 +31,7 @@ describe('CPA image service contract', () => {
 
   it('exports plugin metadata', () => {
     expect(name).toBe('dsh-image-gen')
-    expect(version).toBe('0.5.6')
+    expect(version).toBe(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version)
   })
 
   it('declares and uses the injected service without resolving credentials', async () => {
