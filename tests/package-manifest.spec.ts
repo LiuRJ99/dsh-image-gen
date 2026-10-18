@@ -27,7 +27,7 @@ describe('runtime native dependency contract', () => {
 
   it('keeps the runtime CPA-only and ships both plugin manifests', () => {
     expect(manifest.peerDependencies?.['@LiuRJ99/dsh-cpa-plugin']).toBe('>=0.4.0 <0.5.0')
-    expect(manifest.peerDependencies?.['@deepseek-ai/dsh-client-locale']).toBe('>=0.1.7-rc.1 <0.2.0')
+    expect(manifest.peerDependencies?.['@deepseek-ai/dsh-client-locale']).toBe('0.2.0-rc.2 || 0.2.1-rc.1')
     const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).join(' ')
     expect(names).not.toMatch(/google|openai|seedream|dashscope|credential/i)
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')

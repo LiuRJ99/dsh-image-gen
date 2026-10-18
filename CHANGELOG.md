@@ -1,3 +1,9 @@
+## 0.5.12 — 2026-10-18
+
+Align the SDK with 0.2.1-rc.1 and qualify optional Better Sidebar 0.28.0. Retain CPA-only generation, first-level settings, gallery persistence errors and retry without regeneration.
+
+Compatibility is restricted to `0.2.0-rc.2 || 0.2.1-rc.1`; no alpha or later Host is implied.
+
 # 变更记录 (CHANGELOG)
 
 ## [0.5.11] - 2026-10-15
