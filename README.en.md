@@ -154,3 +154,7 @@ For a cross-machine artifact, also run `pnpm run pack:artifact -- --pack-destina
 ## License
 
 Open-sourced under the [MIT License](LICENSE).
+
+## Host compatibility policy
+
+The minimum Host requirement is `>=0.2.0-rc.2`. Newer DSH versions remain eligible by default; narrow the range or adapt the implementation only when an incompatibility is confirmed. Do not maintain an allowlist of individual RCs. Fixed build SDK versions describe build inputs, not the allowed Host versions. Installation sources stay pinned to releases/tags. Qualification evidence is recorded separately: an eligible future Host is not automatically a tested Host.
