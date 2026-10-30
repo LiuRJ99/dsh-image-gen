@@ -1,3 +1,9 @@
+## 0.5.14 — 2026-10-30
+
+Peer compatibility is now minimum-only: the optional Better Sidebar peer is `>=0.21.1`, the CPA provider peer is `>=0.4.0`, and the framework peers (`cordis`, `schemastery`, `react`, `sharp`) declare minimum versions without upper bounds. Enumerated and upper-bounded ranges were removed, so newer compatible releases stay accepted without republishing. No feature or permission behavior changed.
+
+Validation: typecheck, build, source tests and package-contract checks passed.
+
 ## 0.5.12 — 2026-10-18
 
 Align the SDK with 0.2.1-rc.1 and qualify optional Better Sidebar 0.28.0. Retain CPA-only generation, first-level settings, gallery persistence errors and retry without regeneration.

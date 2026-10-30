@@ -21,12 +21,19 @@ const codexManifest = JSON.parse(
 describe('runtime native dependency contract', () => {
   it('uses the DSH host sharp instead of installing a second libvips copy', () => {
     expect(manifest.dependencies?.sharp).toBeUndefined()
-    expect(manifest.peerDependencies?.sharp).toBe('^0.35.4')
+    expect(manifest.peerDependencies?.sharp).toBe('>=0.35.4')
     expect(manifest.devDependencies?.sharp).toBe('^0.35.4')
   })
 
+  it('declares minimum-only peer ranges without upper bounds', () => {
+    for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
+      expect(range, `${name} peer range`).toMatch(/^>=/)
+      expect(range, `${name} peer range`).not.toMatch(/<|\|\|/)
+    }
+  })
+
   it('keeps the runtime CPA-only and ships both plugin manifests', () => {
-    expect(manifest.peerDependencies?.['@LiuRJ99/dsh-cpa-plugin']).toBe('>=0.4.0 <0.5.0')
+    expect(manifest.peerDependencies?.['@LiuRJ99/dsh-cpa-plugin']).toBe('>=0.4.0')
     expect(manifest.peerDependencies?.['@deepseek-ai/dsh-client-locale']).toBe('>=0.2.0-rc.2')
     const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).join(' ')
     expect(names).not.toMatch(/google|openai|seedream|dashscope|credential/i)

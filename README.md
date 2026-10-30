@@ -32,9 +32,9 @@
 
 ---
 
-## Fork 增强特性（v0.5.7）
+## Fork 增强特性（v0.5.14）
 
-> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.7`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
+> 本项目为 [`shanliuling/dsh-image-gen`](https://github.com/shanliuling/dsh-image-gen) 的维护与增强分支（维护仓库：[`LiuRJ99/dsh-image-gen`](https://github.com/LiuRJ99/dsh-image-gen)，当前版本 `v0.5.14`）。在保留上游生图能力的基础上，改为由 `@LiuRJ99/dsh-cpa-plugin` 提供模型与凭据、并补齐参考图编辑、动态图片模型发现、Gallery 性能与主机精确 peer 契约。
 
 ### 1. 本 Fork 安装方式
 
@@ -45,16 +45,16 @@
 dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.8"
 
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.7/dsh-image-gen-0.5.7.tgz \
-  -o /stable/path/dsh-image-gen-0.5.7.tgz
-dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.7.tgz
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.14/dsh-image-gen-0.5.14.tgz \
+  -o /stable/path/dsh-image-gen-0.5.14.tgz
+dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.14.tgz
 ```
 
 不要使用裸包名 `dsh-image-gen` 安装：npm 上的同名包属于上游项目，不是本 fork。
 
 ### 2. 与上游的差异
 
-| | 上游 | 本 fork `v0.5.7` |
+| | 上游 | 本 fork `v0.5.14` |
 |---|---|---|
 | Provider 归属 | 自带 Provider 与 BYOK 配置 | 只做 Adapter，模型/协议/凭据由 CPA Provider 持有 |
 | 双引擎路由 | — | 统一承接 GPT `images/generations` 与 Gemini `chat/completions` |
@@ -62,7 +62,7 @@ dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.7.tgz
 | 图片模型目录 | 静态硬编码 | 从 CPA 目录动态投影，新增模型无需改本插件 |
 | Gallery | 基础画廊 | 迁移到 `dsh-better-sidebar`，含虚拟化滚动、favorites、批量操作、workspace 过滤 |
 | 缩略图 | — | 服务端 WebP 缩略图 + HTTP 缓存；复用 Host 的 `sharp` peer，避免装第二份原生 `libvips` |
-| Peer 契约 | 放宽为 `>=4.0.0 <5` / `>=3.18.0 <4` | DSH `>=0.1.2-rc.1 <0.2.0`，CPA `>=0.4.0 <0.5.0` |
+| Peer 契约 | 放宽为 `>=4.0.0 <5` / `>=3.18.0 <4` | 只声明最低要求：DSH `>=0.2.0-rc.2`、CPA `>=0.4.0`、Better Sidebar `>=0.21.1`，不设上限 |
 | DSH `0.1.2-rc.1` 兼容 | — | 已适配 |
 
 > **可选的 CPA `edit` 能力是向后兼容的**：旧版 CPA Provider 没有 `edit` 时，本插件只注册 `generate_image`，不会伪造编辑工具。
@@ -72,7 +72,7 @@ dsh plugin --profile web add /stable/path/dsh-image-gen-0.5.7.tgz
 ```bash
 git remote add upstream https://github.com/shanliuling/dsh-image-gen.git
 git fetch upstream
-git merge upstream/main     # 与上游的 peer 范围冲突必须重新对齐为精确 Host 版本
+git merge upstream/main     # 与上游的 peer 范围冲突必须重新对齐为最低 Host 要求
 pnpm run typecheck && pnpm run test && pnpm run build
 ```
 
@@ -107,7 +107,7 @@ dsh plugin --profile web add "github:LiuRJ99/dsh-cpa-plugin#v0.4.8"
 
 # 2. 下载并安装经过验证的 v0.5.7 Release Tarball
 curl -fL \
-  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.7/dsh-image-gen-0.5.7.tgz \
+  https://github.com/LiuRJ99/dsh-image-gen/releases/download/v0.5.14/dsh-image-gen-0.5.14.tgz \
   -o /tmp/dsh-image-gen-0.5.7.tgz
 dsh plugin --profile web add /tmp/dsh-image-gen-0.5.7.tgz
 ```

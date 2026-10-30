@@ -1,6 +1,6 @@
 {
   "name": "dsh-image-gen",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "description": "CPA-backed image generation for DeepSeek Harness.",
   "type": "module",
   "author": "shanliuling",
@@ -106,8 +106,8 @@
     "cordis"
   ],
   "peerDependencies": {
-    "@LiuRJ99/dsh-cpa-plugin": ">=0.4.0 <0.5.0",
-    "@deepseek-ai/cordis": "^4.0.4",
+    "@LiuRJ99/dsh-cpa-plugin": ">=0.4.0",
+    "@deepseek-ai/cordis": ">=4.0.4",
     "@deepseek-ai/dsh-api-remotes": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-attachment": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-client-connection": ">=0.2.0-rc.2",
@@ -124,10 +124,10 @@
     "@deepseek-ai/dsh-settings": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-timeout": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.4",
-    "dsh-better-sidebar": "^0.21.1 || 0.24.1 || 0.26.0 || 0.28.0",
-    "react": ">=18.2.0 <19",
-    "sharp": "^0.35.4"
+    "@deepseek-ai/schemastery": ">=3.18.4",
+    "dsh-better-sidebar": ">=0.21.1",
+    "react": ">=18.2.0",
+    "sharp": ">=0.35.4"
   },
   "peerDependenciesMeta": {
     "dsh-better-sidebar": {
