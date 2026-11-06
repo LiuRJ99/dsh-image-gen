@@ -1,3 +1,15 @@
+## 0.5.15 — 2026-11-06
+
+Adopted the Host-admission portion of upstream `9752f6d` with the compatibility semantics of upstream `522c79c`: every mounted web route now asks the Host connection service (`connection.requestRejection`) for a request decision and dispatches only when the Host returns no rejection. A legacy Host without that service keeps dispatching unchanged — no fail-closed behavior. The subscription/OAuth/OpenAI-compatible credential handling in the same upstream commit has no counterpart here because this fork is CPA-only, so it was not transplanted.
+
+Validation: typecheck, production build, source tests and package-contract checks passed.
+
+## [0.5.15] - 2026-11-06
+
+- 吸收上游 `9752f6d` 的 Host 准入部分，采用上游 `522c79c` 的兼容语义：所有挂载的 HTTP 路由先通过 `connection.requestRejection` 询问 Host 是否放行，被拒（401/403）时不进入 handler；没有该服务的旧 Host 保持原行为，不 fail-closed。
+- 同一上游提交里的订阅/OAuth/OpenAI-compatible 凭据处理在 CPA-only fork 中没有对应实现，未移植。
+- 校验：typecheck、生产构建、源码测试与打包契约检查通过。
+
 ## 0.5.14 — 2026-10-30
 
 Peer compatibility is now minimum-only: the optional Better Sidebar peer is `>=0.21.1`, the CPA provider peer is `>=0.4.0`, and the framework peers (`cordis`, `schemastery`, `react`, `sharp`) declare minimum versions without upper bounds. Enumerated and upper-bounded ranges were removed, so newer compatible releases stay accepted without republishing. No feature or permission behavior changed.

@@ -59,6 +59,9 @@ describe('CPA image service contract', () => {
       effect: vi.fn((effect: () => unknown) => effect()),
       inject: vi.fn((deps: string[], callback: (scope: { get(name: string): unknown }) => unknown) => {
         if (deps[0] === 'settings') return undefined
+        // Optional Host admission: this fixture Host exposes no connection service,
+        // so routes keep the legacy dispatch path.
+        if (deps[0] === 'connection') return undefined
         expect(deps).toEqual([IMAGE_GENERATION_SERVICE])
         return callback({ get: name => name === IMAGE_GENERATION_SERVICE ? imageService : undefined })
       }),

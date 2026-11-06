@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-attachment'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool, type ToolResult } from '@deepseek-ai/dsh-tools'
 import { IMAGE_GENERATION_SERVICE, type CpaImageGenerationService, type CpaImageModel, type ImageEngine } from './cpa-contract.js'
@@ -15,6 +15,7 @@ import { IMAGE_ROUTE, imageAttachmentFromMeta, serveDelete, serveImage, serveWor
 import { resolveReferenceImages, type ReferenceImageAgent } from './reference-image.js'
 import { CPA_GENERATE_ROUTE, DELETE_ROUTE, IMAGE_SETTINGS_ENTRY_ID, IMAGE_MODELS_ROUTE, INSPIRATION_ROUTE, WORKSPACES_ROUTE, attachmentMeta } from './shared.js'
 import { deleteImageFromWorkspace, getDshWorkspaceRoots, getDshWorkspacesFull, saveImageToWorkspace } from './workspace-save.js'
+import { withWebAdmission, type WebAdmission } from './web-route.js'
 
 export { gptSizeFromAspectRatio } from './engine-options.js'
 
@@ -25,7 +26,7 @@ export { DELETE_ROUTE, IMAGE_MODELS_ROUTE, IMAGE_ROUTE, INSPIRATION_ROUTE, WORKS
 /** Cordis plugin name. */
 export const name = 'dsh-image-gen'
 /** Cordis plugin version. */
-export const version = '0.5.14'
+export const version = '0.5.15'
 /** Host services required by the Bundle. */
 export const inject = ['tools', 'attachments', 'webServer']
 
@@ -397,12 +398,20 @@ export function apply(ctx: Context, config: Config | { get(): Config } = {}): vo
   const knownWorkspaceRoots = new Set<string>()
   const attachments = (ctx as Context & { attachments: AttachmentStore }).attachments
 
-  ctx.effect(() => ctx.webServer.register({
+  // The Host owns request trust; every mounted route passes through it. A
+  // legacy Host without the connection service keeps dispatching unchanged.
+  let webAdmission: WebAdmission | undefined
+  ctx.inject(['connection'], (connectionCtx: Context) => {
+    webAdmission = request => connectionCtx.connection.requestRejection(request)
+  })
+  const admit = (route: WebRoute) => withWebAdmission(route, () => webAdmission)
+
+  ctx.effect(() => ctx.webServer.register(admit({
     kind: 'exact', path: IMAGE_ROUTE,
     handler: (req, res) => serveImage(req, res, { readImage: (ref, signal) => attachments.readImage(ref, signal) }),
-  }), 'dsh-image-gen: image route')
+  })), 'dsh-image-gen: image route')
 
-  ctx.effect(() => ctx.webServer.register({
+  ctx.effect(() => ctx.webServer.register(admit({
     kind: 'exact', path: CPA_GENERATE_ROUTE,
     handler: (req, res) => serveCpaGenerate(req, res, {
       getService: () => cachedService,
@@ -420,36 +429,36 @@ export function apply(ctx: Context, config: Config | { get(): Config } = {}): vo
       maxImageBytes: attachments.imageLimits.maxImageBytes,
       mediaTypes: attachments.imageLimits.mediaTypes,
     }),
-  }), 'dsh-image-gen: CPA generation route')
+  })), 'dsh-image-gen: CPA generation route')
 
-  ctx.effect(() => ctx.webServer.register({
+  ctx.effect(() => ctx.webServer.register(admit({
     kind: 'exact', path: IMAGE_MODELS_ROUTE,
     handler: (req, res) => serveImageModels(req, res, {
       getService: () => cachedService,
     }),
-  }), 'dsh-image-gen: image model catalog route')
+  })), 'dsh-image-gen: image model catalog route')
 
   const allowedWorkspaceRoots = async (): Promise<Set<string>> => {
     const discovered = await getDshWorkspaceRoots().catch(() => [])
     return new Set([...knownWorkspaceRoots, ...discovered])
   }
 
-  ctx.effect(() => ctx.webServer.register({
+  ctx.effect(() => ctx.webServer.register(admit({
     kind: 'exact', path: DELETE_ROUTE,
     handler: (req, res) => serveDelete(req, res, {
       deleteWorkspaceImage: async (filePath, options) => deleteImageFromWorkspace(filePath, await allowedWorkspaceRoots(), options),
     }),
-  }), 'dsh-image-gen: workspace image delete route')
+  })), 'dsh-image-gen: workspace image delete route')
 
-  ctx.effect(() => ctx.webServer.register({
+  ctx.effect(() => ctx.webServer.register(admit({
     kind: 'exact', path: WORKSPACES_ROUTE,
     handler: (req, res) => serveWorkspaces(req, res, { getWorkspaces: getDshWorkspacesFull }),
-  }), 'dsh-image-gen: workspace discovery route')
+  })), 'dsh-image-gen: workspace discovery route')
 
-  ctx.effect(() => ctx.webServer.register({
+  ctx.effect(() => ctx.webServer.register(admit({
     kind: 'prefix', path: INSPIRATION_ROUTE,
     handler: (req, res) => serveInspirationRoute(req, res),
-  }), 'dsh-image-gen: inspiration route')
+  })), 'dsh-image-gen: inspiration route')
 
   let warnedServiceUnavailable = false
   function disposeTools() {
